@@ -1,0 +1,38 @@
+paths:
+    cuda_path: "/usr/local/cuda/lib64"
+data:
+    data_path: "<path/to/data>"
+    target: ["AC", "VC"]
+    source: ["HQ"]
+    segs: ["AC"]
+    times: "times.json"
+    down_sample: 4
+    norm_type: "minmax"
+    norm_param_1: -500
+    norm_param_2: 2500
+    data_type: "unpaired"
+    num_examples: 4
+    cv_folds: 6
+    fold: 5
+expt:
+    mb_size: 1
+    save_every: 1
+    model: "GAN" # "GAN" or "HyperGAN"
+    epochs: 5
+    verbose: 1 # Output model summary
+    graph: 0 # Save graph for visualisation in Tensorboard
+    focal: true # Use focal loss or not
+hyperparameters:
+    img_dims: [128, 128, 12]
+    d_opt: [2.0e-4, 0.5, 0.999]
+    g_opt: [2.0e-4, 0.5, 0.999]
+    lambda: 100
+    mu: 0.5 # Focal loss weighting (0.0 == OFF)
+    ndf: 64 # Discriminator starting channels
+    ngf: 64 # Generator starting channels
+    d_layers: 2
+    g_layers: 4
+    augmentation: 1 # Use data augmentation
+    stn_layers: 2 # 0 for no spatial transformer
+    stn_output: 6 # 6 for 2D transforms
+    stn_eta: 1.0e-4

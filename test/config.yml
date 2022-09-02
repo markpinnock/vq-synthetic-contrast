@@ -1,0 +1,52 @@
+paths:
+    cuda_path: "/usr/local/cuda/lib64"
+data:
+    data_path: "D:/ProjectImages/SyntheticContrast"
+    target: ["AC", "VC"]
+    source: ["HQ"]
+    segs: ["AC"]
+    times: "times_ordinal.json"
+    down_sample: 1
+    patch_size: [256, 256, 64]
+    norm_type: "minmax"
+    norm_param_1: -500
+    norm_param_2: 2500
+    data_type: "unpaired"
+    num_examples: 4
+    cv_folds: 6
+    fold: 5
+expt:
+    mb_size: 1
+    save_every: 10
+    model: "HyperPix2Pix" # "GAN" or "HyperGAN"
+    epochs: 1000
+    verbose: true # Output model summary
+    graph: false # Save graph for visualisation in Tensorboard
+    log_scalars: true # Log losses for visualisation in Tensorboard
+    log_histograms: false # Log weights for visualisation in Tensorboard
+    save_model: true
+    focal: true # Use focal loss or not
+hyperparameters:
+    img_dims: [256, 256, 64]
+    d_opt: [1.0e-4, 0.5, 0.999]
+    g_opt: [5.6e-4, 0.5, 0.999]
+    lambda: 630
+    mu: 0.1 # Focal loss weighting (0.0 == OFF)
+    ndf: 16 # Discriminator starting channels
+    ngf: 32 # Generator starting channels
+    d_layers: 3
+    g_layers: 7
+    d_time_layers: ["down_0", "down_1", "down_2"]
+    g_time_layers: []
+    Nz: 32
+augmentation:
+    type: "differentiable" # "standard", "differentiable" or null
+    depth: 64
+    flip_prob: 0.5 # Settings for standard augmentation
+    rotation: 45.0
+    scale: [0.8, 1.6]
+    shear: 15.0
+    translate: [0.25, 0.25]
+    colour: true # Settings for differentiable augmentation
+    translation: true
+    cutout: true

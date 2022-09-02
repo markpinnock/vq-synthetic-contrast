@@ -1,0 +1,10 @@
+data_config:
+    img_path: "/path/to/data"
+    seg_path: "/path/to/data"
+    img_type: "HQ"
+    ignore: "T065A1"
+model_config:
+    nc: 64
+    img_dims: [128, 128]
+    mb_size: 32
+    epochs: 100
