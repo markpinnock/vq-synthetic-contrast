@@ -7,10 +7,8 @@ data:
     segs: ["AC"]
     times: "times.json"
     down_sample: 4
-    norm_type: "minmax"
     norm_param_1: -500
     norm_param_2: 2500
-    data_type: "unpaired"
     num_examples: 4
     cv_folds: 6
     fold: 5

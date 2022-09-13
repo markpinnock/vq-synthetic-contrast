@@ -5,43 +5,62 @@ import numpy as np
 import os
 import tensorflow as tf
 
-from abc import ABC, abstractmethod
-
-from syntheticcontrast_v02.utils.patch_utils import generate_indices, extract_patches
+from vec_quant_sCE.utils.patch_utils import generate_indices, extract_patches
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------
 """ ImgLoader class: data_generator method for use with tf.data.Dataset.from_generator """
 
-class BaseImgLoader(ABC):
+class ImgLoader:
     def __init__(self, config: dict, dataset_type: str):
         # Expects at least two sub-folders within data folder e.g. "AC", "VC, "HQ"
         img_path = f"{config['data_path']}/Images"
         seg_path = f"{config['data_path']}/Segmentations"
-        self.sub_folders = [f for f in os.listdir(img_path) if os.path.isdir(f"{img_path}/{f}")]
-        self.seg_folders = [f for f in os.listdir(seg_path) if os.path.isdir(f"{img_path}/{f}")]
-
-        if len(self.sub_folders) == 0:
-            print("==================================================")
-            print("Assuming unpaired dataset")
-            self._img_paths = img_path
-            self._seg_paths = seg_path
-
-        else:
-            self._img_paths = {key: f"{img_path}/{key}" for key in self.sub_folders}
-            self._seg_paths = {key: f"{seg_path}/{key}" for key in self.seg_folders}
-
         self._dataset_type = dataset_type
         self.config = config
         self.down_sample = config["down_sample"]
         self.num_targets = len(config["target"])
         self._patch_size = config["patch_size"]
-
         if config["times"] is not None:
             self._json = json.load(open(f"{config['data_path']}/{config['times']}", 'r'))
-        
         else:
             self._json = None
+
+        self.param_1 = self.config["norm_param_1"]
+        self.param_2 = self.config["norm_param_2"]
+
+        # Optional list of targets and sources e.g. ["AC", "VC"], ["HQ"]
+        self._targets = []
+        self._sources = []
+        self._segs = []
+
+        if len(config["target"]) > 0:
+            for key in config["target"]:
+                self._targets += [t for t in os.listdir(self._img_paths) if key in t]
+
+        elif len(config["target"]) == 0:
+            self._targets += os.listdir(self._img_paths)
+
+        if len(config["source"]) > 0:
+            for key in config["source"]:
+                self._sources += [s for s in os.listdir(self._img_paths) if key in s]
+
+        elif len(config["source"]) == 0:
+            self._sources += os.listdir(self._img_paths)
+        
+        if len(config["segs"]) > 0:
+            self._segs += os.listdir(self._seg_paths)
+
+        print("==================================================")
+        print(f"Data: {len(self._targets)} targets, {len(self._sources)} sources, {len(self._segs)} segmentations")
+        print(f"Using unpaired loader for {self._dataset_type}")
+
+        super().train_val_split()
+
+        if len(self.config["target"]) > 0:
+            self._subject_targets = {k: [img for img in v if img[6:8] in self.config["target"]] for k, v in self._subject_imgs.items()}
+        else:
+            self._subject_targets = None
 
     def example_images(self):
         if self._json is not None:
@@ -186,83 +205,31 @@ class BaseImgLoader(ABC):
     
     @property
     def subject_imgs(self):
-        raise NotImplementedError
+        """ Return list of images indexed by procedure """
+        return self._subject_imgs
     
-    def set_normalisation(self, param_1: float = None, param_2: float = None):
-        # Mean -281.528, std = 261.552
-        # Min -500, max = 22451
-        self.norm_type = self.config["norm_type"]
-
-        # Override if custom parameters passed
-        if param_1 is not None and param_2 is not None:
-            self.param_1 = param_1
-            self.param_2 = param_2
-
-        # Otherwise, use parameters provided in config yaml
-        elif self.config["norm_param_1"] is not None and self.config["norm_param_1"] is not None:
-            self.param_1 = self.config["norm_param_1"]
-            self.param_2 = self.config["norm_param_2"]
-
-        # Otherwise, calculate parameters
+    def img_pairer(self, source: object, direction: str = None) -> dict:
+        # TODO: add forwards/backwards sampling, return idx
+        if self._subject_targets is None:
+            target_candidates = list(self._subject_imgs[source[0:6]])
         else:
-            # If mean and std of data not available, we get rolling averages
-            if self.norm_type == "meanstd" or self.norm_type == "std":
-                mean = 0
-                std = 0
+            target_candidates = list(self._subject_targets[source[0:6]])
 
-                for img in self._targets + self._sources:
-                    im = np.load(f"{self._img_paths[img[6:8]]}/{img}")
-                    mean = 0.99 * mean + 0.01 * im.mean()
-                    std = 0.99 * std + 0.01 * im.std()
-                
-                self.param_1 = mean
-                self.param_2 = std
+        try:
+            target_candidates.remove(source[0:-4])
+        except ValueError:
+            pass
 
-            # If min and max not available, we get min and max of whole dataset
-            elif self.norm_type == "minmax":
-                min_val = 2048
-                max_val = -2048
+        # target_stem = target_candidates[np.random.randint(len(target_candidates))]
+        target = [f"{t}.npy" for t in target_candidates]
 
-                for img in self._targets + self._sources:
-                    im = np.load(f"{self._img_paths[img[6:8]]}/{img}")
-                    min_val = np.min([min_val, im.min()])
-                    max_val = np.max([max_val, im.max()])
-                
-                self.param_1 = min_val
-                self.param_2 = max_val
-        
-            else:
-                raise ValueError("Choose meanstd or minmax")
-
-        print("==================================================")
-        print(f"{self.norm_type} normalisation: mean/min {self.param_1}, std/max {self.param_2}")
-
-        return self.param_1, self.param_2
-    
-    @property
-    def norm_params(self):
-        """ Return mean/std or min/max parameters """
-        return (self.param_1, self.param_2)
-    
-    @abstractmethod
-    def img_pairer(self):
-        raise NotImplementedError
+        return {"target": target, "source": source}
     
     def _normalise(self, img):
-        if self.norm_type == "meanstd":
-            return (img - self.param_1) / self.param_2
-        elif self.norm_type == "std":
-            return img / self.param_2
-        else:
-            return (img - self.param_1) / (self.param_2 - self.param_1)
+        return (img - self.param_1) / (self.param_2 - self.param_1)
     
     def un_normalise(self, img):
-        if self.norm_type == "meanstd":
-            return img * self.param_2 + self.param_1
-        elif self.norm_type == "std":
-            return img * self.param_2
-        else:
-            return img * (self.param_2 - self.param_1) + self.param_1
+        return img * (self.param_2 - self.param_1) + self.param_1
 
     def data_generator(self):
         if self._dataset_type == "training":
@@ -398,127 +365,6 @@ class BaseImgLoader(ABC):
             yield {"real_source": patch, "subject_ID": source_name, "coords": coords}
 
 
-#-------------------------------------------------------------------------
-""" Data loader for one to one source-target pairings """
-
-class PairedLoader(BaseImgLoader):
-    def __init__(self, config: dict, dataset_type: str):
-        super().__init__(config, dataset_type)
-
-        # Expects list of targets and sources e.g. ["AC", "VC"], ["HQ"]
-        self._targets = []
-        self._sources = []
-        self._segs = []
-
-        if len(config["target"]) > 0:
-            for key in config["target"]:
-                self._targets += os.listdir(self._img_paths[key])
-
-        elif len(config["target"]) == 0:
-            for key in self.sub_folders:
-                self._targets += os.listdir(self._img_paths[key])
-
-        if len(config["source"]) > 0:
-            for key in config["source"]:
-                self._sources += os.listdir(self._img_paths[key])
-
-        elif len(config["source"]) == 0:
-            for key in self.sub_folders:
-                self._sources += os.listdir(self._img_paths[key])
-        
-        if len(config["segs"]) > 0:
-            for key in config["segs"]:
-                self._segs += os.listdir(self._seg_paths[key])
-
-        if len(self._targets) == 0 or len(self._sources) == 0:
-            raise FileNotFoundError(f"No data found: {len(self._targets)} targets, {len(self._sources)} sources")
-
-        print("==================================================")
-        print(f"Data: {len(self._targets)} targets, {len(self._sources)} sources, {len(self._segs)} segmentations")
-        print(f"Using paired loader for {self._dataset_type}")
-
-        super().train_val_split()
-
-        self._subject_targets = {k: [img for img in v if img[6:8] in self.config["target"]] for k, v in self._subject_imgs.items()}
-        self._subject_sources = {k: [img for img in v if img[6:8] in self.config["source"]] for k, v in self._subject_imgs.items()}
-    
-    @property
-    def subject_imgs(self):
-        """ Return list of images indexed by procedure """
-        return {"targets": self._subject_targets, "sources": self._subject_sources}
-
-    def img_pairer(self, source: str) -> dict:
-        # TODO: return idx
-        # Get potential target candidates matching source (where target and source specified)
-        target_candidates = self._subject_targets[source[0:6]]
-        # target_stem = target_candidates[np.random.randint(len(target_candidates))]
-        target = f"{target_stem}.npy"
-
-        return {"target": target, "source": source}
-
-#-------------------------------------------------------------------------
-""" Data loader for unpaired images """
-
-class UnpairedLoader(BaseImgLoader):
-    def __init__(self, config: dict, dataset_type: str):
-        super().__init__(config, dataset_type)
-
-        # Optional list of targets and sources e.g. ["AC", "VC"], ["HQ"]
-        self._targets = []
-        self._sources = []
-        self._segs = []
-
-        if len(config["target"]) > 0:
-            for key in config["target"]:
-                self._targets += [t for t in os.listdir(self._img_paths) if key in t]
-
-        elif len(config["target"]) == 0:
-            self._targets += os.listdir(self._img_paths)
-
-        if len(config["source"]) > 0:
-            for key in config["source"]:
-                self._sources += [s for s in os.listdir(self._img_paths) if key in s]
-
-        elif len(config["source"]) == 0:
-            self._sources += os.listdir(self._img_paths)
-        
-        if len(config["segs"]) > 0:
-            self._segs += os.listdir(self._seg_paths)
-
-        print("==================================================")
-        print(f"Data: {len(self._targets)} targets, {len(self._sources)} sources, {len(self._segs)} segmentations")
-        print(f"Using unpaired loader for {self._dataset_type}")
-
-        super().train_val_split()
-
-        if len(self.config["target"]) > 0:
-            self._subject_targets = {k: [img for img in v if img[6:8] in self.config["target"]] for k, v in self._subject_imgs.items()}
-        else:
-            self._subject_targets = None
-
-    @property
-    def subject_imgs(self):
-        """ Return list of images indexed by procedure """
-        return self._subject_imgs
-
-    def img_pairer(self, source: object, direction: str = None) -> dict:
-        # TODO: add forwards/backwards sampling, return idx
-        if self._subject_targets is None:
-            target_candidates = list(self._subject_imgs[source[0:6]])
-        else:
-            target_candidates = list(self._subject_targets[source[0:6]])
-
-        try:
-            target_candidates.remove(source[0:-4])
-        except ValueError:
-            pass
-
-        # target_stem = target_candidates[np.random.randint(len(target_candidates))]
-        target = [f"{t}.npy" for t in target_candidates]
-
-        return {"target": target, "source": source}
-
-
 #----------------------------------------------------------------------------------------------------------------------------------------------------
  
 if __name__ == "__main__":
@@ -526,10 +372,9 @@ if __name__ == "__main__":
 
     """ Routine for visually testing dataloader """
 
-    test_config = yaml.load(open("syntheticcontrast_v02/utils/test_config.yml", 'r'), Loader=yaml.FullLoader)
+    test_config = yaml.load(open("vec_quant_sCE/utils/test_config.yml", 'r'), Loader=yaml.FullLoader)
 
-    TestLoader = UnpairedLoader(config=test_config["data"], dataset_type="training")
-    _, _ = TestLoader.set_normalisation()
+    TestLoader = ImgLoader(config=test_config["data"], dataset_type="training")
 
     output_types = ["real_source", "real_target"]
 

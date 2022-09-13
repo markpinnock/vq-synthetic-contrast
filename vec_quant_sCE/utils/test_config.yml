@@ -6,10 +6,8 @@ data:
     times: null #"times_norm.json"
     down_sample: 1
     patch_size: [64, 64, 64]
-    norm_type: "minmax"
     norm_param_1: -500
     norm_param_2: 2500
-    data_type: "unpaired"
     num_examples: 4
     cv_folds: 3
     fold: 2

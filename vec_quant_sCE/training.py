@@ -4,8 +4,8 @@ import os
 import tensorflow as tf
 import yaml
 
-from vec_quant_sCE.networks.models import get_model
-from vec_quant_sCE.trainingloops.build_training_loop import get_training_loop
+from vec_quant_sCE.networks.unet import UNet
+from vec_quant_sCE.trainingloops.training_loop import TrainingLoop
 from vec_quant_sCE.utils.build_dataloader import get_train_dataloader
 
 
@@ -17,7 +17,7 @@ def train(CONFIG):
     train_ds, val_ds, train_gen, val_gen = get_train_dataloader(CONFIG)
 
     # Compile model
-    Model = get_model(CONFIG)
+    Model = UNet(CONFIG)
 
     if CONFIG["expt"]["verbose"]:
         Model.summary()
@@ -38,14 +38,14 @@ def train(CONFIG):
         with writer.as_default():
             tf.summary.trace_export("graph", step=0)
 
-    TrainingLoop = get_training_loop(Model=Model,
-                                     dataset=(train_ds, val_ds),
-                                     train_generator=train_gen,
-                                     val_generator=val_gen,
-                                     config=CONFIG)
+    training_loop = TrainingLoop(Model=Model,
+                                 dataset=(train_ds, val_ds),
+                                 train_generator=train_gen,
+                                 val_generator=val_gen,
+                                 config=CONFIG)
 
     # Run training loop
-    TrainingLoop.train()
+    training_loop.train()
 
 
 #-------------------------------------------------------------------------
