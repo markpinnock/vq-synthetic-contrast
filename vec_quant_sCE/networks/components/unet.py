@@ -1,12 +1,10 @@
 import numpy as np
 import tensorflow as tf
 
-from .layer.layers import GANDownBlock, GANUpBlock
+from .layer.layers import DownBlock, UpBlock
 
 
-""" Generator for Pix2pix (can be used for UNet with mode=="UNet") """
-
-class Generator(tf.keras.Model):
+class UNet(tf.keras.Model):
 
     """ Input:
         - initialiser e.g. keras.initializers.RandomNormal
@@ -16,7 +14,7 @@ class Generator(tf.keras.Model):
         Returns:
         - keras.Model """
 
-    def __init__(self, initialiser, config, mode="GAN", name=None):
+    def __init__(self, initialiser, config, name=None):
         super().__init__(name=name)
 
         # Check network and image dimensions
@@ -24,22 +22,31 @@ class Generator(tf.keras.Model):
         assert len(img_dims) == 3, "3D input only"
         max_num_layers = int(np.log2(np.min([img_dims[0], img_dims[1]])))
         max_z_downsample = int(np.floor(np.log2(img_dims[2])))
-        ngf = config["ngf"]
-        num_layers = config["g_layers"]
         
-        if config["g_time_layers"] is not None:
-            self.time_layers = config["g_time_layers"]
+        if config["time_layers"] is not None:
+            self.time_layers = config["time_layers"]
         else:
            self.time_layers = []
 
-        assert num_layers <= max_num_layers and num_layers >= 0, f"Maximum number of generator layers: {max_num_layers}"
+        if config["vq_layers"] is not None:
+            self.vq_layers = config["vq_layers"]
+            vq_config = {
+                "vq_embeddings": config["vq_embeddings"],
+                "vq_time": config["vq_time"],
+                "vq_beta": config["vq_beta"]
+            }
+        else:
+           self.vq_layers = []
+           vq_config = None
+
+        assert config["layers"] <= max_num_layers and config["layers"] >= 0, f"Maximum number of generator layers: {max_num_layers}"
         self.encoder = []
 
         # Cache channels, strides and weights
         cache = {"channels": [], "strides": [], "kernels": []}
 
-        for i in range(0, num_layers - 1):
-            channels = np.min([ngf * 2 ** i, 512])
+        for i in range(0, config["layers"] - 1):
+            channels = np.min([config["nf"] * 2 ** i, 512])
 
             if i >= max_z_downsample - 1:
                 strides = (2, 2, 1)
@@ -52,22 +59,28 @@ class Generator(tf.keras.Model):
             cache["strides"].append(strides)
             cache["kernels"].append(kernel)
 
+            use_vq = f"down_{i}" in self.vq_layers
             self.encoder.append(
-                GANDownBlock(
+                DownBlock(
                     channels,
                     kernel,
                     strides,
                     initialiser=initialiser,
-                    model="generator",
-                    batch_norm=True, name=f"down_{i}"))
+                    use_vq=use_vq,
+                    vq_config=vq_config,
+                    name=f"down_{i}")
+                )
 
-        self.bottom_layer = GANDownBlock(
+        use_vq = f"bottom" in self.vq_layers
+        self.bottom_layer = DownBlock(
             channels,
             kernel,
             strides,
             initialiser=initialiser,
-            model="generator",
-            batch_norm=True, name="bottom")
+            use_vq=use_vq,
+            vq_config=vq_config,
+            name="bottom"
+        )
 
         cache["strides"].append(strides)
         cache["kernels"].append(kernel)
@@ -78,28 +91,22 @@ class Generator(tf.keras.Model):
 
         self.decoder = []
 
-        # If mode == UNet, dropout is switched off, else dropout used as in Pix2Pix
-        if mode == "GAN":
-            dropout = True
-        elif mode == "UNet":
-            dropout = False
-        else:
-            raise ValueError
-
-        for i in range(0, num_layers - 1):
-            if i > 2: dropout = False
+        for i in range(0, config["layers"] - 1):
             channels = cache["channels"][i]
             strides = cache["strides"][i]
             kernel = cache["kernels"][i]
 
+            use_vq = f"up_{i}" in self.vq_layers
             self.decoder.append(
-                GANUpBlock(
+                UpBlock(
                     channels,
                     kernel,
                     strides,
                     initialiser=initialiser,
-                    batch_norm=True,
-                    dropout=dropout, name=f"up_{i}"))
+                    use_vq=use_vq,
+                    vq_config=vq_config,
+                    name=f"up_{i}")
+                )
 
         self.final_layer = tf.keras.layers.Conv3DTranspose(
             1, (4, 4, 4), (2, 2, 2),
@@ -121,11 +128,11 @@ class Generator(tf.keras.Model):
     def call(self, x, t=None):
         skip_layers = []
 
-        for conv in self.encoder:
-            if conv.name in self.time_layers:
-                x = conv(x, t, training=True)
+        for layer in self.encoder:
+            if layer.name in self.time_layers:
+                x = layer(x, t, training=True)
             else:
-                x = conv(x, training=True)
+                x = layer(x, training=True)
 
             skip_layers.append(x)
 
@@ -134,7 +141,6 @@ class Generator(tf.keras.Model):
         else:
             x = self.bottom_layer(x, training=True)
 
-        x = tf.nn.relu(x)
         skip_layers.reverse()
 
         for skip, tconv in zip(skip_layers, self.decoder):

@@ -4,7 +4,7 @@ import os
 import tensorflow as tf
 import yaml
 
-from vec_quant_sCE.networks.unet import UNet
+from vec_quant_sCE.networks.model import Model
 from vec_quant_sCE.trainingloops.training_loop import TrainingLoop
 from vec_quant_sCE.utils.build_dataloader import get_train_dataloader
 
@@ -12,15 +12,19 @@ from vec_quant_sCE.utils.build_dataloader import get_train_dataloader
 #-------------------------------------------------------------------------
 
 def train(CONFIG):
+    tf.random.set_seed(5)
+    tf.get_logger().setLevel("ERROR")
 
     # Get datasets and data generator
     train_ds, val_ds, train_gen, val_gen = get_train_dataloader(CONFIG)
 
     # Compile model
-    Model = UNet(CONFIG)
+    model = Model(CONFIG)
+    optimiser = tf.keras.optimizers.Adam(*CONFIG["hyperparameters"]["opt"], name="opt")
+    model.compile(optimiser)
 
     if CONFIG["expt"]["verbose"]:
-        Model.summary()
+        model.summary()
 
     # Write graph for visualising in Tensorboard
     if CONFIG["expt"]["graph"]:
@@ -30,7 +34,10 @@ def train(CONFIG):
 
         @tf.function
         def trace(x):
-            return Model.Generator(x)
+            if CONFIG["data"]["times"] is not None:
+                return model.UNet(x, 0.0)
+            else:
+                return model.UNet(x)
 
         tf.summary.trace_on(graph=True)
         trace(tf.zeros([1] + CONFIG["hyperparameters"]["img_dims"] + [1]))
@@ -38,7 +45,7 @@ def train(CONFIG):
         with writer.as_default():
             tf.summary.trace_export("graph", step=0)
 
-    training_loop = TrainingLoop(Model=Model,
+    training_loop = TrainingLoop(Model=model,
                                  dataset=(train_ds, val_ds),
                                  train_generator=train_gen,
                                  val_generator=val_gen,

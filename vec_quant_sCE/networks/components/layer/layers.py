@@ -22,9 +22,9 @@ class InstanceNorm(tf.keras.layers.Layer):
 
 
 #-------------------------------------------------------------------------
-""" Down-sampling convolutional block for Pix2pix discriminator and generator """
+""" Down-sampling convolutional block """
 
-class GANDownBlock(tf.keras.layers.Layer):
+class DownBlock(tf.keras.layers.Layer):
 
     """ Input:
         - nc: number of feature maps
@@ -32,41 +32,40 @@ class GANDownBlock(tf.keras.layers.Layer):
         - initialiser: e.g. keras.initializers.RandomNormal
         - batch_norm: True/False """
 
-    def __init__(self, nc, weights, strides, initialiser, model, batch_norm=True, name=None):
+    def __init__(self, nc, weights, strides, initialiser, use_vq, vq_config, name=None):
         super().__init__(name=name)
-        self.batch_norm = batch_norm
-        bias = not batch_norm
-
-        self.conv = tf.keras.layers.Conv3D(nc, weights, strides=strides, padding="same", kernel_initializer=initialiser, use_bias=bias, name="conv")
+        self.conv = tf.keras.layers.Conv3D(nc, weights, strides=strides, padding="same", kernel_initializer=initialiser, name="conv")
+        self.use_vq = use_vq
+        self.vq_time = False
+        if use_vq:
+            self.vq = VQBlock(vq_config["vq_embeddings"], nc, vq_config["vq_beta"], name=f"{name}_vq")
+            self.vq_time = vq_config["vq_time"]
 
         # Normalisation
-        if batch_norm and model == "generator":
-            self.bn = InstanceNorm(name="instancenorm")
-        elif batch_norm and model == "discriminator":
-            self.bn = tf.keras.layers.BatchNormalization(name="batchnorm")
-
-        if model == "generator":
-            self.time_reps = 1
-        else:
-            self.time_reps = 2
+        self.inst_norm = InstanceNorm(name="instancenorm")
 
     def call(self, x, t=None, training=True):
-        if t is not None:
-            tiled_time = tf.tile(tf.reshape(t, [-1, 1, 1, 1, 1]), [self.time_reps] + x.shape[1:4] + [1], "time_tile")
+        if t is not None and self.vq_time is False:
+            tiled_time = tf.tile(tf.reshape(t, [-1, 1, 1, 1, 1]), [1] + x.shape[1:4] + [1], "time_tile")
             x = tf.concat([x, tiled_time], axis=4, name="time_concat")
 
         x = self.conv(x)
+        x = self.inst_norm(x, training=training)
 
-        if self.batch_norm:
-            x = self.bn(x, training=training)
+        if self.use_vq and self.vq_time is False:
+            x = self.vq(x)
+        elif self.use_vq and self.vq_time is True:
+            x = self.vq(x, t)
+        else:
+            pass
 
-        return tf.nn.leaky_relu(x, alpha=0.2, name="l_relu")
+        return tf.nn.relu(x)
 
 
 #-------------------------------------------------------------------------
-""" Up-sampling convolutional block for Pix2pix generator """
+""" Up-sampling convolutional block """
 
-class GANUpBlock(tf.keras.layers.Layer):
+class UpBlock(tf.keras.layers.Layer):
 
     """ Input:
         - nc: number of feature maps
@@ -75,47 +74,100 @@ class GANUpBlock(tf.keras.layers.Layer):
         - batch_norm: True/False
         - dropout: True/False """
 
-    def __init__(self, nc, weights, strides, initialiser, batch_norm=True, dropout=False, name=None):
+    def __init__(self, nc, weights, strides, initialiser, use_vq, vq_config, name=None):
         super().__init__(name=name)
-        self.batch_norm = batch_norm
-        bias = not batch_norm
-        self.dropout = dropout
+        self.tconv = tf.keras.layers.Conv3DTranspose(nc, weights, strides=strides, padding="same", kernel_initializer=initialiser, name="tconv")
+        self.conv = tf.keras.layers.Conv3D(nc, weights, strides=(1, 1, 1), padding="same", kernel_initializer=initialiser, name="conv")
 
-        self.tconv = tf.keras.layers.Conv3DTranspose(nc, weights, strides=strides, padding="same", kernel_initializer=initialiser, use_bias=bias, name="tconv")
-        self.conv = tf.keras.layers.Conv3D(nc, weights, strides=(1, 1, 1), padding="same", kernel_initializer=initialiser, use_bias=bias, name="conv")
+        self.use_vq = use_vq
+        self.vq_time = False
+        if use_vq:
+            self.vq = VQBlock(vq_config["vq_embeddings"], nc, vq_config["vq_beta"], name=f"{name}_vq")
+            self.vq_time = vq_config["vq_time"]
 
         # Instance normalisation
-        if batch_norm:
-            self.bn1 = InstanceNorm(name="instancenorm1")
-            self.bn2 = InstanceNorm(name="instancenorm2")
+        self.inst_norm_1 = InstanceNorm(name="instancenorm1")
+        self.inst_norm_2 = InstanceNorm(name="instancenorm2")
 
-        if dropout:
-            self.dropout1 = tf.keras.layers.Dropout(0.5, name="dropout1")
-            self.dropout2 = tf.keras.layers.Dropout(0.5, name="dropout2")
-        
         self.concat = tf.keras.layers.Concatenate(name="concat")
     
     def call(self, x, skip, t=None, training=True):
-        if t is not None:
+        if t is not None and self.vq_time is False:
             tiled_time = tf.tile(tf.reshape(t, [-1, 1, 1, 1, 1]), [1] + x.shape[1:4] + [1], "time_tile")
             x = tf.concat([x, tiled_time], axis=4, name="time_concat")
 
         x = self.tconv(x)
-
-        if self.batch_norm:
-            x = self.bn1(x)
-        
-        if self.dropout:
-            x = self.dropout1(x, training=training)
-    
+        x = self.inst_norm_1(x)
         x = tf.nn.relu(x)
         x = self.concat([x, skip])
         x = self.conv(x)
+        x = self.inst_norm_2(x)
 
-        if self.batch_norm:
-            x = self.bn2(x)
-
-        if self.dropout:
-            x = self.dropout2(x, training=training)
+        if self.use_vq and self.vq_time is False:
+            x = self.vq(x)
+        elif self.use_vq and self.vq_time is True:
+            x = self.vq(x, t)
+        else:
+            pass
 
         return tf.nn.relu(x)
+
+
+#-------------------------------------------------------------------------
+""" Vector quantization layer -
+    adapted from https://keras.io/examples/generative/vq_vae
+    https://arxiv.org/pdf/2207.06189.pdf """
+
+class VQBlock(tf.keras.layers.Layer):
+
+    """ Input:
+        - num_embeddings: number of possible embeddings
+        - embedding_dim: size of features
+        - beta: hyper-parameter for commitment loss """
+
+    def __init__(self, num_embeddings, embedding_dim, beta=0.25, name=None):
+        super().__init__(name=name)
+        self.num_embeddings = num_embeddings
+        self.embedding_dim = embedding_dim
+        self.beta = beta
+
+        self.initialiser = tf.keras.initializers.RandomUniform()
+        self.dictionary = self.add_weight(
+            "VQdict", shape=[embedding_dim, num_embeddings],
+            initializer=self.initialiser, trainable=True
+        )
+
+    def call(self, x, t=None):
+        img_dims = tf.shape(x)
+
+        # Flatten img batch into matrix
+        flat = tf.reshape(x, [-1, self.embedding_dim]) # NHWD X C
+
+        # Quantization
+        code_idx = self.get_code_indices(flat) # NHWD X 1
+        idx_one_hot = tf.one_hot(code_idx, self.num_embeddings) # NHWD X K
+        quantized = tf.matmul(idx_one_hot, self.dictionary, transpose_b=True) # NHWD X C
+
+        # Reshape back to normal dims
+        q = tf.reshape(quantized, img_dims)
+
+        # Get losses
+        dictionary_loss = tf.reduce_mean(tf.square(tf.stop_gradient(x) - q))
+        commitment_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(q)))
+        self.add_loss(dictionary_loss + self.beta * commitment_loss)
+
+        # Straight-through estimator
+        q = x + tf.stop_gradient(q - x)
+
+        return q
+
+    def get_code_indices(self, flattened):
+        similarity = tf.matmul(flattened, self.dictionary)
+        distances = (
+            tf.reduce_sum(flattened ** 2, axis=1, keepdims=True)
+            + tf.reduce_sum(self.dictionary ** 2, axis=0, keepdims=True)
+            - 2 * similarity
+        ) # NHWD * K
+
+        encoding_indices = tf.argmin(distances, axis=1) # NHWD X 1
+        return encoding_indices

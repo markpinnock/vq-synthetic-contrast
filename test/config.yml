@@ -4,49 +4,41 @@ data:
     data_path: "D:/ProjectImages/SyntheticContrast"
     target: ["AC", "VC"]
     source: ["HQ"]
-    segs: ["AC"]
+    segs: []
     times: "times_ordinal.json"
-    down_sample: 1
-    patch_size: [256, 256, 64]
-    norm_type: "minmax"
+    down_sample: 4
+    patch_size: [32, 32, 32]
     norm_param_1: -500
     norm_param_2: 2500
-    data_type: "unpaired"
     num_examples: 4
     cv_folds: 6
     fold: 5
 expt:
-    mb_size: 1
+    mb_size: 8
     save_every: 10
-    model: "HyperPix2Pix" # "GAN" or "HyperGAN"
-    epochs: 1000
+    epochs: 100
     verbose: true # Output model summary
-    graph: false # Save graph for visualisation in Tensorboard
+    graph: true # Save graph for visualisation in Tensorboard
     log_scalars: true # Log losses for visualisation in Tensorboard
     log_histograms: false # Log weights for visualisation in Tensorboard
     save_model: true
-    focal: true # Use focal loss or not
+    focal: false # Use focal loss or not
 hyperparameters:
-    img_dims: [256, 256, 64]
-    d_opt: [1.0e-4, 0.5, 0.999]
-    g_opt: [5.6e-4, 0.5, 0.999]
-    lambda: 630
-    mu: 0.1 # Focal loss weighting (0.0 == OFF)
-    ndf: 16 # Discriminator starting channels
-    ngf: 32 # Generator starting channels
-    d_layers: 3
-    g_layers: 7
-    d_time_layers: ["down_0", "down_1", "down_2"]
-    g_time_layers: []
-    Nz: 32
+    img_dims: [32, 32, 32]
+    opt: [1.0e-4, 0.5, 0.999]
+    mu: 0.0 # Focal loss weighting (0.0 == OFF)
+    nf: 32 # Generator starting channels
+    layers: 3
+    time_layers: ["up_0", "up_1"]
+    vq_embeddings: 128
+    vq_layers: ["bottom"]
+    vq_time: false
+    vq_beta: 0.25
 augmentation:
-    type: "differentiable" # "standard", "differentiable" or null
+    use: false
     depth: 64
-    flip_prob: 0.5 # Settings for standard augmentation
+    flip_prob: 0.5
     rotation: 45.0
     scale: [0.8, 1.6]
     shear: 15.0
     translate: [0.25, 0.25]
-    colour: true # Settings for differentiable augmentation
-    translation: true
-    cutout: true

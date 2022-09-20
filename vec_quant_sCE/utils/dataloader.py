@@ -14,8 +14,8 @@ from vec_quant_sCE.utils.patch_utils import generate_indices, extract_patches
 class ImgLoader:
     def __init__(self, config: dict, dataset_type: str):
         # Expects at least two sub-folders within data folder e.g. "AC", "VC, "HQ"
-        img_path = f"{config['data_path']}/Images"
-        seg_path = f"{config['data_path']}/Segmentations"
+        self.img_path = f"{config['data_path']}/Images"
+        self.seg_path = f"{config['data_path']}/Segmentations"
         self._dataset_type = dataset_type
         self.config = config
         self.down_sample = config["down_sample"]
@@ -36,26 +36,26 @@ class ImgLoader:
 
         if len(config["target"]) > 0:
             for key in config["target"]:
-                self._targets += [t for t in os.listdir(self._img_paths) if key in t]
+                self._targets += [t for t in os.listdir(self.img_path) if key in t]
 
         elif len(config["target"]) == 0:
-            self._targets += os.listdir(self._img_paths)
+            self._targets += os.listdir(self.img_path)
 
         if len(config["source"]) > 0:
             for key in config["source"]:
-                self._sources += [s for s in os.listdir(self._img_paths) if key in s]
+                self._sources += [s for s in os.listdir(self.img_path) if key in s]
 
         elif len(config["source"]) == 0:
-            self._sources += os.listdir(self._img_paths)
+            self._sources += os.listdir(self.img_path)
         
         if len(config["segs"]) > 0:
-            self._segs += os.listdir(self._seg_paths)
+            self._segs += os.listdir(self.seg_path)
 
         print("==================================================")
         print(f"Data: {len(self._targets)} targets, {len(self._sources)} sources, {len(self._segs)} segmentations")
         print(f"Using unpaired loader for {self._dataset_type}")
 
-        super().train_val_split()
+        self.train_val_split()
 
         if len(self.config["target"]) > 0:
             self._subject_targets = {k: [img for img in v if img[6:8] in self.config["target"]] for k, v in self._subject_imgs.items()}
@@ -65,15 +65,14 @@ class ImgLoader:
     def example_images(self):
         if self._json is not None:
             return {
-                "real_source": self._normalise(self._ex_sources),
-                "real_target": self._normalise(self._ex_targets),
-                "source_times": self._ex_source_times,
-                "target_times": self._ex_target_times
+                "source": self._normalise(self._ex_sources),
+                "target": self._normalise(self._ex_targets),
+                "times": self._ex_target_times
                 }
         else:
             return {
-                "real_source": self._normalise(self._ex_sources),
-                "real_target": self._normalise(self._ex_targets)
+                "source": self._normalise(self._ex_sources),
+                "target": self._normalise(self._ex_targets)
                 }
     
     def train_val_split(self, seed: int = 5) -> None:
@@ -138,24 +137,17 @@ class ImgLoader:
         example_idx = np.random.randint(0, len(self._fold_sources), self.config["num_examples"])
         ex_sources_list = list(np.array([self._fold_sources]).squeeze()[example_idx])
 
-        if len(self.sub_folders) == 0:
+        try:
+            ex_targets_list = [np.random.choice([t for t in self._fold_targets if s[0:6] in t and 'AC' in t and t not in s]) for s in ex_sources_list[0:len(ex_sources_list) // 2]]
+            ex_targets_list += [np.random.choice([t for t in self._fold_targets if s[0:6] in t and 'VC' in t and t not in s]) for s in ex_sources_list[len(ex_sources_list) // 2:]]
+        except ValueError:
             try:
-                ex_targets_list = [np.random.choice([t for t in self._fold_targets if s[0:6] in t and 'AC' in t and t not in s]) for s in ex_sources_list[0:len(ex_sources_list) // 2]]
-                ex_targets_list += [np.random.choice([t for t in self._fold_targets if s[0:6] in t and 'VC' in t and t not in s]) for s in ex_sources_list[len(ex_sources_list) // 2:]]
+                ex_targets_list = [np.random.choice([t for t in self._fold_targets if s[0:6] in t and 'AC' in t and t not in s]) for s in ex_sources_list[0:len(ex_sources_list)]]
             except ValueError:
-                try:
-                    ex_targets_list = [np.random.choice([t for t in self._fold_targets if s[0:6] in t and 'AC' in t and t not in s]) for s in ex_sources_list[0:len(ex_sources_list)]]
-                except ValueError:
-                    ex_targets_list = [np.random.choice([t for t in self._fold_targets if s[0:6] in t and 'VC' in t and t not in s]) for s in ex_sources_list[0:len(ex_sources_list)]]
+                ex_targets_list = [np.random.choice([t for t in self._fold_targets if s[0:6] in t and 'VC' in t and t not in s]) for s in ex_sources_list[0:len(ex_sources_list)]]
 
-            ex_sources = [np.load(f"{self._img_paths}/{img}") for img in ex_sources_list]
-            ex_targets = [np.load(f"{self._img_paths}/{img}") for img in ex_targets_list]
-
-        else:
-            ex_targets_list = list(np.array([self._fold_targets]).squeeze()[example_idx])
-            ex_sources = [np.load(f"{self._img_paths[img[6:8]]}/{img}") for img in ex_sources_list]
-            ex_targets = [np.load(f"{self._img_paths[img[6:8]]}/{img}") for img in ex_targets_list]
-          
+        ex_sources = [np.load(f"{self.img_path}/{img}")[::self.down_sample, ::self.down_sample, :] for img in ex_sources_list]
+        ex_targets = [np.load(f"{self.img_path}/{img}")[::self.down_sample, ::self.down_sample, :] for img in ex_targets_list]
         ex_sources_stack = []
         ex_targets_stack = []
         mid_x = ex_sources[0].shape[0] // 2
@@ -172,10 +164,8 @@ class ImgLoader:
             ex_sources_stack.append(sub_source)
             ex_targets_stack.append(sub_target)
 
-        self._ex_sources = np.stack(ex_sources_stack, axis=0)
-        self._ex_targets = np.stack(ex_targets_stack, axis=0)
-        self._ex_sources = self._ex_sources[:, ::self.down_sample, ::self.down_sample, :, np.newaxis].astype("float32")
-        self._ex_targets = self._ex_targets[:, ::self.down_sample, ::self.down_sample, :, np.newaxis].astype("float32")
+        self._ex_sources = np.stack(ex_sources_stack, axis=0)[:, :, :, :, np.newaxis].astype("float32")
+        self._ex_targets = np.stack(ex_targets_stack, axis=0)[:, :, :, :, np.newaxis].astype("float32")
 
         if self._json is not None:
             self._ex_source_times = np.stack([self._json[name[:-4] + ".nrrd"] for name in ex_sources_list], axis=0).astype("float32")
@@ -243,17 +233,10 @@ class ImgLoader:
             source_name = self._fold_sources[i]
             names = self.img_pairer(source_name)
             source_name = names["source"]
-
-            if len(self.sub_folders) == 0:
-                source = np.load(f"{self._img_paths}/{source_name}")
-            else:
-                source = np.load(f"{self._img_paths[source_name[6:8]]}/{source_name}")
+            source = np.load(f"{self.img_path}/{source_name}")[::self.down_sample, ::self.down_sample, :]
 
             for target_name in names["target"]:
-                if len(self.sub_folders) == 0:
-                    target = np.load(f"{self._img_paths}/{target_name}")
-                else:
-                    target = np.load(f"{self._img_paths[target_name[6:8]]}/{target_name}")
+                target = np.load(f"{self.img_path}/{target_name}")[::self.down_sample, ::self.down_sample, :]
 
                 # Extract patches
                 total_height = target.shape[0]
@@ -266,57 +249,48 @@ class ImgLoader:
                     y = np.random.randint(0, total_width - self._patch_size[1] + 1)
                     z = np.random.randint(0, total_depth - self._patch_size[2] + 1)
 
-                    sub_target = target[x:(x + self._patch_size[0]):self.down_sample, y:(y + self._patch_size[1]):self.down_sample, z:(z + self._patch_size[2]), np.newaxis]
-                    sub_source = source[x:(x + self._patch_size[0]):self.down_sample, y:(y + self._patch_size[1]):self.down_sample, z:(z + self._patch_size[2]), np.newaxis]
+                    sub_target = target[x:(x + self._patch_size[0]), y:(y + self._patch_size[1]), z:(z + self._patch_size[2]), np.newaxis]
+                    sub_source = source[x:(x + self._patch_size[0]), y:(y + self._patch_size[1]), z:(z + self._patch_size[2]), np.newaxis]
                     sub_target = self._normalise(sub_target)
                     sub_source = self._normalise(sub_source)
 
                     if self._json is not None:
-                        source_time = self._json[names["source"][:-4] + ".nrrd"]
-                        target_time = self._json[target_name[:-4] + ".nrrd"]
+                        time = self._json[target_name[:-4] + ".nrrd"]
 
                     # TODO: allow using different seg channels
                     if len(self._fold_segs) > 0:
-                        if len(self.sub_folders) == 0:
-                            candidate_segs = glob.glob(f"{self._seg_paths}/{target_name[0:6]}AC*{target_name[-4:]}")
-                            assert len(candidate_segs) == 1, candidate_segs
-                            seg = np.load(candidate_segs[0])
-                            seg = seg[x:(x + self._patch_size[0]):self.down_sample, y:(y + self._patch_size[1]):self.down_sample, z:(z + self._patch_size[2]), np.newaxis]
-                            seg[seg > 1] = 1
-                            # TODO: return index
-
-                        else:
-                            seg = np.load(f"{self._seg_paths[target_name[6:8]]}/{target_name}")
-                            seg = seg[x:(x + self._patch_size[0]):self.down_sample, y:(y + self._patch_size[1]):self.down_sample, z:(z + self._patch_size[2]), np.newaxis]
-                            seg[seg > 1] = 1
+                        candidate_segs = glob.glob(f"{self.seg_path}/{target_name[0:6]}AC*{target_name[-4:]}")
+                        assert len(candidate_segs) == 1, candidate_segs
+                        seg = np.load(candidate_segs[0])[::self.down_sample, ::self.down_sample, :]
+                        seg = seg[x:(x + self._patch_size[0]), y:(y + self._patch_size[1]), z:(z + self._patch_size[2]), np.newaxis]
+                        seg[seg > 1] = 1
+                        # TODO: return index
 
                         if self._json is not None:
                             yield {
-                                "real_source": sub_source,
-                                "real_target": sub_target,
+                                "source": sub_source,
+                                "target": sub_target,
                                 "seg": seg,
-                                "source_times": source_time,
-                                "target_times": target_time
+                                "times": time
                                 }
                         else:
                             yield {
-                                "real_source": sub_source,
-                                "real_target": sub_target,
+                                "source": sub_source,
+                                "target": sub_target,
                                 "seg": seg
                                 }
 
                     else:
                         if self._json is not None:
                             yield {
-                                "real_source": sub_source,
-                                "real_target": sub_target,
-                                "source_times": source_time,
-                                "target_times": target_time
+                                "source": sub_source,
+                                "target": sub_target,
+                                "times": time
                                 }
                         else:
                             yield {
-                                "real_source": sub_source,
-                                "real_target": sub_target
+                                "source": sub_source,
+                                "target": sub_target
                                 }
 
             i += 1
@@ -338,7 +312,7 @@ class ImgLoader:
             patches, indices = extract_patches(source, self.config["xy_patch"], self.config["stride_length"], self._patch_size, self.down_sample)
 
             for patch, index in zip(patches, indices):
-                yield {"real_source": patch, "subject_ID": source_name, "x": index[0], "y": index[1], "z": index[2]}
+                yield {"source": patch, "subject_ID": source_name, "x": index[0], "y": index[1], "z": index[2]}
 
             i += 1
 
@@ -362,7 +336,7 @@ class ImgLoader:
         for coords in linear_coords:
             patch = tf.reshape(tf.gather(linear_source, coords), self._patch_size + [1])
 
-            yield {"real_source": patch, "subject_ID": source_name, "coords": coords}
+            yield {"source": patch, "subject_ID": source_name, "coords": coords}
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -376,47 +350,47 @@ if __name__ == "__main__":
 
     TestLoader = ImgLoader(config=test_config["data"], dataset_type="training")
 
-    output_types = ["real_source", "real_target"]
+    output_types = ["source", "target"]
 
     if len(test_config["data"]["segs"]) > 0:
         output_types += ["seg"]
     
     if test_config["data"]["times"] is not None:
-        output_types += ["source_times", "target_times"]
+        output_types += ["times"]
     
     train_ds = tf.data.Dataset.from_generator(TestLoader.data_generator, output_types={k: "float32" for k in output_types})
 
     for data in train_ds.batch(2).take(16):
-        source = TestLoader.un_normalise(data["real_source"])
-        target = TestLoader.un_normalise(data["real_target"])
+        source = TestLoader.un_normalise(data["source"])
+        target = TestLoader.un_normalise(data["target"])
 
         plt.subplot(3, 2, 1)
         plt.imshow(source[0, :, :, 0, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         if test_config["data"]["times"] is not None:
-            plt.title(data["source_times"][0].numpy())
+            plt.title(data["times"][0].numpy())
 
         plt.subplot(3, 2, 2)
         plt.imshow(source[1, :, :, 0, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         if test_config["data"]["times"] is not None:
-            plt.title(data["source_times"][1].numpy())
+            plt.title(data["times"][1].numpy())
 
         plt.subplot(3, 2, 3)
         plt.imshow(target[0, :, :, 0, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         if test_config["data"]["times"] is not None:
-            plt.title(data["target_times"][0].numpy())
+            plt.title(data["times"][0].numpy())
 
         plt.subplot(3, 2, 4)
         plt.imshow(target[1, :, :, 0, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         if test_config["data"]["times"] is not None:
-            plt.title(data["target_times"][1].numpy())
+            plt.title(data["times"][1].numpy())
 
         if "seg" in data.keys():
             plt.subplot(3, 2, 5)
@@ -430,26 +404,19 @@ if __name__ == "__main__":
 
     data = TestLoader.example_images()
 
-    source = TestLoader.un_normalise(data["real_source"])
-    target = TestLoader.un_normalise(data["real_target"])
+    source = TestLoader.un_normalise(data["source"])
+    target = TestLoader.un_normalise(data["target"])
     
-    fig, axs = plt.subplots(target.shape[0], 3)
+    fig, axs = plt.subplots(target.shape[0], 2)
 
     for i in range(target.shape[0]):
         axs[i, 0].imshow(source[i, :, :, 11, 0], cmap="gray", vmin=-150, vmax=250)
         axs[i, 0].axis("off")
 
-        if "source_times" in data.keys():
-            axs[i, 0].set_title(data["source_times"][i])
-
         axs[i, 1].imshow(target[i, :, :, 11, 0], cmap="gray", vmin=-150, vmax=250)
         axs[i, 1].axis("off")
 
-        if "source_times" in data.keys():
-            axs[i, 1].set_title(data["target_times"][i])
-
-        if "seg" in data.keys():
-            axs[i, 2].imshow(data["seg"][i, :, :, 11, 0])
-            axs[i, 2].axis("off")
+        if "times" in data.keys():
+            axs[i, 1].set_title(data["times"][i])
     
     plt.show()

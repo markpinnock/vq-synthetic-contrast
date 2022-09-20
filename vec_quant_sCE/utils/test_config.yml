@@ -1,9 +1,9 @@
 data:
     data_path: "D:/ProjectImages/SyntheticContrast"
-    target: ["AC"]
+    target: ["AC", "VC"]
     source: ["HQ"]
     segs: ["AC"]
-    times: null #"times_norm.json"
+    times: "times_ordinal.json"
     down_sample: 1
     patch_size: [64, 64, 64]
     norm_param_1: -500
@@ -13,17 +13,11 @@ data:
     fold: 2
 hyperparameters:
     img_dims: [64, 64, 64]
-    stn_layers: 0 # 0 for no spatial transformer
-    stn_output: 6 # 6 for 2D transforms
-    stn_eta: 1.0e-4
 augmentation:
-    type: "differentiable" # "standard", "differentiable" or null
+    use: true
     depth: 64
-    flip_prob: 0.5 # Settings for standard augmentation
+    flip_prob: 0.5
     rotation: 45.0
     scale: [0.8, 1.6]
     shear: 15.0
     translate: [0.25, 0.25]
-    colour: true # Settings for differentiable augmentation
-    translation: true
-    cutout: true

@@ -1,38 +1,23 @@
 import glob
 import tensorflow as tf
 
-from .dataloader import PairedLoader, UnpairedLoader
+from .dataloader import ImgLoader
 
 
 def get_train_dataloader(config: dict):
 
-    if config["data"]["data_type"] == "paired":
-        Loader = PairedLoader
-
-    elif config["data"]["data_type"] == "unpaired":
-        Loader = UnpairedLoader
-
-    else:
-        raise ValueError("Select paired or unpaired dataloader")
-
     # Specify output types
-    output_types = ["real_source", "real_target"]
+    output_types = ["source", "target"]
 
     if len(config["data"]["segs"]) > 0:
         output_types += ["seg"]
     
     if config["data"]["times"] is not None:
-        output_types += ["source_times", "target_times"]
+        output_types += ["times"]
 
     # Initialise datasets and set normalisation parameters
-    TrainGenerator = Loader(config=config["data"], dataset_type="training")
-    param_1, param_2 = TrainGenerator.set_normalisation()
-
-    ValGenerator = Loader(config=config["data"], dataset_type="validation")
-    _, _ = ValGenerator.set_normalisation(param_1, param_2)
-
-    config["data"]["norm_param_1"] = param_1
-    config["data"]["norm_param_2"] = param_2
+    TrainGenerator = ImgLoader(config=config["data"], dataset_type="training")
+    ValGenerator = ImgLoader(config=config["data"], dataset_type="validation")
 
     # Create dataloader
     train_ds = tf.data.Dataset.from_generator(
@@ -54,15 +39,6 @@ def get_test_dataloader(config: dict,
                          mb_size: int = None,
                          stride_length: int = None):
 
-    if config["data"]["data_type"] == "paired":
-        Loader = PairedLoader
-
-    elif config["data"]["data_type"] == "unpaired":
-        Loader = UnpairedLoader
-
-    else:
-        raise ValueError("Select paired or unpaired dataloader")
-
     assert mb_size is not None, "Set minibatch size"
     assert stride_length is not None, "Set stride length"
 
@@ -81,8 +57,7 @@ def get_test_dataloader(config: dict,
     config["data"]["times"] = None
 
     # Initialise datasets and set normalisation parameters
-    TestGenerator = Loader(config=config["data"], dataset_type="validation")
-    _, _ = TestGenerator.set_normalisation()
+    TestGenerator = ImgLoader(config=config["data"], dataset_type="validation")
 
     # So Pix2Pix doesn't raise that error
     config["data"]["times"] = temp_times
@@ -90,7 +65,7 @@ def get_test_dataloader(config: dict,
     # Create dataloader
     if by_subject:
         # Specify output types
-        output_types = {"real_source": "float32",
+        output_types = {"source": "float32",
                         "subject_ID": tf.string,
                         "coords": "int32"}
 
@@ -112,7 +87,7 @@ def get_test_dataloader(config: dict,
 
     else:
         # Specify output types (x, y, and z are the coords of the patch)
-        output_types = {"real_source": "float32",
+        output_types = {"source": "float32",
                         "subject_ID": tf.string,
                         "x": "int32",
                         "y": "int32",

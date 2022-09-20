@@ -1,26 +1,31 @@
 import tensorflow as tf
 
-from .components.generator import Generator
+from .components.unet import UNet
 from vec_quant_sCE.utils.augmentation import StdAug
-from vec_quant_sCE.utils.losses import L1, FocalLoss, FocalMetric
+from vec_quant_sCE.utils.losses import L1, FocalLoss
 
 
 #-------------------------------------------------------------------------
 """ Wrapper for U-Net """
 
-class UNet(tf.keras.Model):
+class Model(tf.keras.Model):
 
-    def __init__(self, config, name="UNet"):
+    def __init__(self, config, name="Model"):
         super().__init__(name=name)
         self.initialiser = tf.keras.initializers.HeNormal()
         self.config = config
         self.mb_size = config["expt"]["mb_size"]
         self.img_dims = config["hyperparameters"]["img_dims"]
 
-        if config["hyperparameters"]["g_time_layers"] is None:
+        if config["hyperparameters"]["time_layers"] is None:
             self.input_times = False
         else:
             self.input_times = True
+
+        if config["hyperparameters"]["vq_layers"] is None:
+            self.use_vq = False
+        else:
+            self.use_vq = True
 
         # Set up augmentation
         self.Aug = StdAug(config=config)
@@ -28,7 +33,7 @@ class UNet(tf.keras.Model):
         # Check UNet output dims match input
         input_size = [1] + self.img_dims + [1]
         output_size = [1] + self.img_dims + [1]
-        self.UNet = Generator(self.initialiser, config["hyperparameters"], mode="UNet", name="generator")
+        self.UNet = UNet(self.initialiser, config["hyperparameters"], name="unet")
 
         if self.input_times:
             assert self.UNet.build_model(tf.zeros(input_size), tf.zeros(1)) == output_size, f"{self.UNet.build_model(tf.zeros(input_size), tf.zeros(1))} vs {output_size}"
@@ -44,13 +49,17 @@ class UNet(tf.keras.Model):
             self.L1_loss = L1
 
         # Set up metrics
-        if len(self.config["data"]["segs"]) > 0:
-            self.train_L1_metric = FocalMetric(name="train_L1")
-            self.val_L1_metric = FocalMetric(name="val_L1")
+        self.L1_metric = tf.keras.metrics.Mean(name="L1")
+        self.vq_metric = tf.keras.metrics.Mean(name="vq")
+        self.total_metric = tf.keras.metrics.Mean(name="total")
 
-        else:
-            self.train_L1_metric = tf.keras.metrics.Mean(name="train_L1")
-            self.val_L1_metric = tf.keras.metrics.Mean(name="val_L1")
+    @property
+    def metrics(self):
+        return [
+            self.L1_metric,
+            self.vq_metric,
+            self.total_metric
+        ]
 
     def summary(self):
         source = tf.keras.Input(shape=self.img_dims + [1])
@@ -66,54 +75,68 @@ class UNet(tf.keras.Model):
         tf.keras.Model(inputs=source, outputs=outputs).summary()
 
     @tf.function
-    def train_step(self, real_source, real_target, seg=None, source_times=None, target_times=None):
+    def train_step(self, source, target, seg=None, times=None):
 
         """ Expects data in order 'source, target' or 'source, target, segmentations'"""
 
         # Augmentation if required
         if self.Aug:
-            imgs, seg = self.Aug(imgs=[real_source, real_target], seg=seg)
-            real_source, real_target = imgs
+            imgs, seg = self.Aug(imgs=[source, target], seg=seg)
+            source, target = imgs
 
         with tf.GradientTape(persistent=True) as tape:
 
-            # Generate fake target
             if self.input_times:
-                fake_target = self.UNet(real_source, target_times)
+                pred = self.UNet(source, times)
             else:
-                fake_target = self.UNet(real_source)
+                pred = self.UNet(source)
             
             # Calculate L1
             if seg is not None:
-                loss = self.L1_loss(real_target, fake_target, seg)
-                self.train_L1_metric.update_state(real_target, fake_target, seg)
-
+                L1_loss = self.L1_loss(target, pred, seg)
             else:
-                loss = self.L1_loss(real_target, fake_target)
-                self.train_L1_metric.update_state(loss)
+                L1_loss = self.L1_loss(target, pred)
+
+            if self.use_vq:
+                vq_loss = sum(self.UNet.losses)
+            else:
+                vq_loss = 0
+            total_loss = L1_loss + vq_loss
+            self.L1_metric.update_state(L1_loss)
+            self.vq_metric.update_state(vq_loss)
+            self.total_metric.update_state(total_loss)
 
         # Get gradients and update weights
-        grads = tape.gradient(loss, self.UNet.trainable_variables)
+        grads = tape.gradient(total_loss, self.UNet.trainable_variables)
         self.optimiser.apply_gradients(zip(grads, self.UNet.trainable_variables))
 
     @tf.function
-    def test_step(self, real_source, real_target, seg=None, source_times=None, target_times=None):
+    def test_step(self, source, target, seg=None, times=None):
 
         # Generate fake target
         if self.input_times:
-            fake_target = self.UNet(real_source, target_times)
+            pred = self.UNet(source, times)
         else:
-            fake_target = self.UNet(real_source)
+            pred = self.UNet(source)
 
-        val_L1 = L1(real_target, fake_target)
-
+        # Calculate L1
         if seg is not None:
-            self.val_L1_metric.update_state(real_target, fake_target, seg)
+            L1_loss = self.L1_loss(target, pred, seg)
         else:
-            self.val_L1_metric.update_state(val_L1)
+            L1_loss = self.L1_loss(target, pred)
+
+        if self.use_vq:
+            vq_loss = sum(self.UNet.losses)
+        else:
+            vq_loss = 0
+        total_loss = L1_loss + vq_loss
+        self.L1_metric.update_state(L1_loss)
+        self.vq_metric.update_state(vq_loss)
+        self.total_metric.update_state(total_loss)
     
     def reset_train_metrics(self):
-        self.train_L1_metric.reset_states()
+        for metric in self.metrics:
+            metric.reset_states()
 
-    def call(self, x, t):
+    def call(self, x, t=None):
         return self.UNet(x, t)

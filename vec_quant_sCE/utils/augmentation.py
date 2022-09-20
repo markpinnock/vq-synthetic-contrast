@@ -110,39 +110,37 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     import numpy as np
     import yaml
-    from syntheticcontrast_v02.utils.dataloader import UnpairedLoader
+    from vec_quant_sCE.utils.dataloader import ImgLoader
 
-    test_config = yaml.load(open("syntheticcontrast_v02/utils/test_config.yml", 'r'), Loader=yaml.FullLoader)
+    test_config = yaml.load(open("vec_quant_sCE/utils/test_config.yml", 'r'), Loader=yaml.FullLoader)
 
     FILE_PATH = "D:/ProjectImages/SyntheticContrast"
-    TestLoader = UnpairedLoader(test_config["data"], dataset_type="training")
-    _, _ = TestLoader.set_normalisation()
+    TestLoader = ImgLoader(test_config["data"], dataset_type="training")
+    TestAug = StdAug(test_config)
 
-    if test_config["augmentation"]["type"] == "differentiable":
-        TestAug = DiffAug(test_config["augmentation"])
-    else:
-        TestAug = StdAug(test_config)
-
-    output_types = ["real_source", "real_target"]
+    output_types = ["source", "target"]
 
     if len(test_config["data"]["segs"]) > 0:
         output_types += ["seg"]
 
+    if test_config["data"]["times"] is not None:
+        output_types += ["times"]
+
     train_ds = tf.data.Dataset.from_generator(TestLoader.data_generator, output_types={k: "float32" for k in output_types})
 
     for data in train_ds.batch(4):
-        pred = np.zeros_like(data["real_source"].numpy())
+        pred = np.zeros_like(data["source"].numpy())
         pred[:, 0:pred.shape[1] // 2, 0:pred.shape[1] // 2, :, :] = 1
         pred[:, pred.shape[1] // 2:, pred.shape[1] // 2:, :, :] = 1
         inv_pred = 1 - pred
 
-        (source, target, pred, inv_pred), seg = TestAug([data["real_source"], data["real_target"], pred, inv_pred], seg=data["seg"])
+        (source, target, pred, inv_pred), seg = TestAug([data["source"], data["target"], pred, inv_pred], seg=data["seg"])
 
         plt.subplot(2, 6, 1)
-        plt.imshow(data["real_source"][0, :, :, 0, 0], cmap="gray")
+        plt.imshow(data["source"][0, :, :, 0, 0], cmap="gray")
         plt.axis("off")
         plt.subplot(2, 6, 7)
-        plt.imshow(data["real_source"][1, :, :, 0, 0], cmap="gray")
+        plt.imshow(data["source"][1, :, :, 0, 0], cmap="gray")
         plt.axis("off")
 
         plt.subplot(2, 6, 2)
