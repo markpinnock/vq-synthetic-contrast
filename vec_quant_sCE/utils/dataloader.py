@@ -233,65 +233,37 @@ class ImgLoader:
             source_name = self._fold_sources[i]
             names = self.img_pairer(source_name)
             source_name = names["source"]
-            source = np.load(f"{self.img_path}/{source_name}")[::self.down_sample, ::self.down_sample, :]
+            source = np.load(f"{self.img_path}/{source_name}")
+            source = self._normalise(source)
 
             for target_name in names["target"]:
-                target = np.load(f"{self.img_path}/{target_name}")[::self.down_sample, ::self.down_sample, :]
+                target = np.load(f"{self.img_path}/{target_name}")
+                target = self._normalise(target)
 
-                # Extract patches
-                total_height = target.shape[0]
-                total_width = target.shape[1]
-                total_depth = target.shape[2]
-                num_iter = (total_height // self._patch_size[0]) * (total_width // self._patch_size[1]) * (total_depth // self._patch_size[2])
+                data_dict = {
+                    "source": source,
+                    "target": target
+                }
 
-                for _ in range(num_iter):
-                    x = np.random.randint(0, total_width - self._patch_size[0] + 1)
-                    y = np.random.randint(0, total_width - self._patch_size[1] + 1)
-                    z = np.random.randint(0, total_depth - self._patch_size[2] + 1)
+                # TODO: allow using different seg channels
+                if len(self._fold_segs) > 0:
+                    candidate_segs = glob.glob(f"{self.seg_path}/{target_name[0:6]}AC*{target_name[-4:]}")
+                    assert len(candidate_segs) == 1, candidate_segs
+                    seg = np.load(candidate_segs[0])
+                    seg[seg > 1] = 1
+                    data_dict["seg"] = seg
+                    # TODO: return index
 
-                    sub_target = target[x:(x + self._patch_size[0]), y:(y + self._patch_size[1]), z:(z + self._patch_size[2]), np.newaxis]
-                    sub_source = source[x:(x + self._patch_size[0]), y:(y + self._patch_size[1]), z:(z + self._patch_size[2]), np.newaxis]
-                    sub_target = self._normalise(sub_target)
-                    sub_source = self._normalise(sub_source)
+                else:
+                    data_dict["seg"] = None
 
-                    if self._json is not None:
-                        time = self._json[target_name[:-4] + ".nrrd"]
+                if self._json is not None:
+                    data_dict["times"] = self._json[target_name[:-4] + ".nrrd"]
 
-                    # TODO: allow using different seg channels
-                    if len(self._fold_segs) > 0:
-                        candidate_segs = glob.glob(f"{self.seg_path}/{target_name[0:6]}AC*{target_name[-4:]}")
-                        assert len(candidate_segs) == 1, candidate_segs
-                        seg = np.load(candidate_segs[0])[::self.down_sample, ::self.down_sample, :]
-                        seg = seg[x:(x + self._patch_size[0]), y:(y + self._patch_size[1]), z:(z + self._patch_size[2]), np.newaxis]
-                        seg[seg > 1] = 1
-                        # TODO: return index
+                else:
+                    data_dict["times"] = None
 
-                        if self._json is not None:
-                            yield {
-                                "source": sub_source,
-                                "target": sub_target,
-                                "seg": seg,
-                                "times": time
-                                }
-                        else:
-                            yield {
-                                "source": sub_source,
-                                "target": sub_target,
-                                "seg": seg
-                                }
-
-                    else:
-                        if self._json is not None:
-                            yield {
-                                "source": sub_source,
-                                "target": sub_target,
-                                "times": time
-                                }
-                        else:
-                            yield {
-                                "source": sub_source,
-                                "target": sub_target
-                                }
+                yield data_dict
 
             i += 1
 

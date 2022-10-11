@@ -20,6 +20,8 @@ class TrainingLoop:
                  config: dict):
         self.Model = Model
         self.config = config
+        self.patch_size = config["img_dims"]
+        self.scales = config["scales"]
         self.EPOCHS = config["expt"]["epochs"]
         self.IMAGE_SAVE_PATH = f"{config['paths']['expt_path']}/images"
         self.MODEL_SAVE_PATH = f"{config['paths']['expt_path']}/models"
@@ -94,7 +96,11 @@ class TrainingLoop:
 
             # Run training step for each batch in training data
             for data in self.ds_train:
-                self.Model.train_step(**data)
+                for scale in self.scales:
+                    self._downsample_images(scale, **data)
+                    for patch_data in self._sample_images(data["source"], data["target"]):
+                        patch_data["times"] = data["times"]
+                        self.Model.train_step(**patch_data)
 
             self._save_train_results(epoch)
             if verbose:
@@ -106,7 +112,11 @@ class TrainingLoop:
 
                 # Run validation step for each batch in validation data
                 for data in self.ds_val:
-                    self.Model.test_step(**data)
+                    for scale in self.scales:
+                        self._downsample_images(scale, **data)
+                        for patch_data in self._sample_images(data["source"], data["target"]):
+                            patch_data["times"] = data["times"]
+                            self.Model.test_step(**patch_data)
 
                 self._save_val_results(epoch)
                 if verbose:
@@ -127,7 +137,44 @@ class TrainingLoop:
             print(f"Time taken: {(time.time() - start_time) / 3600}")
 
         json.dump(self.results, open(f"{self.LOG_SAVE_PATH}/results.json", 'w'), indent=4)
-    
+
+    def _downsample_images(self, scale, source, target, seg=None, **kwargs):
+        source = source[::scale, ::scale, :]
+        target = target[::scale, ::scale, :]
+
+        if seg is not None:
+            seg = seg[::scale, ::scale, :]
+
+    def _sample_images(self, source, target, seg=None):
+        # Extract patches
+        total_height = target.shape[0]
+        total_width = target.shape[1]
+        total_depth = target.shape[2]
+        num_iter = (total_height // self.patch_size[0]) * (total_width // self.patch_size[1]) * (total_depth // self.patch_size[2])
+
+        for _ in range(num_iter):
+            x = np.random.randint(0, total_width - self.patch_size[0] + 1)
+            y = np.random.randint(0, total_width - self.patch_size[1] + 1)
+            z = np.random.randint(0, total_depth - self.patch_size[2] + 1)
+
+            sub_target = target[:, x:(x + self.patch_size[0]), y:(y + self.patch_size[1]), z:(z + self.patch_size[2]), :]
+            sub_source = source[:, x:(x + self.patch_size[0]), y:(y + self.patch_size[1]), z:(z + self.patch_size[2]), :]
+
+            if seg is None:
+                yield {
+                "source": sub_source,
+                "target": sub_target,
+                "seg": None
+                }
+
+            else:
+                sub_seg = seg[:, x:(x + self.patch_size[0]), y:(y + self.patch_size[1]), z:(z + self.patch_size[2]), :]
+                yield {
+                "source": sub_source,
+                "target": sub_target,
+                "seg": sub_seg
+                }
+
     def _save_images(self, epoch, phase="validation", tuning_path=None):
 
         """ Saves sample of images """
