@@ -1,6 +1,7 @@
 import argparse
 import datetime
 import os
+from pathlib import Path
 import tensorflow as tf
 import yaml
 
@@ -29,7 +30,7 @@ def train(CONFIG):
     # Write graph for visualising in Tensorboard
     if CONFIG["expt"]["graph"]:
         curr_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        log_dir = f"{CONFIG['paths']['expt_path']}/logs/{curr_time}"
+        log_dir = Path(CONFIG['paths']['expt_path']) / "logs" / curr_time
         writer = tf.summary.create_file_writer(log_dir)
 
         @tf.function
@@ -69,17 +70,17 @@ if __name__ == "__main__":
 
     EXPT_PATH = arguments.path
 
-    if not os.path.exists(f"{EXPT_PATH}/images"):
-        os.makedirs(f"{EXPT_PATH}/images")
+    if not os.path.exists(Path(EXPT_PATH) "images"):
+        os.makedirs(Path(EXPT_PATH) / "images")
 
-    if not os.path.exists(f"{EXPT_PATH}/logs"):
-        os.makedirs(f"{EXPT_PATH}/logs")
+    if not os.path.exists(Path(EXPT_PATH) / "logs"):
+        os.makedirs(Path(EXPT_PATH) / "logs")
 
-    if not os.path.exists(f"{EXPT_PATH}/models"):
-        os.makedirs(f"{EXPT_PATH}/models")
+    if not os.path.exists(Path(EXPT_PATH) / "models"):
+        os.makedirs(Path(EXPT_PATH) / "models")
 
     # Parse config json
-    with open(f"{EXPT_PATH}/config.yml", 'r') as infile:
+    with open(Path(EXPT_PATH) / "config.yml", 'r') as infile:
         CONFIG = yaml.load(infile, yaml.FullLoader)
     
     CONFIG["paths"]["expt_path"] = arguments.path

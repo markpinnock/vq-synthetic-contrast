@@ -4,6 +4,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+from pathlib import Path
 import tensorflow as tf
 import time
 
@@ -23,24 +24,28 @@ class TrainingLoop:
         self.patch_size = config["img_dims"]
         self.scales = config["scales"]
         self.EPOCHS = config["expt"]["epochs"]
-        self.IMAGE_SAVE_PATH = f"{config['paths']['expt_path']}/images"
-        self.MODEL_SAVE_PATH = f"{config['paths']['expt_path']}/models"
-        self.LOG_SAVE_PATH = f"{config['paths']['expt_path']}/logs"
+
+        expt_path = Path(config["paths"]["expt_path"])
+        self.image_save_path = expt_path / "images"
+        self.image_save_path.mkdir(parents=True, exist_ok=True)
+        self.image_save_path / "train"
+        self.model_save_path = expt_path / "models"
+        self.log_save_path = expt_path / "logs"
         self.SAVE_EVERY = config["expt"]["save_every"]
 
-        if not os.path.exists(f"{self.IMAGE_SAVE_PATH}/train"):
-            os.makedirs(f"{self.IMAGE_SAVE_PATH}/train")
+        if not os.path.exists(self.image_save_path / "train"):
+            os.mkdir(self.image_save_path / "train")
 
-        if not os.path.exists(f"{self.IMAGE_SAVE_PATH}/validation"):
-            os.makedirs(f"{self.IMAGE_SAVE_PATH}/validation")
+        if not os.path.exists(self.image_save_path / "validation"):
+            os.mkdir(self.image_save_path / "validation")
 
         self.train_generator = train_generator
         self.val_generator = val_generator
         self.ds_train, self.ds_val = dataset
 
         log_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        self.train_writer = tf.summary.create_file_writer(f"{self.LOG_SAVE_PATH}/{log_time}/train")
-        self.test_writer = tf.summary.create_file_writer(f"{self.LOG_SAVE_PATH}/{log_time}/test")
+        self.train_writer = tf.summary.create_file_writer(self.log_save_path / log_time / "train")
+        self.test_writer = tf.summary.create_file_writer(self.log_save_path / log_time / "test")
 
     def _save_train_results(self, epoch):
         # Log losses
@@ -73,7 +78,7 @@ class TrainingLoop:
                 tf.summary.scalar("val_total", self.Model.total_metric.result(), step=epoch)
 
     def _save_model(self):
-        self.Model.UNet.save_weights(f"{self.MODEL_SAVE_PATH}/model.ckpt")
+        self.Model.UNet.save_weights(self.model_save_path / "model.ckpt")
 
     def train(self, verbose=1):
 
@@ -136,7 +141,7 @@ class TrainingLoop:
         if verbose:
             print(f"Time taken: {(time.time() - start_time) / 3600}")
 
-        json.dump(self.results, open(f"{self.LOG_SAVE_PATH}/results.json", 'w'), indent=4)
+        json.dump(self.results, open(f"{self.log_save_path}/results.json", 'w'), indent=4)
 
     def _downsample_images(self, scale, source, target, seg=None, **kwargs):
         source = source[::scale, ::scale, :]
@@ -215,6 +220,6 @@ class TrainingLoop:
         if tuning_path:
             plt.savefig(f"{tuning_path}.png", dpi=250)
         else:
-            plt.savefig(f"{self.IMAGE_SAVE_PATH}/{phase}/{epoch}.png", dpi=250)
+            plt.savefig(self.image_save_path / phase / epoch / ".png", dpi=250)
 
         plt.close()

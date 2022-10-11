@@ -3,6 +3,7 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+from pathlib import Path
 import tensorflow as tf
 
 from vec_quant_sCE.utils.patch_utils import generate_indices, extract_patches
@@ -14,15 +15,15 @@ from vec_quant_sCE.utils.patch_utils import generate_indices, extract_patches
 class ImgLoader:
     def __init__(self, config: dict, dataset_type: str):
         # Expects at least two sub-folders within data folder e.g. "AC", "VC, "HQ"
-        self.img_path = f"{config['data_path']}/Images"
-        self.seg_path = f"{config['data_path']}/Segmentations"
+        self.img_path = Path(config["data_path"]) / "Images"
+        self.seg_path = Path(config["data_path"]) / "Segmentations"
         self._dataset_type = dataset_type
         self.config = config
         self.down_sample = config["down_sample"]
         self.num_targets = len(config["target"])
         self._patch_size = config["patch_size"]
         if config["times"] is not None:
-            self._json = json.load(open(f"{config['data_path']}/{config['times']}", 'r'))
+            self._json = json.load(open(Path(config["data_path"]) / {config["times"]}, 'r'))
         else:
             self._json = None
 
@@ -146,8 +147,8 @@ class ImgLoader:
             except ValueError:
                 ex_targets_list = [np.random.choice([t for t in self._fold_targets if s[0:6] in t and 'VC' in t and t not in s]) for s in ex_sources_list[0:len(ex_sources_list)]]
 
-        ex_sources = [np.load(f"{self.img_path}/{img}")[::self.down_sample, ::self.down_sample, :] for img in ex_sources_list]
-        ex_targets = [np.load(f"{self.img_path}/{img}")[::self.down_sample, ::self.down_sample, :] for img in ex_targets_list]
+        ex_sources = [np.load(Path(self.img_path) / img)[::self.down_sample, ::self.down_sample, :] for img in ex_sources_list]
+        ex_targets = [np.load(Path(self.img_path) / img)[::self.down_sample, ::self.down_sample, :] for img in ex_targets_list]
         ex_sources_stack = []
         ex_targets_stack = []
         mid_x = ex_sources[0].shape[0] // 2
@@ -233,11 +234,11 @@ class ImgLoader:
             source_name = self._fold_sources[i]
             names = self.img_pairer(source_name)
             source_name = names["source"]
-            source = np.load(f"{self.img_path}/{source_name}")
+            source = np.load(Path(self.img_path) / source_name)
             source = self._normalise(source)
 
             for target_name in names["target"]:
-                target = np.load(f"{self.img_path}/{target_name}")
+                target = np.load(Path(self.img_path) / target_name)
                 target = self._normalise(target)
 
                 data_dict = {
@@ -247,7 +248,7 @@ class ImgLoader:
 
                 # TODO: allow using different seg channels
                 if len(self._fold_segs) > 0:
-                    candidate_segs = glob.glob(f"{self.seg_path}/{target_name[0:6]}AC*{target_name[-4:]}")
+                    candidate_segs = glob.glob(str(Path(self.seg_path) / f"{target_name[0:6]}AC*{target_name[-4:]}"))
                     assert len(candidate_segs) == 1, candidate_segs
                     seg = np.load(candidate_segs[0])
                     seg[seg > 1] = 1
@@ -276,9 +277,9 @@ class ImgLoader:
             source_name = self._fold_sources[i]
 
             if len(self.sub_folders) == 0:
-                source = np.load(f"{self._img_paths}/{source_name}")
+                source = np.load(Path(self._img_paths) / source_name)
             else:
-                source = np.load(f"{self._img_paths[source_name[6:8]]}/{source_name}")
+                source = np.load(Path(self._img_paths[source_name[6:8]]) / source_name)
 
             source = self._normalise(source)
             patches, indices = extract_patches(source, self.config["xy_patch"], self.config["stride_length"], self._patch_size, self.down_sample)
@@ -292,9 +293,9 @@ class ImgLoader:
         source_name = source_name.decode("utf-8")
 
         if len(self.sub_folders) == 0:
-            source = np.load(f"{self._img_paths}/{source_name}")
+            source = np.load(Path(self._img_paths) / source_name)
         else:
-            source = np.load(f"{self._img_paths[source_name[6:8]]}/{source_name}")
+            source = np.load(Path(self._img_paths[source_name[6:8]]) / source_name)
 
         # Linear coords are what we'll use to do our patch updates in 1D
         # E.g. [1, 2, 3
@@ -318,7 +319,7 @@ if __name__ == "__main__":
 
     """ Routine for visually testing dataloader """
 
-    test_config = yaml.load(open("vec_quant_sCE/utils/test_config.yml", 'r'), Loader=yaml.FullLoader)
+    test_config = yaml.load(open(Path("vec_quant_sCE/utils/test_config.yml"), 'r'), Loader=yaml.FullLoader)
 
     TestLoader = ImgLoader(config=test_config["data"], dataset_type="training")
 

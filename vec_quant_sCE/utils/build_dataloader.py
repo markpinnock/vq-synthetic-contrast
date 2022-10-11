@@ -1,4 +1,5 @@
 import glob
+from pathlib import Path
 import tensorflow as tf
 
 from .dataloader import ImgLoader
@@ -71,7 +72,7 @@ def get_test_dataloader(config: dict,
 
         assert TestGenerator.__class__.__name__ == "UnpairedLoader", "Only works with unpaired loader" 
         data_path = config["data"]["data_path"]
-        source_list = glob.glob(f"{data_path}/Images/*HQ*")
+        source_list = glob.glob(str(Path(data_path) / "Images" / "*HQ*"))
         source_list = [f[-15:] for f in source_list]
 
         subject_datasets = {}
