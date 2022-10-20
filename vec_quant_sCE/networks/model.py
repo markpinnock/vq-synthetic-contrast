@@ -28,17 +28,35 @@ class Model(tf.keras.Model):
             self.use_vq = True
 
         # Set up augmentation
-        self.Aug = StdAug(config=config)
+        aug_config = config["augmentation"]
+        aug_config["segs"] = config["data"]["segs"]
+        if config["augmentation"]["use"]:
+            self.Aug = StdAug(config=aug_config)
+        else:
+            self.Aug = None
 
         # Check UNet output dims match input
         input_size = [1] + self.img_dims + [1]
-        output_size = [1] + self.img_dims + [1]
+        if config["hyperparameters"]["upsample_layer"]:
+            output_size = [1, self.img_dims[0] * 2, self.img_dims[1] * 2, self.img_dims[2], 1]
+        else:
+            output_size = [1] + self.img_dims + [1]
         self.UNet = UNet(self.initialiser, config["hyperparameters"], name="unet")
 
-        if self.input_times:
-            assert self.UNet.build_model(tf.zeros(input_size), tf.zeros(1)) == output_size, f"{self.UNet.build_model(tf.zeros(input_size), tf.zeros(1))} vs {output_size}"
+        if "output" in config["hyperparameters"]["vq_layers"]:
+            if self.input_times:
+                pred, vq = self.UNet.build_model(tf.zeros(input_size), tf.zeros(1))
+                assert (pred.shape == output_size) and (vq.shape == output_size), f"{pred.shape} vs {output_size}"
+            else:
+                pred, vq = self.UNet.build_model(tf.zeros(input_size))
+                assert (pred.shape == output_size) and (vq.shape == output_size), f"{pred.shape} vs {output_size}"
         else:
-            assert self.UNet.build_model(tf.zeros(input_size)) == output_size, f"{self.UNet.build_model(tf.zeros(input_size))} vs {output_size}"
+            if self.input_times:
+                pred, _ = self.UNet.build_model(tf.zeros(input_size), tf.zeros(1))
+                assert pred.shape == output_size, f"{pred.shape} vs {output_size}"
+            else:
+                pred, _ = self.UNet.build_model(tf.zeros(input_size))
+                assert pred.shape == output_size, f"{pred.shape} vs {output_size}"
 
     def compile(self, optimiser):
         self.optimiser = optimiser
@@ -65,31 +83,30 @@ class Model(tf.keras.Model):
         source = tf.keras.Input(shape=self.img_dims + [1])
 
         if self.input_times:
-            outputs = self.UNet.call(source, tf.zeros(1))
+            pred, vq = self.UNet.call(source, tf.zeros(1))
         else:
-            outputs = self.UNet.call(source)
+            pred, vq = self.UNet.call(source)
 
         print("===========================================================")
         print("UNet")
         print("===========================================================")
-        tf.keras.Model(inputs=source, outputs=outputs).summary()
+
+        if vq is None:
+            tf.keras.Model(inputs=source, outputs=pred).summary()
+        else:
+            tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
 
     @tf.function
     def train_step(self, source, target, seg=None, times=None):
 
         """ Expects data in order 'source, target' or 'source, target, segmentations'"""
 
-        # Augmentation if required
-        if self.Aug:
-            imgs, seg = self.Aug(imgs=[source, target], seg=seg)
-            source, target = imgs
-
         with tf.GradientTape(persistent=True) as tape:
 
             if self.input_times:
-                pred = self.UNet(source, times)
+                pred, _ = self.UNet(source, times)
             else:
-                pred = self.UNet(source)
+                pred, _ = self.UNet(source)
             
             # Calculate L1
             if seg is not None:

@@ -23,7 +23,7 @@ class ImgLoader:
         self.num_targets = len(config["target"])
         self._patch_size = config["patch_size"]
         if config["times"] is not None:
-            self._json = json.load(open(Path(config["data_path"]) / {config["times"]}, 'r'))
+            self._json = json.load(open(Path(config["data_path"]) / config["times"], 'r'))
         else:
             self._json = None
 
@@ -234,37 +234,45 @@ class ImgLoader:
             source_name = self._fold_sources[i]
             names = self.img_pairer(source_name)
             source_name = names["source"]
-            source = np.load(Path(self.img_path) / source_name)
+            source = np.load(Path(self.img_path) / source_name)[::self.down_sample, ::self.down_sample, :]
             source = self._normalise(source)
 
             for target_name in names["target"]:
-                target = np.load(Path(self.img_path) / target_name)
+                target = np.load(Path(self.img_path) / target_name)[::self.down_sample, ::self.down_sample, :]
                 target = self._normalise(target)
 
-                data_dict = {
-                    "source": source,
-                    "target": target
-                }
+                total_depth = target.shape[2]
+                num_iter = total_depth // self._patch_size[2]
 
                 # TODO: allow using different seg channels
                 if len(self._fold_segs) > 0:
                     candidate_segs = glob.glob(str(Path(self.seg_path) / f"{target_name[0:6]}AC*{target_name[-4:]}"))
                     assert len(candidate_segs) == 1, candidate_segs
-                    seg = np.load(candidate_segs[0])
+                    seg = np.load(candidate_segs[0])[::self.down_sample, ::self.down_sample, :]
                     seg[seg > 1] = 1
-                    data_dict["seg"] = seg
-                    # TODO: return index
-
                 else:
-                    data_dict["seg"] = None
+                    seg = None
 
-                if self._json is not None:
-                    data_dict["times"] = self._json[target_name[:-4] + ".nrrd"]
+                for _ in range(num_iter):
+                    z = np.random.randint(0, total_depth - self._patch_size[2] + 1)
+                    sub_target = target[:, :, z:(z + self._patch_size[2]), np.newaxis]
+                    sub_source = source[:, :, z:(z + self._patch_size[2]), np.newaxis]
 
-                else:
-                    data_dict["times"] = None
+                    data_dict = {
+                        "source": sub_source,
+                        "target": sub_target
+                    }
 
-                yield data_dict
+                    # TODO: allow using different seg channels
+                    if seg is not None:
+                        sub_seg = seg[:, :, z:(z + self._patch_size[2]), np.newaxis]
+                        data_dict["seg"] = sub_seg
+                        # TODO: return index
+
+                    if self._json is not None:
+                        data_dict["times"] = self._json[target_name[:-4] + ".nrrd"]
+
+                    yield data_dict
 
             i += 1
 

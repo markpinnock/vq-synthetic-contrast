@@ -21,8 +21,10 @@ class TrainingLoop:
                  config: dict):
         self.Model = Model
         self.config = config
-        self.patch_size = config["img_dims"]
-        self.scales = config["scales"]
+        self.intermediate_vq = "output" in config["hyperparameters"]["vq_layers"]
+        self.patch_size = config["hyperparameters"]["img_dims"]
+        self.scales = config["hyperparameters"]["scales"]
+        self.img_dims = config["hyperparameters"]["img_dims"]
         self.EPOCHS = config["expt"]["epochs"]
 
         expt_path = Path(config["paths"]["expt_path"])
@@ -44,8 +46,8 @@ class TrainingLoop:
         self.ds_train, self.ds_val = dataset
 
         log_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        self.train_writer = tf.summary.create_file_writer(self.log_save_path / log_time / "train")
-        self.test_writer = tf.summary.create_file_writer(self.log_save_path / log_time / "test")
+        self.train_writer = tf.summary.create_file_writer(str(self.log_save_path / log_time / "train"))
+        self.test_writer = tf.summary.create_file_writer(str(self.log_save_path / log_time / "test"))
 
     def _save_train_results(self, epoch):
         # Log losses
@@ -101,11 +103,114 @@ class TrainingLoop:
 
             # Run training step for each batch in training data
             for data in self.ds_train:
-                for scale in self.scales:
-                    self._downsample_images(scale, **data)
-                    for patch_data in self._sample_images(data["source"], data["target"]):
-                        patch_data["times"] = data["times"]
-                        self.Model.train_step(**patch_data)
+                source = data["source"]
+                target = data["target"]
+                seg = data["seg"] if "seg" in data.keys() else None
+
+                # Augmentation if required
+                # if self.Model.Aug:
+                #     (source, target), seg = self.Model.Aug(imgs=[source, target], seg=seg)
+                plt.subplot(2, 2, 1)
+                plt.imshow(source[0, :, :, 0, 0])
+                plt.subplot(2, 2, 2)
+                plt.imshow(target[0, :, :, 0, 0])
+                plt.subplot(2, 2, 3)
+                plt.imshow(source[1, :, :, 0, 0])
+                plt.subplot(2, 2, 4)
+                plt.imshow(target[1, :, :, 0, 0])
+                plt.show()
+                source = self._downsample_images(source)
+                plt.subplot(2, 2, 1)
+                plt.imshow(source[0, :, :, 0, 0])
+                plt.subplot(2, 2, 2)
+                plt.imshow(target[0, :, :, 0, 0])
+                plt.subplot(2, 2, 3)
+                plt.imshow(source[1, :, :, 0, 0])
+                plt.subplot(2, 2, 4)
+                plt.imshow(target[1, :, :, 0, 0])
+                plt.show()
+                # Randomise segments of image to sample, iteratively get random indices of smaller segments
+                x, y = self._get_scale_indices()
+                print(x, y)
+                target, seg = self._sample_patches(x[-1], y[-1], target, seg)
+                plt.subplot(2, 2, 1)
+                plt.imshow(source[0, :, :, 0, 0])
+                plt.subplot(2, 2, 2)
+                plt.imshow(target[0, :, :, 0, 0])
+                plt.subplot(2, 2, 3)
+                plt.imshow(source[1, :, :, 0, 0])
+                plt.subplot(2, 2, 4)
+                plt.imshow(target[1, :, :, 0, 0])
+                plt.show()
+                # Perform multi-scale training
+                source, _ = self._sample_patches(x[0], y[0], source)
+                pred, vq = self.Model(source, data["times"])
+                print(source.shape, pred.shape, target.shape, "!")
+
+                plt.subplot(2, 3, 1)
+                plt.imshow(source[0, :, :, 0, 0])
+                plt.subplot(2, 3, 2)
+                plt.imshow(pred[0, :, :, 0, 0])
+                plt.subplot(2, 3, 3)
+                plt.imshow(target[0, :, :, 0, 0])
+                plt.subplot(2, 3, 4)
+                plt.imshow(source[1, :, :, 0, 0])
+                plt.subplot(2, 3, 5)
+                plt.imshow(pred[1, :, :, 0, 0])
+                plt.subplot(2, 3, 6)
+                plt.imshow(target[1, :, :, 0, 0])
+                plt.show()
+                for i in range(1, len(self.scales)):
+                    scale_factor = 2 ** i
+                    if (x[i] / scale_factor != x[i] // scale_factor) or (y[i] / scale_factor != y[i] // scale_factor):
+                        raise ValueError
+                    pred, _ = self._sample_patches(x[i] // scale_factor, y[i] // scale_factor, pred)
+                    print(source.shape, pred.shape, target.shape, "?", x[i] // scale_factor, y[i] // scale_factor)
+                    plt.subplot(2, 3, 1)
+                    plt.imshow(source[0, :, :, 0, 0])
+                    plt.subplot(2, 3, 2)
+                    plt.imshow(pred[0, :, :, 0, 0])
+                    plt.subplot(2, 3, 3)
+                    plt.imshow(target[0, :, :, 0, 0])
+                    plt.subplot(2, 3, 4)
+                    plt.imshow(source[1, :, :, 0, 0])
+                    plt.subplot(2, 3, 5)
+                    plt.imshow(pred[1, :, :, 0, 0])
+                    plt.subplot(2, 3, 6)
+                    plt.imshow(target[1, :, :, 0, 0])
+                    plt.show()
+                    if self.intermediate_vq:
+                        pred, vq = self.Model(vq, data["times"])
+                    else:
+                        pred, vq = self.Model(pred, data["times"])
+                    print(source.shape, pred.shape, target.shape, "#")
+                    plt.subplot(2, 3, 1)
+                    plt.imshow(source[0, :, :, 0, 0])
+                    plt.subplot(2, 3, 2)
+                    plt.imshow(pred[0, :, :, 0, 0])
+                    plt.subplot(2, 3, 3)
+                    plt.imshow(target[0, :, :, 0, 0])
+                    plt.subplot(2, 3, 4)
+                    plt.imshow(source[1, :, :, 0, 0])
+                    plt.subplot(2, 3, 5)
+                    plt.imshow(pred[1, :, :, 0, 0])
+                    plt.subplot(2, 3, 6)
+                    plt.imshow(target[1, :, :, 0, 0])
+                    plt.show()
+                plt.subplot(2, 3, 1)
+                plt.imshow(source[0, :, :, 0, 0])
+                plt.subplot(2, 3, 2)
+                plt.imshow(pred[0, :, :, 0, 0])
+                plt.subplot(2, 3, 3)
+                plt.imshow(target[0, :, :, 0, 0])
+                plt.subplot(2, 3, 4)
+                plt.imshow(source[1, :, :, 0, 0])
+                plt.subplot(2, 3, 5)
+                plt.imshow(pred[1, :, :, 0, 0])
+                plt.subplot(2, 3, 6)
+                plt.imshow(target[1, :, :, 0, 0])
+                plt.show()
+                self.Model.train_step(pred, target, seg, data["times"])
 
             self._save_train_results(epoch)
             if verbose:
@@ -117,11 +222,23 @@ class TrainingLoop:
 
                 # Run validation step for each batch in validation data
                 for data in self.ds_val:
-                    for scale in self.scales:
-                        self._downsample_images(scale, **data)
-                        for patch_data in self._sample_images(data["source"], data["target"]):
-                            patch_data["times"] = data["times"]
-                            self.Model.test_step(**patch_data)
+                    source = self._downsample_images(data["source"])
+
+                    # Randomise segments of image to sample, iteratively get random indices of smaller segments
+                    x, y = self._get_scale_indices()
+                    target, seg = self._sample_patches(x[-1], y[-1], target, seg)
+
+                    # Perform multi-scale inference
+                    source = self._sample_patches(x[0], y[0], source)
+                    pred, vq = self.Model(source, data["times"])
+                    for i in range(1, len(self.scales)):
+                        pred = self._sample_patches(x[i], y[i], pred, vq)
+                        if self.intermediate_vq:
+                            pred, vq = self.Model(vq, data["times"])
+                        else:
+                            pred, vq = self.Model(pred, data["times"])
+
+                    self.Model.test_step(pred, target, seg, data["times"])
 
                 self._save_val_results(epoch)
                 if verbose:
@@ -143,42 +260,34 @@ class TrainingLoop:
 
         json.dump(self.results, open(f"{self.log_save_path}/results.json", 'w'), indent=4)
 
-    def _downsample_images(self, scale, source, target, seg=None, **kwargs):
-        source = source[::scale, ::scale, :]
-        target = target[::scale, ::scale, :]
+    def _get_scale_indices(self):
+        xs, ys = [], []
+        x = np.random.randint(0, self.scales[-1])
+        y = np.random.randint(0, self.scales[-1])
+        xs.append(x * self.img_dims[0])
+        ys.append(y * self.img_dims[1])
 
-        if seg is not None:
-            seg = seg[::scale, ::scale, :]
+        for i in range(len(self.scales) - 2, -1, -1):
+            scale_factor = self.scales[i] // self.scales[i + 1]
+            x = np.random.randint(x * scale_factor, x * scale_factor + 2)
+            y = np.random.randint(y * scale_factor, y * scale_factor + 2)
+            xs.append(x * self.img_dims[0])
+            ys.append(y * self.img_dims[1])
 
-    def _sample_images(self, source, target, seg=None):
-        # Extract patches
-        total_height = target.shape[0]
-        total_width = target.shape[1]
-        total_depth = target.shape[2]
-        num_iter = (total_height // self.patch_size[0]) * (total_width // self.patch_size[1]) * (total_depth // self.patch_size[2])
+        return xs, ys
 
-        for _ in range(num_iter):
-            x = np.random.randint(0, total_width - self.patch_size[0] + 1)
-            y = np.random.randint(0, total_width - self.patch_size[1] + 1)
-            z = np.random.randint(0, total_depth - self.patch_size[2] + 1)
+    def _downsample_images(self, img):
+        img = img[:, ::self.scales[0], ::self.scales[0], :, :]
+        return img
 
-            sub_target = target[:, x:(x + self.patch_size[0]), y:(y + self.patch_size[1]), z:(z + self.patch_size[2]), :]
-            sub_source = source[:, x:(x + self.patch_size[0]), y:(y + self.patch_size[1]), z:(z + self.patch_size[2]), :]
+    def _sample_patches(self, x, y, img1, img2=None):
 
-            if seg is None:
-                yield {
-                "source": sub_source,
-                "target": sub_target,
-                "seg": None
-                }
+        img1 = img1[:, x:(x + self.patch_size[0]), y:(y + self.patch_size[1]), :, :]
 
-            else:
-                sub_seg = seg[:, x:(x + self.patch_size[0]), y:(y + self.patch_size[1]), z:(z + self.patch_size[2]), :]
-                yield {
-                "source": sub_source,
-                "target": sub_target,
-                "seg": sub_seg
-                }
+        if img2 is not None:
+            img2 = img2[:, x:(x + self.patch_size[0]), y:(y + self.patch_size[1]), :, :]
+
+        return img1, img2
 
     def _save_images(self, epoch, phase="validation", tuning_path=None):
 

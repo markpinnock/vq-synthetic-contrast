@@ -6,7 +6,7 @@ data:
     source: ["HQ"]
     segs: []
     times: "times_ordinal.json"
-    down_sample: 4
+    down_sample: 1
     patch_size: [32, 32, 32]
     norm_param_1: -500
     norm_param_2: 2500
@@ -18,7 +18,7 @@ expt:
     save_every: 10
     epochs: 100
     verbose: true # Output model summary
-    graph: true # Save graph for visualisation in Tensorboard
+    graph: false # Save graph for visualisation in Tensorboard
     log_scalars: true # Log losses for visualisation in Tensorboard
     log_histograms: false # Log weights for visualisation in Tensorboard
     save_model: true
@@ -30,13 +30,15 @@ hyperparameters:
     mu: 0.0 # Focal loss weighting (0.0 == OFF)
     nf: 32 # Generator starting channels
     layers: 3
+    upsample_layer: true # Additional up-sampling layer on output
     time_layers: ["up_0", "up_1"]
     vq_embeddings: 128
-    vq_layers: ["bottom"]
+    vq_layers: ["dn_0", "bottom"]
     vq_time: false
     vq_beta: 0.25
 augmentation:
-    use: false
+    use: true
+    img_dims: [256, 256, 64]
     depth: 64
     flip_prob: 0.5
     rotation: 45.0

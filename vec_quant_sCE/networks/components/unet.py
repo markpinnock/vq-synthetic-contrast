@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-from .layer.layers import DownBlock, UpBlock
+from .layer.layers import DownBlock, UpBlock, UpBlockNoSkip, VQBlock
 
 
 class UNet(tf.keras.Model):
@@ -108,10 +108,28 @@ class UNet(tf.keras.Model):
                     name=f"up_{i}")
                 )
 
+        use_vq = f"up_{i + 1}" in self.vq_layers
+        if config["upsample_layer"]:
+            self.upsample_layer = self.decoder.append(
+                UpBlockNoSkip(
+                    channels,
+                    (4, 4, 2),
+                    (2, 2, 1),
+                    initialiser=initialiser,
+                    use_vq=use_vq,
+                    vq_config=vq_config,
+                    name=f"up_{i + 1}")
+                )
+
         self.final_layer = tf.keras.layers.Conv3DTranspose(
             1, (4, 4, 4), (2, 2, 2),
             padding="same", activation="linear",
             kernel_initializer=initialiser, name="output")
+
+        if "output" in self.vq_layers:
+            self.output_vq = VQBlock(vq_config["vq_embeddings"], 1, vq_config["vq_beta"], name="output_vq")
+        else:
+            self.output_vq = None
         
         layer_names = [layer.name for layer in self.encoder] + ["bottom"] + [layer.name for layer in self.decoder]
 
@@ -123,7 +141,7 @@ class UNet(tf.keras.Model):
         """ Build method takes tf.zeros((input_dims)) and returns
             shape of output - all layers implicitly built and weights set to trainable """
         
-        return self(x, t).shape
+        return self(x, t)
 
     def call(self, x, t=None):
         skip_layers = []
@@ -133,14 +151,14 @@ class UNet(tf.keras.Model):
                 x = layer(x, t, training=True)
             else:
                 x = layer(x, training=True)
-
+            print(x.shape)
             skip_layers.append(x)
 
         if self.bottom_layer.name in self.time_layers:
             x = self.bottom_layer(x, t, training=True)
         else:
             x = self.bottom_layer(x, training=True)
-
+        print(x.shape)
         skip_layers.reverse()
 
         for skip, tconv in zip(skip_layers, self.decoder):
@@ -148,11 +166,19 @@ class UNet(tf.keras.Model):
                 x = tconv(x, skip, t, training=True)
             else:
                 x = tconv(x, skip, training=True)
-
+            print(x.shape)
+        if len(self.decoder) > len(self.encoder):
+            if self.decoder[-1].name in self.time_layers:
+                x = self.decoder[-1](x, t, training=True)
+            else:
+                x = self.decoder[-1](x, training=True)
+        print(x.shape)
         if self.final_layer.name in self.time_layers:
-
             x = self.final_layer(x, t, training=True)
         else:
             x = self.final_layer(x, training=True)
-
-        return x
+        print(x.shape)
+        if self.output_vq is None:
+            return x, None
+        else:
+            return x, self.output_vq(x)

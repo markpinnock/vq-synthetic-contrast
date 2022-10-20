@@ -2,6 +2,7 @@ import argparse
 import datetime
 import os
 from pathlib import Path
+import sys
 import tensorflow as tf
 import yaml
 
@@ -20,7 +21,11 @@ def train(CONFIG):
     train_ds, val_ds, train_gen, val_gen = get_train_dataloader(CONFIG)
 
     # Compile model
-    model = Model(CONFIG)
+    #model = Model(CONFIG)
+    source = tf.keras.Input(shape=[64, 64, 64, 1])
+    up = tf.keras.layers.UpSampling3D(size=(2, 2, 1))
+    pred = up(source)
+    model = tf.keras.Model(inputs=source, outputs=[pred, source])
     optimiser = tf.keras.optimizers.Adam(*CONFIG["hyperparameters"]["opt"], name="opt")
     model.compile(optimiser)
 
@@ -30,7 +35,7 @@ def train(CONFIG):
     # Write graph for visualising in Tensorboard
     if CONFIG["expt"]["graph"]:
         curr_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        log_dir = Path(CONFIG['paths']['expt_path']) / "logs" / curr_time
+        log_dir = str(Path(CONFIG['paths']['expt_path']) / "logs" / curr_time)
         writer = tf.summary.create_file_writer(log_dir)
 
         @tf.function
@@ -58,9 +63,7 @@ def train(CONFIG):
 
 #-------------------------------------------------------------------------
 
-if __name__ == "__main__":
-
-    """ Training routine """
+def main(args=None):
 
     # Handle arguments
     parser = argparse.ArgumentParser()
@@ -70,7 +73,7 @@ if __name__ == "__main__":
 
     EXPT_PATH = arguments.path
 
-    if not os.path.exists(Path(EXPT_PATH) "images"):
+    if not os.path.exists(Path(EXPT_PATH) / "images"):
         os.makedirs(Path(EXPT_PATH) / "images")
 
     if not os.path.exists(Path(EXPT_PATH) / "logs"):
@@ -94,3 +97,9 @@ if __name__ == "__main__":
         tf.config.experimental.set_memory_growth(gpus[gpu_number], True)
     
     train(CONFIG)
+
+
+#-------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

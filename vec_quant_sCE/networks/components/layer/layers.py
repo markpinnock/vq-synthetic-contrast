@@ -114,6 +114,54 @@ class UpBlock(tf.keras.layers.Layer):
 
 
 #-------------------------------------------------------------------------
+""" Up-sampling convolutional block with skip layer"""
+
+class UpBlockNoSkip(tf.keras.layers.Layer):
+
+    """ Input:
+        - nc: number of feature maps
+        - strides: tuple of strides e.g. (2, 2, 1)
+        - initialiser: e.g. keras.initializers.RandomNormal
+        - batch_norm: True/False
+        - dropout: True/False """
+
+    def __init__(self, nc, weights, strides, initialiser, use_vq, vq_config, name=None):
+        super().__init__(name=name)
+        self.tconv = tf.keras.layers.Conv3DTranspose(nc, weights, strides=strides, padding="same", kernel_initializer=initialiser, name="tconv")
+        self.conv = tf.keras.layers.Conv3D(nc, weights, strides=(1, 1, 1), padding="same", kernel_initializer=initialiser, name="conv")
+
+        self.use_vq = use_vq
+        self.vq_time = False
+        if use_vq:
+            self.vq = VQBlock(vq_config["vq_embeddings"], nc, vq_config["vq_beta"], name=f"{name}_vq")
+            self.vq_time = vq_config["vq_time"]
+
+        # Instance normalisation
+        self.inst_norm_1 = InstanceNorm(name="instancenorm1")
+        self.inst_norm_2 = InstanceNorm(name="instancenorm2")
+    
+    def call(self, x, t=None, training=True):
+        if t is not None and self.vq_time is False:
+            tiled_time = tf.tile(tf.reshape(t, [-1, 1, 1, 1, 1]), [1] + x.shape[1:4] + [1], "time_tile")
+            x = tf.concat([x, tiled_time], axis=4, name="time_concat")
+
+        x = self.tconv(x)
+        x = self.inst_norm_1(x)
+        x = tf.nn.relu(x)
+        x = self.conv(x)
+        x = self.inst_norm_2(x)
+
+        if self.use_vq and self.vq_time is False:
+            x = self.vq(x)
+        elif self.use_vq and self.vq_time is True:
+            x = self.vq(x, t)
+        else:
+            pass
+
+        return tf.nn.relu(x)
+
+
+#-------------------------------------------------------------------------
 """ Vector quantization layer -
     adapted from https://keras.io/examples/generative/vq_vae
     https://arxiv.org/pdf/2207.06189.pdf """

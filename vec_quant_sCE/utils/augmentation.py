@@ -12,17 +12,17 @@ class StdAug(tf.keras.layers.Layer):
         super().__init__(name=name)
 
         # If segmentations available, these can be stacked on the target for transforming
-        if len(config["data"]["segs"]) > 0:
-            self.transform = AffineTransform2D(config["hyperparameters"]["img_dims"] + [2])
+        if len(config["segs"]) > 0:
+            self.transform = AffineTransform2D(config["img_dims"] + [2])
         else:
-            self.transform = AffineTransform2D(config["hyperparameters"]["img_dims"] + [1])
+            self.transform = AffineTransform2D(config["img_dims"] + [1])
 
-        self.flip_probs = tf.math.log([[config["augmentation"]["flip_prob"], 1 - config["augmentation"]["flip_prob"]]])
-        self.rot_angle = config["augmentation"]["rotation"] / 180 * 3.14159265359
-        self.scale_factor = config["augmentation"]["scale"]
-        self.shear_angle = config["augmentation"]["shear"] / 180 * 3.14159265359
-        self.x_shift = [-config["augmentation"]["translate"][0], config["augmentation"]["translate"][0]]
-        self.y_shift = [-config["augmentation"]["translate"][1], config["augmentation"]["translate"][1]]
+        self.flip_probs = tf.math.log([[config["flip_prob"], 1 - config["flip_prob"]]])
+        self.rot_angle = config["rotation"] / 180 * 3.14159265359
+        self.scale_factor = config["scale"]
+        self.shear_angle = config["shear"] / 180 * 3.14159265359
+        self.x_shift = [-config["translate"][0], config["translate"][0]]
+        self.y_shift = [-config["translate"][1], config["translate"][1]]
 
     def flip_matrix(self, mb_size: int):
         updates = tf.reshape(tf.cast(tf.random.categorical(logits=self.flip_probs, num_samples=mb_size * 2), "float32"), [mb_size * 2])
@@ -116,7 +116,9 @@ if __name__ == "__main__":
 
     FILE_PATH = "D:/ProjectImages/SyntheticContrast"
     TestLoader = ImgLoader(test_config["data"], dataset_type="training")
-    TestAug = StdAug(test_config)
+    aug_config = test_config["augmentation"]
+    aug_config["segs"] = test_config["data"]["segs"]
+    TestAug = StdAug(aug_config)
 
     output_types = ["source", "target"]
 
@@ -128,7 +130,7 @@ if __name__ == "__main__":
 
     train_ds = tf.data.Dataset.from_generator(TestLoader.data_generator, output_types={k: "float32" for k in output_types})
 
-    for data in train_ds.batch(4):
+    for data in train_ds.batch(2):
         pred = np.zeros_like(data["source"].numpy())
         pred[:, 0:pred.shape[1] // 2, 0:pred.shape[1] // 2, :, :] = 1
         pred[:, pred.shape[1] // 2:, pred.shape[1] // 2:, :, :] = 1
