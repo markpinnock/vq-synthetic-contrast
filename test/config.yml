@@ -1,7 +1,7 @@
 paths:
     cuda_path: "/usr/local/cuda/lib64"
 data:
-    data_path: "D:/ProjectImages/SyntheticContrast"
+    data_path: "C:/ProjectImages/SyntheticContrast"
     target: ["AC", "VC"]
     source: ["HQ"]
     segs: []

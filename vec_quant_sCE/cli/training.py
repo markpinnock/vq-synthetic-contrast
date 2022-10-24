@@ -22,7 +22,7 @@ def train(CONFIG):
 
     # Compile model
     #model = Model(CONFIG)
-    source = tf.keras.Input(shape=[64, 64, 64, 1])
+    source = tf.keras.Input(shape=[32, 32, 32, 1])
     up = tf.keras.layers.UpSampling3D(size=(2, 2, 1))
     pred = up(source)
     model = tf.keras.Model(inputs=source, outputs=[pred, source])
