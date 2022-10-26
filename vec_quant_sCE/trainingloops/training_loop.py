@@ -106,14 +106,10 @@ class TrainingLoop:
                 source = data["source"]
                 target = data["target"]
                 seg = data["seg"] if "seg" in data.keys() else None
-                source = tf.zeros(([1] + self.img_dims) + [1])
-                np_img = np.linspace(0, 256 * 256 - 1, 256 * 256).reshape((1, 256, 256, 1, 1))
-                np_img = np.tile(np_img, [1, 1, 1, 32, 1])
-                source = tf.constant(np_img)
-                target = tf.constant(np_img)
+
                 # Augmentation if required
-                # if self.Model.Aug:
-                #     (source, target), seg = self.Model.Aug(imgs=[source, target], seg=seg)
+                if self.Model.Aug:
+                    (source, target), seg = self.Model.Aug(imgs=[source, target], seg=seg)
                 print(float(target[0, 0, 0, 0, 0]), float(target[0, -1, -1, 0, 0]))
                 plt.subplot(1, 2, 1)
                 plt.imshow(source[0, :, :, 0, 0])
@@ -121,69 +117,23 @@ class TrainingLoop:
                 plt.imshow(target[0, :, :, 0, 0])
                 plt.show()
                 source = self._downsample_images(source)
-                print(float(target[0, 0, 0, 0, 0]), float(target[0, -1, -1, 0, 0]))
-                plt.subplot(1, 2, 1)
-                plt.imshow(source[0, :, :, 0, 0])
-                plt.subplot(1, 2, 2)
-                plt.imshow(target[0, :, :, 0, 0])
-                plt.show()
+
                 # Randomise segments of image to sample, iteratively get random indices of smaller segments
                 x, y, target_x, target_y = self._get_scale_indices()
-                print(x, y, target_x, target_y, 'i')
                 target, seg = self._sample_patches(target_x, target_y, target, seg)
-                print(float(target[0, 0, 0, 0, 0]), float(target[0, -1, -1, 0, 0]))
-                plt.subplot(1, 2, 1)
-                plt.imshow(source[0, :, :, 0, 0])
-                plt.subplot(1, 2, 2)
-                plt.imshow(target[0, :, :, 0, 0])
-                plt.show()
+
                 # Perform multi-scale training
                 source, _ = self._sample_patches(x[0], y[0], source)
                 pred, vq = self.Model(source, data["times"])
-                print(source.shape, pred.shape, target.shape, "!")
-                print(float(target[0, 0, 0, 0, 0]), float(target[0, -1, -1, 0, 0]), float(pred[0, 0, 0, 0, 0]), float(pred[0, -1, -1, 0, 0]))
-                plt.subplot(1, 3, 1)
-                plt.imshow(source[0, :, :, 0, 0])
-                plt.subplot(1, 3, 2)
-                plt.imshow(pred[0, :, :, 0, 0])
-                plt.subplot(1, 3, 3)
-                plt.imshow(target[0, :, :, 0, 0])
-                plt.show()
+
                 for i in range(1, len(self.scales)):
-                    scale_factor = 2 ** i
-                    # if (x[i] / scale_factor != x[i] // scale_factor) or (y[i] / scale_factor != y[i] // scale_factor):
-                    #     raise ValueError(x[i], scale_factor)
                     pred, _ = self._sample_patches(x[i], y[i], pred)
-                    print(source.shape, pred.shape, target.shape, "?", x[i] // scale_factor, y[i] // scale_factor)
-                    print(float(target[0, 0, 0, 0, 0]), float(target[0, -1, -1, 0, 0]), float(pred[0, 0, 0, 0, 0]), float(pred[0, -1, -1, 0, 0]))
-                    plt.subplot(1, 3, 1)
-                    plt.imshow(source[0, :, :, 0, 0])
-                    plt.subplot(1, 3, 2)
-                    plt.imshow(pred[0, :, :, 0, 0])
-                    plt.subplot(1, 3, 3)
-                    plt.imshow(target[0, :, :, 0, 0])
-                    plt.show()
+
                     if self.intermediate_vq:
                         pred, vq = self.Model(vq, data["times"])
                     else:
                         pred, vq = self.Model(pred, data["times"])
-                    print(source.shape, pred.shape, target.shape, "#")
-                    print(float(target[0, 0, 0, 0, 0]), float(target[0, -1, -1, 0, 0]), float(pred[0, 0, 0, 0, 0]), float(pred[0, -1, -1, 0, 0]))
-                    plt.subplot(1, 3, 1)
-                    plt.imshow(source[0, :, :, 0, 0])
-                    plt.subplot(1, 3, 2)
-                    plt.imshow(pred[0, :, :, 0, 0])
-                    plt.subplot(1, 3, 3)
-                    plt.imshow(target[0, :, :, 0, 0])
-                    plt.show()
-                print(float(target[0, 0, 0, 0, 0]), float(target[0, -1, -1, 0, 0]), float(pred[0, 0, 0, 0, 0]), float(pred[0, -1, -1, 0, 0]))
-                plt.subplot(1, 3, 1)
-                plt.imshow(source[0, :, :, 0, 0])
-                plt.subplot(1, 3, 2)
-                plt.imshow(pred[0, :, :, 0, 0])
-                plt.subplot(1, 3, 3)
-                plt.imshow(target[0, :, :, 0, 0])
-                plt.show()
+
                 self.Model.train_step(pred, target, seg, data["times"])
 
             self._save_train_results(epoch)
@@ -235,28 +185,24 @@ class TrainingLoop:
         json.dump(self.results, open(f"{self.log_save_path}/results.json", 'w'), indent=4)
 
     def _get_scale_indices(self):
-        source_x, source_y = [], []
-        min_x, max_x = 0, self.scales[-1]
-        min_y, max_y = 0, self.scales[-1]
-        target_x = np.random.randint(min_x, max_x)
-        target_y = np.random.randint(min_y, max_y)
-        temp_x = 0 if target_x < (max_x - min_x) / 2 else 1
-        temp_y = 0 if target_y < (max_y - min_y) / 2 else 1
-        source_x.append(temp_x)
-        source_y.append(temp_y)
 
-        for i in range(len(self.scales) - 2, -1, -1):
-            scale_factor = self.scales[i] // self.scales[i + 1]
-            min_x = target_x * scale_factor
-            max_x = (target_x + 1) * scale_factor
-            min_y = target_y * scale_factor
-            max_y = (target_y + 1) * scale_factor
-            target_x = np.random.randint(min_x, max_x)
-            target_y = np.random.randint(min_y, max_y)
-            temp_x = 0 if target_x < (max_x - min_x) / 2 else 1
-            temp_y = 0 if target_y < (max_y - min_y) / 2 else 1
-            source_x.append(temp_x)
-            source_y.append(temp_y)
+        # Want higher probability of training on more central regions
+        if np.random.randn() > 0.5:
+            target_x = np.random.randint(0, self.scales[0])
+            target_y = np.random.randint(0, self.scales[0])
+        else:
+            target_x = np.random.randint(2, self.scales[0] - 2)
+            target_y = np.random.randint(2, self.scales[0] - 2)
+
+        binary_rep = bin(target_x)[2:]
+        source_x = [0 for _ in range(len(self.scales) - len(binary_rep))]
+        for c in binary_rep:
+            source_x.append(int(c))
+
+        binary_rep = bin(target_y)[2:]
+        source_y = [0 for _ in range(len(self.scales) - len(binary_rep))]
+        for c in binary_rep:
+            source_y.append(int(c))
 
         return source_x, source_y, target_x, target_y
 

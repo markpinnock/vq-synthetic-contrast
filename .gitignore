@@ -13,3 +13,4 @@ test_*/models
 *.Rproj*
 *.RData
 *.Rhistory
+*egg*

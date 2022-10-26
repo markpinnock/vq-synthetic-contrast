@@ -21,11 +21,7 @@ def train(CONFIG):
     train_ds, val_ds, train_gen, val_gen = get_train_dataloader(CONFIG)
 
     # Compile model
-    #model = Model(CONFIG)
-    source = tf.keras.Input(shape=[32, 32, 32, 1])
-    up = tf.keras.layers.UpSampling3D(size=(2, 2, 1))
-    pred = up(source)
-    model = tf.keras.Model(inputs=source, outputs=[pred, source])
+    model = Model(CONFIG)
     optimiser = tf.keras.optimizers.Adam(*CONFIG["hyperparameters"]["opt"], name="opt")
     model.compile(optimiser)
 
