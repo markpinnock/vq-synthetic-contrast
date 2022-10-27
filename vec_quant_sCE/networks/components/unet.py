@@ -29,9 +29,8 @@ class UNet(tf.keras.Model):
            self.time_layers = []
 
         if config["vq_layers"] is not None:
-            self.vq_layers = config["vq_layers"]
+            self.vq_layers = config["vq_layers"].keys()
             vq_config = {
-                "vq_embeddings": config["vq_embeddings"],
                 "vq_time": config["vq_time"],
                 "vq_beta": config["vq_beta"]
             }
@@ -60,6 +59,7 @@ class UNet(tf.keras.Model):
             cache["kernels"].append(kernel)
 
             use_vq = f"down_{i}" in self.vq_layers
+            if use_vq: vq_config["embeddings"] = config["vq_layers"][f"down_{i}"]
             self.encoder.append(
                 DownBlock(
                     channels,
@@ -71,7 +71,8 @@ class UNet(tf.keras.Model):
                     name=f"down_{i}")
                 )
 
-        use_vq = f"bottom" in self.vq_layers
+        use_vq = "bottom" in self.vq_layers
+        if use_vq: vq_config["embeddings"] = config["vq_layers"]["bottom"]
         self.bottom_layer = DownBlock(
             channels,
             kernel,
@@ -97,6 +98,7 @@ class UNet(tf.keras.Model):
             kernel = cache["kernels"][i]
 
             use_vq = f"up_{i}" in self.vq_layers
+            if use_vq: vq_config["embeddings"] = config["vq_layers"][f"up_{i}"]
             self.decoder.append(
                 UpBlock(
                     channels,
@@ -109,6 +111,7 @@ class UNet(tf.keras.Model):
                 )
 
         use_vq = f"up_{i + 1}" in self.vq_layers
+        if use_vq: vq_config["embeddings"] = config["vq_layers"][f"up_{i + 1}"]
         if config["upsample_layer"]:
             self.upsample_layer = self.decoder.append(
                 UpBlockNoSkip(
@@ -127,7 +130,7 @@ class UNet(tf.keras.Model):
             kernel_initializer=initialiser, name="output")
 
         if "output" in self.vq_layers:
-            self.output_vq = VQBlock(vq_config["vq_embeddings"], 1, vq_config["vq_beta"], name="output_vq")
+            self.output_vq = VQBlock(config["vq_layers"]["output"], 1, vq_config["vq_beta"], name="output_vq")
         else:
             self.output_vq = None
         
@@ -151,14 +154,14 @@ class UNet(tf.keras.Model):
                 x = layer(x, t, training=True)
             else:
                 x = layer(x, training=True)
-            print(x.shape)
+
             skip_layers.append(x)
 
         if self.bottom_layer.name in self.time_layers:
             x = self.bottom_layer(x, t, training=True)
         else:
             x = self.bottom_layer(x, training=True)
-        print(x.shape)
+
         skip_layers.reverse()
 
         for skip, tconv in zip(skip_layers, self.decoder):
@@ -166,18 +169,18 @@ class UNet(tf.keras.Model):
                 x = tconv(x, skip, t, training=True)
             else:
                 x = tconv(x, skip, training=True)
-            print(x.shape)
+
         if len(self.decoder) > len(self.encoder):
             if self.decoder[-1].name in self.time_layers:
                 x = self.decoder[-1](x, t, training=True)
             else:
                 x = self.decoder[-1](x, training=True)
-        print(x.shape)
+
         if self.final_layer.name in self.time_layers:
             x = self.final_layer(x, t, training=True)
         else:
             x = self.final_layer(x, training=True)
-        print(x.shape)
+
         if self.output_vq is None:
             return x, None
         else:

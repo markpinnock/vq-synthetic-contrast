@@ -38,7 +38,7 @@ class DownBlock(tf.keras.layers.Layer):
         self.use_vq = use_vq
         self.vq_time = False
         if use_vq:
-            self.vq = VQBlock(vq_config["vq_embeddings"], nc, vq_config["vq_beta"], name=f"{name}_vq")
+            self.vq = VQBlock(vq_config["embeddings"], nc, vq_config["vq_beta"], name=f"{name}_vq")
             self.vq_time = vq_config["vq_time"]
 
         # Normalisation
@@ -194,7 +194,11 @@ class VQBlock(tf.keras.layers.Layer):
         # Quantization
         code_idx = self.get_code_indices(flat) # NHWD X 1
         idx_one_hot = tf.one_hot(code_idx, self.num_embeddings) # NHWD X K
-        quantized = tf.matmul(idx_one_hot, self.dictionary, transpose_b=True) # NHWD X C
+
+        if self.embedding_dim == 1:
+            quantized = tf.reduce_sum(idx_one_hot * self.dictionary, axis=1)
+        else:
+            quantized = tf.matmul(idx_one_hot, self.dictionary, transpose_b=True) # NHWD X C
 
         # Reshape back to normal dims
         q = tf.reshape(quantized, img_dims)

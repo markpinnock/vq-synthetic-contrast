@@ -7,14 +7,14 @@ data:
     segs: []
     times: "times_ordinal.json"
     down_sample: 1
-    patch_size: [32, 32, 32]
+    patch_size: [64, 64, 64]
     norm_param_1: -500
     norm_param_2: 2500
     num_examples: 4
     cv_folds: 6
     fold: 5
 expt:
-    mb_size: 8
+    mb_size: 4
     save_every: 10
     epochs: 100
     verbose: true # Output model summary
@@ -24,22 +24,19 @@ expt:
     save_model: true
     focal: false # Use focal loss or not
 hyperparameters:
-    img_dims: [32, 32, 32]
-    scales: [8, 4, 2, 1]
+    scales: [4, 2, 1]
     opt: [1.0e-4, 0.5, 0.999]
     mu: 0.0 # Focal loss weighting (0.0 == OFF)
     nf: 32 # Generator starting channels
     layers: 3
     upsample_layer: true # Additional up-sampling layer on output
     time_layers: ["up_0", "up_1"]
-    vq_embeddings: 128
-    vq_layers: ["dn_0", "bottom"]
+    vq_layers: {"bottom": 128}
     vq_time: false
     vq_beta: 0.25
 augmentation:
     use: true
     img_dims: [256, 256, 64]
-    depth: 64
     flip_prob: 0.5
     rotation: 45.0
     scale: [0.8, 1.6]

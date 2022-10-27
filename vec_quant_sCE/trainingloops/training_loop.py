@@ -21,10 +21,6 @@ class TrainingLoop:
                  config: dict):
         self.Model = Model
         self.config = config
-        self.intermediate_vq = "output" in config["hyperparameters"]["vq_layers"]
-        self.patch_size = config["hyperparameters"]["img_dims"]
-        self.scales = config["hyperparameters"]["scales"]
-        self.img_dims = config["hyperparameters"]["img_dims"]
         self.EPOCHS = config["expt"]["epochs"]
 
         expt_path = Path(config["paths"]["expt_path"])
@@ -103,38 +99,7 @@ class TrainingLoop:
 
             # Run training step for each batch in training data
             for data in self.ds_train:
-                source = data["source"]
-                target = data["target"]
-                seg = data["seg"] if "seg" in data.keys() else None
-
-                # Augmentation if required
-                if self.Model.Aug:
-                    (source, target), seg = self.Model.Aug(imgs=[source, target], seg=seg)
-                print(float(target[0, 0, 0, 0, 0]), float(target[0, -1, -1, 0, 0]))
-                plt.subplot(1, 2, 1)
-                plt.imshow(source[0, :, :, 0, 0])
-                plt.subplot(1, 2, 2)
-                plt.imshow(target[0, :, :, 0, 0])
-                plt.show()
-                source = self._downsample_images(source)
-
-                # Randomise segments of image to sample, iteratively get random indices of smaller segments
-                x, y, target_x, target_y = self._get_scale_indices()
-                target, seg = self._sample_patches(target_x, target_y, target, seg)
-
-                # Perform multi-scale training
-                source, _ = self._sample_patches(x[0], y[0], source)
-                pred, vq = self.Model(source, data["times"])
-
-                for i in range(1, len(self.scales)):
-                    pred, _ = self._sample_patches(x[i], y[i], pred)
-
-                    if self.intermediate_vq:
-                        pred, vq = self.Model(vq, data["times"])
-                    else:
-                        pred, vq = self.Model(pred, data["times"])
-
-                self.Model.train_step(pred, target, seg, data["times"])
+                self.Model.train_step(**data)
 
             self._save_train_results(epoch)
             if verbose:
@@ -146,23 +111,7 @@ class TrainingLoop:
 
                 # Run validation step for each batch in validation data
                 for data in self.ds_val:
-                    source = self._downsample_images(data["source"])
-
-                    # Randomise segments of image to sample, iteratively get random indices of smaller segments
-                    x, y, target_x, target_y = self._get_scale_indices()
-                    target, seg = self._sample_patches(target_x, target_y, target, seg)
-
-                    # Perform multi-scale inference
-                    source = self._sample_patches(x[0], y[0], source)
-                    pred, vq = self.Model(source, data["times"])
-                    for i in range(1, len(self.scales)):
-                        pred = self._sample_patches(x[i], y[i], pred, vq)
-                        if self.intermediate_vq:
-                            pred, vq = self.Model(vq, data["times"])
-                        else:
-                            pred, vq = self.Model(pred, data["times"])
-
-                    self.Model.test_step(pred, target, seg, data["times"])
+                    self.Model.test_step(**data)
 
                 self._save_val_results(epoch)
                 if verbose:
@@ -183,42 +132,6 @@ class TrainingLoop:
             print(f"Time taken: {(time.time() - start_time) / 3600}")
 
         json.dump(self.results, open(f"{self.log_save_path}/results.json", 'w'), indent=4)
-
-    def _get_scale_indices(self):
-
-        # Want higher probability of training on more central regions
-        if np.random.randn() > 0.5:
-            target_x = np.random.randint(0, self.scales[0])
-            target_y = np.random.randint(0, self.scales[0])
-        else:
-            target_x = np.random.randint(2, self.scales[0] - 2)
-            target_y = np.random.randint(2, self.scales[0] - 2)
-
-        binary_rep = bin(target_x)[2:]
-        source_x = [0 for _ in range(len(self.scales) - len(binary_rep))]
-        for c in binary_rep:
-            source_x.append(int(c))
-
-        binary_rep = bin(target_y)[2:]
-        source_y = [0 for _ in range(len(self.scales) - len(binary_rep))]
-        for c in binary_rep:
-            source_y.append(int(c))
-
-        return source_x, source_y, target_x, target_y
-
-    def _downsample_images(self, img):
-        img = img[:, ::self.scales[0], ::self.scales[0], :, :]
-        return img
-
-    def _sample_patches(self, x, y, img1, img2=None):
-        x_img = x * self.patch_size[0]
-        y_img = y * self.patch_size[1]
-        img1 = img1[:, x_img:(x_img + self.patch_size[0]), y_img:(y_img + self.patch_size[1]), :, :]
-
-        if img2 is not None:
-            img2 = img2[:, x_img:(x_img + self.patch_size[0]), y_img:(y_img + self.patch_size[1]), :, :]
-
-        return img1, img2
 
     def _save_images(self, epoch, phase="validation", tuning_path=None):
 

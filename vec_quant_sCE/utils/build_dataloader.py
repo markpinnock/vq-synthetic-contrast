@@ -16,6 +16,8 @@ def get_train_dataloader(config: dict):
     if config["data"]["times"] is not None:
         output_types += ["times"]
 
+    config["data"]["scales"] = config["hyperparameters"]["scales"]
+
     # Initialise datasets and set normalisation parameters
     TrainGenerator = ImgLoader(config=config["data"], dataset_type="training")
     ValGenerator = ImgLoader(config=config["data"], dataset_type="validation")
