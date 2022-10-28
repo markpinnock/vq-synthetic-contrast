@@ -113,8 +113,8 @@ class UNet(tf.keras.Model):
         use_vq = f"up_{i + 1}" in self.vq_layers
         if use_vq: vq_config["embeddings"] = config["vq_layers"][f"up_{i + 1}"]
         if config["upsample_layer"]:
-            self.upsample_layer = self.decoder.append(
-                UpBlockNoSkip(
+            self.decoder.append(
+                UpBlock(
                     channels,
                     (4, 4, 2),
                     (2, 2, 1),
@@ -139,15 +139,11 @@ class UNet(tf.keras.Model):
         for time_input in self.time_layers:
             assert time_input in layer_names, (time_input, layer_names)
 
-    def build_model(self, x, t=None):
-
-        """ Build method takes tf.zeros((input_dims)) and returns
-            shape of output - all layers implicitly built and weights set to trainable """
-        
-        return self(x, t)
-
     def call(self, x, t=None):
         skip_layers = []
+
+        if len(self.decoder) > len(self.encoder):
+            skip_layers.append(x[:, :, :, ::2, :])
 
         for layer in self.encoder:
             if layer.name in self.time_layers:
@@ -169,12 +165,6 @@ class UNet(tf.keras.Model):
                 x = tconv(x, skip, t, training=True)
             else:
                 x = tconv(x, skip, training=True)
-
-        if len(self.decoder) > len(self.encoder):
-            if self.decoder[-1].name in self.time_layers:
-                x = self.decoder[-1](x, t, training=True)
-            else:
-                x = self.decoder[-1](x, training=True)
 
         if self.final_layer.name in self.time_layers:
             x = self.final_layer(x, t, training=True)
