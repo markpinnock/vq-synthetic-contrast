@@ -7,7 +7,7 @@ from vec_quant_sCE.utils.losses import L1, FocalLoss
 
 
 #-------------------------------------------------------------------------
-""" Wrapper for U-Net """
+""" Wrapper for multi-scale U-Net """
 
 class Model(tf.keras.Model):
 
@@ -19,7 +19,9 @@ class Model(tf.keras.Model):
         self.img_dims = config["data"]["patch_size"]
         config["hyperparameters"]["img_dims"] = self.img_dims
         self.intermediate_vq = "output" in config["hyperparameters"]["vq_layers"]
-        self.scales = config["hyperparameters"]["scales"]
+        self.scales = [
+            config["augmentation"]["img_dims"][0] // config["data"]["patch_size"][0]
+        ]
 
         if config["hyperparameters"]["time_layers"] is None:
             self.input_times = False
@@ -34,34 +36,13 @@ class Model(tf.keras.Model):
         # Set up augmentation
         aug_config = config["augmentation"]
         aug_config["segs"] = config["data"]["segs"]
-        aug_config
+
         if config["augmentation"]["use"]:
             self.Aug = StdAug(config=aug_config)
         else:
             self.Aug = None
 
-        # Check UNet output dims match input
-        input_size = [1] + self.img_dims + [1]
-        if config["hyperparameters"]["upsample_layer"]:
-            output_size = [1, self.img_dims[0] * 2, self.img_dims[1] * 2, self.img_dims[2], 1]
-        else:
-            output_size = [1] + self.img_dims + [1]
         self.UNet = UNet(self.initialiser, config["hyperparameters"], name="unet")
-
-        # if "output" in config["hyperparameters"]["vq_layers"]:
-        #     if self.input_times:
-        #         pred, vq = self.UNet.build_model(tf.zeros(input_size), tf.zeros(1))
-        #         assert (pred.shape == output_size) and (vq.shape == output_size), f"{pred.shape} vs {output_size}"
-        #     else:
-        #         pred, vq = self.UNet.build_model(tf.zeros(input_size))
-        #         assert (pred.shape == output_size) and (vq.shape == output_size), f"{pred.shape} vs {output_size}"
-        # else:
-        #     if self.input_times:
-        #         pred, _ = self.UNet.build_model(tf.zeros(input_size), tf.zeros(1))
-        #         assert pred.shape == output_size, f"{pred.shape} vs {output_size}"
-        #     else:
-        #         pred, _ = self.UNet.build_model(tf.zeros(input_size))
-        #         assert pred.shape == output_size, f"{pred.shape} vs {output_size}"
 
     def compile(self, optimiser):
         self.optimiser = optimiser
@@ -110,37 +91,26 @@ class Model(tf.keras.Model):
         if self.Aug:
             (source, target), seg = self.Aug(imgs=[source, target], seg=seg)
 
-        # Down-sample source image
-        source = self._downsample_images(source)
-
         # Randomise segments of image to sample, get patch indices for each scale
-        x, y, target_x, target_y = self._get_scale_indices()
-        target, seg = self._sample_patches(target_x, target_y, target, seg)
+        x, y = self._get_scale_indices()
+        source, target, seg = self._sample_patches(x, y, source, target, seg)
 
         with tf.GradientTape(persistent=True) as tape:
-            # Perform multi-scale training
-            source, _ = self._sample_patches(x[0], y[0], source)
-            pred, vq = self(source, times)
 
-            for i in range(1, len(self.scales) - 1):
-                pred, vq = self._sample_patches(x[i], y[i], pred, vq)
-                if self.intermediate_vq:
-                    pred, vq = self(vq, times)
-                else:
-                    pred, vq = self(pred, times)
+            pred, _ = self(source, times)
 
-            pred, _ = self._sample_patches(x[-1], y[-1], pred)
-            
             # Calculate L1
             if seg is not None:
                 L1_loss = self.L1_loss(target, pred, seg)
             else:
                 L1_loss = self.L1_loss(target, pred)
 
+            # Calculate VQ loss
             if self.use_vq:
                 vq_loss = sum(self.UNet.losses)
             else:
                 vq_loss = 0
+
             total_loss = L1_loss + vq_loss
             self.L1_metric.update_state(L1_loss)
             self.vq_metric.update_state(vq_loss)
@@ -153,25 +123,10 @@ class Model(tf.keras.Model):
     @tf.function
     def test_step(self, source, target, seg=None, times=None):
 
-        # Down-sample source image
-        source = self._downsample_images(source)
-
-        # Randomise segments of image to sample, iteratively get random indices of smaller segments
-        x, y, target_x, target_y = self._get_scale_indices()
-        target, seg = self._sample_patches(target_x, target_y, target, seg)
-
-        # Perform multi-scale inference
-        source, _ = self._sample_patches(x[0], y[0], source)
-        pred, vq = self(source, times)
-
-        for i in range(1, len(self.scales) - 1):
-            pred, vq = self._sample_patches(x[i], y[i], pred, vq)
-            if self.intermediate_vq:
-                pred, vq = self(vq, times)
-            else:
-                pred, vq = self(pred, times)
-
-        pred, _ = self._sample_patches(x[-1], y[-1], pred)
+        # Get random image patch and generate predicted target
+        x, y = self._get_scale_indices()
+        source, target, seg = self._sample_patches(x, y, source, target, seg)
+        pred, _ = self(source, times)
 
         # Calculate L1
         if seg is not None:
@@ -179,10 +134,12 @@ class Model(tf.keras.Model):
         else:
             L1_loss = self.L1_loss(target, pred)
 
+        # Calculate VQ loss
         if self.use_vq:
             vq_loss = sum(self.UNet.losses)
         else:
             vq_loss = 0
+
         total_loss = L1_loss + vq_loss
         self.L1_metric.update_state(L1_loss)
         self.vq_metric.update_state(vq_loss)
@@ -192,38 +149,32 @@ class Model(tf.keras.Model):
 
         # Want higher probability of training on more central regions
         if np.random.randn() > 0.5:
-            target_x = np.random.randint(0, self.scales[0])
-            target_y = np.random.randint(0, self.scales[0])
+            x = np.random.randint(0, self.scales[0])
+            y = np.random.randint(0, self.scales[0])
         else:
-            target_x = np.random.randint(self.scales[0] / 4, self.scales[0] - self.scales[0] / 4)
-            target_y = np.random.randint(self.scales[0] / 4, self.scales[0] - self.scales[0] / 4)
+            x = np.random.randint(self.scales[0] / 4, self.scales[0] - self.scales[0] / 4)
+            y = np.random.randint(self.scales[0] / 4, self.scales[0] - self.scales[0] / 4)
 
-        binary_rep = bin(target_x)[2:]
-        source_x = [0 for _ in range(len(self.scales) - len(binary_rep))]
-        for c in binary_rep:
-            source_x.append(int(c))
+        return x, y
 
-        binary_rep = bin(target_y)[2:]
-        source_y = [0 for _ in range(len(self.scales) - len(binary_rep))]
-        for c in binary_rep:
-            source_y.append(int(c))
-
-        return source_x, source_y, target_x, target_y
-
-    def _downsample_images(self, img):
-        img = img[:, ::self.scales[0], ::self.scales[0], :, :]
-        return img
-
-    def _sample_patches(self, x, y, img1, img2=None):
+    def _sample_patches(self, x, y, source, target, seg=None):
         x_img = x * self.img_dims[0]
         y_img = y * self.img_dims[1]
-        img1 = img1[:, x_img:(x_img + self.img_dims[0]), y_img:(y_img + self.img_dims[1]), :, :]
+        source = source[:, x_img:(x_img + self.img_dims[0]), y_img:(y_img + self.img_dims[1]), :, :]
+        target = target[:, x_img:(x_img + self.img_dims[0]), y_img:(y_img + self.img_dims[1]), :, :]
 
-        if img2 is not None:
-            img2 = img2[:, x_img:(x_img + self.img_dims[0]), y_img:(y_img + self.img_dims[1]), :, :]
+        if seg is not None:
+            seg = seg[:, x_img:(x_img + self.img_dims[0]), y_img:(y_img + self.img_dims[1]), :, :]
 
-        return img1, img2
+        return source, target, seg
 
+    def example_inference(self, source, target, seg=None, times=None):
+        ex_x = self.scales[0] // 2
+        ex_y = self.scales[0] // 2
+        source, target, _ = self._sample_patches(ex_x, ex_y, source, target, seg)
+        pred, _ = self(source, times)
+
+        return source, target, pred
 
     def reset_train_metrics(self):
         for metric in self.metrics:

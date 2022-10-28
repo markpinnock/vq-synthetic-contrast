@@ -16,7 +16,10 @@ def get_train_dataloader(config: dict):
     if config["data"]["times"] is not None:
         output_types += ["times"]
 
-    config["data"]["scales"] = config["hyperparameters"]["scales"]
+    try:
+        config["data"]["scales"] = config["hyperparameters"]["scales"]
+    except KeyError:
+        config["data"]["scales"] = [8]
 
     # Initialise datasets and set normalisation parameters
     TrainGenerator = ImgLoader(config=config["data"], dataset_type="training")
@@ -68,9 +71,11 @@ def get_test_dataloader(config: dict,
     # Create dataloader
     if by_subject:
         # Specify output types
-        output_types = {"source": "float32",
-                        "subject_ID": tf.string,
-                        "coords": "int32"}
+        output_types = {
+            "source": "float32",
+            "subject_ID": tf.string,
+            "coords": "int32"
+        }
 
         assert TestGenerator.__class__.__name__ == "UnpairedLoader", "Only works with unpaired loader" 
         data_path = config["data"]["data_path"]

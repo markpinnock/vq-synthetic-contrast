@@ -144,17 +144,13 @@ class TrainingLoop:
             data_generator = self.val_generator
 
         data = data_generator.example_images()
+        source, target, pred = self.Model.example_inference(**data)
 
-        if "times" in data.keys():
-            pred = self.Model(data["source"], data["times"]).numpy()
-        else:
-            pred = self.Model(data["source"], None).numpy()
-
-        source = data_generator.un_normalise(data["source"])
-        target = data_generator.un_normalise(data["target"])
+        source = data_generator.un_normalise(source)
+        target = data_generator.un_normalise(target)
         pred = data_generator.un_normalise(pred)
 
-        fig, axs = plt.subplots(target.shape[0], 5)
+        _, axs = plt.subplots(target.shape[0], 5)
 
         for i in range(target.shape[0]):
             axs[i, 0].imshow(source[i, :, :, 11, 0], cmap="gray", vmin=-150, vmax=250)
@@ -173,6 +169,6 @@ class TrainingLoop:
         if tuning_path:
             plt.savefig(f"{tuning_path}.png", dpi=250)
         else:
-            plt.savefig(self.image_save_path / phase / epoch / ".png", dpi=250)
+            plt.savefig(self.image_save_path / phase / f"{epoch}.png", dpi=250)
 
         plt.close()
