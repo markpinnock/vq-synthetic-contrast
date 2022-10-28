@@ -6,7 +6,7 @@ import sys
 import tensorflow as tf
 import yaml
 
-from vec_quant_sCE.networks.model import Model
+from vec_quant_sCE.networks.build_model import build_model
 from vec_quant_sCE.trainingloops.training_loop import TrainingLoop
 from vec_quant_sCE.utils.build_dataloader import get_train_dataloader
 
@@ -20,10 +20,8 @@ def train(CONFIG):
     # Get datasets and data generator
     train_ds, val_ds, train_gen, val_gen = get_train_dataloader(CONFIG)
 
-    # Compile model
-    model = Model(CONFIG)
-    optimiser = tf.keras.optimizers.Adam(*CONFIG["hyperparameters"]["opt"], name="opt")
-    model.compile(optimiser)
+    # Get model
+    model = build_model(CONFIG)
 
     if CONFIG["expt"]["verbose"]:
         model.summary()

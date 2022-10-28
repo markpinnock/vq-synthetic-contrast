@@ -31,6 +31,13 @@ class TrainingLoop:
         self.log_save_path = expt_path / "logs"
         self.SAVE_EVERY = config["expt"]["save_every"]
 
+        if "scales" not in config["hyperparameters"].keys():
+            self.multi_scale = False
+        elif len(config["hyperparameters"]["scales"]) == 1:
+            self.multi_scale = False
+        else:
+            self.multi_scale = True
+
         if not os.path.exists(self.image_save_path / "train"):
             os.mkdir(self.image_save_path / "train")
 
@@ -119,8 +126,12 @@ class TrainingLoop:
 
             # Save example images
             if (epoch + 1) % self.SAVE_EVERY == 0:
-                self._save_images(epoch + 1, phase="train")
-                self._save_images(epoch + 1, phase="validation")
+                if self.multi_scale:
+                    self._save_multiscale_images(epoch + 1, phase="train")
+                    self._save_multiscale_images(epoch + 1, phase="validation")
+                else:
+                    self._save_images(epoch + 1, phase="train")
+                    self._save_images(epoch + 1, phase="validation")
 
             # Save model if necessary
             if (epoch + 1) % self.SAVE_EVERY == 0 and self.config["expt"]["save_model"]:
@@ -163,6 +174,48 @@ class TrainingLoop:
             axs[i, 2].axis("off")
             axs[i, 4].imshow(np.abs(target[i, :, :, 11, 0] - pred[i, :, :, 11, 0]), norm=mpl.colors.CenteredNorm(), cmap="bwr")
             axs[i, 4].axis("off")
+
+        plt.tight_layout()
+
+        if tuning_path:
+            plt.savefig(f"{tuning_path}.png", dpi=250)
+        else:
+            plt.savefig(self.image_save_path / phase / f"{epoch}.png", dpi=250)
+
+        plt.close()
+
+    def _save_multiscale_images(self, epoch, phase="validation", tuning_path=None):
+
+        """ Saves sample of images from multi-scale U-Net """
+
+        if phase == "train":
+            data_generator = self.train_generator
+        
+        elif phase == "validation":
+            data_generator = self.val_generator
+
+        data = data_generator.example_images()
+        source, target, pred = self.Model.example_inference(**data)
+
+        source = data_generator.un_normalise(source)
+        target = data_generator.un_normalise(target)
+        for img in pred.values():
+            img = data_generator.un_normalise(img)
+
+        _, axs = plt.subplots(target.shape[0], 4 + len(pred.keys()))
+
+        for i in range(target.shape[0]):
+            axs[i, 0].imshow(source[i, :, :, 11, 0], cmap="gray", vmin=-150, vmax=250)
+            axs[i, 0].axis("off")
+            for j, img in enumerate(pred.values()):
+                axs[i, 1 + j].imshow(img[i, :, :, 11, 0], cmap="gray", vmin=-150, vmax=250)
+                axs[i, 1 + j].axis("off")
+            axs[i, 2 + j].imshow(target[i, :, :, 11, 0], cmap="gray", vmin=-150, vmax=250)
+            axs[i, 2 + j].axis("off")
+            axs[i, 3 + j].imshow(target[i, :, :, 11, 0] - source[i, :, :, 11, 0], norm=mpl.colors.CenteredNorm(), cmap="bwr")
+            axs[i, 3 + j].axis("off")
+            axs[i, 4 + j].imshow(np.abs(target[i, :, :, 11, 0] - list(pred.values())[-1][i, :, :, 11, 0]), norm=mpl.colors.CenteredNorm(), cmap="bwr")
+            axs[i, 4 + j].axis("off")
 
         plt.tight_layout()
 

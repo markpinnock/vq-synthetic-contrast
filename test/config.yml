@@ -16,7 +16,7 @@ data:
 expt:
     mb_size: 4
     save_every: 10
-    epochs: 100
+    epochs: 1000
     verbose: true # Output model summary
     graph: false # Save graph for visualisation in Tensorboard
     log_scalars: true # Log losses for visualisation in Tensorboard
@@ -27,10 +27,10 @@ hyperparameters:
     scales: [4, 2, 1]
     opt: [1.0e-4, 0.5, 0.999]
     mu: 0.0 # Focal loss weighting (0.0 == OFF)
-    nf: 32 # Generator starting channels
-    layers: 3
+    nf: 64 # Generator starting channels
+    layers: 4
     upsample_layer: true # Additional up-sampling layer on output
-    time_layers: ["up_0", "up_1"]
+    time_layers: ["up_0", "up_1", "up_2"]
     vq_layers: {"bottom": 128}
     vq_time: false
     vq_beta: 0.25
