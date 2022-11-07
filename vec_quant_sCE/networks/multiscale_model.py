@@ -92,42 +92,46 @@ class MultiscaleModel(tf.keras.Model):
         # Down-sample source image
         source = self._downsample_images(source)
 
-        # Randomise segments of image to sample, get patch indices for each scale
-        x, y, target_x, target_y = self._get_scale_indices()
-        target, seg = self._sample_patches(target_x, target_y, target, seg)
+        # Iterate over image patches, get patch indices for each scale
+        xs = list(range(self.scales[0]))
+        ys = list(range(self.scales[0]))
+        for target_x in xs:
+            for target_y in ys:
+                x, y, target_x, target_y = self._get_scale_indices(target_x, target_y)
+                target_patch, seg_patch = self._sample_patches(target_x, target_y, target, seg)
 
-        with tf.GradientTape(persistent=True) as tape:
-            # Perform multi-scale training
-            source, _ = self._sample_patches(x[0], y[0], source)
-            pred, vq = self(source, times)
+                with tf.GradientTape(persistent=True) as tape:
+                    # Perform multi-scale training
+                    source_patch, _ = self._sample_patches(x[0], y[0], source)
+                    pred, vq = self(source_patch, times)
 
-            for i in range(1, len(self.scales) - 1):
-                pred, vq = self._sample_patches(x[i], y[i], pred, vq)
-                if self.intermediate_vq:
-                    pred, vq = self(vq, times)
-                else:
-                    pred, vq = self(pred, times)
+                    for i in range(1, len(self.scales) - 1):
+                        pred, vq = self._sample_patches(x[i], y[i], pred, vq)
+                        if self.intermediate_vq:
+                            pred, vq = self(vq, times)
+                        else:
+                            pred, vq = self(pred, times)
 
-            pred, _ = self._sample_patches(x[-1], y[-1], pred)
-            
-            # Calculate L1
-            if seg is not None:
-                L1_loss = self.L1_loss(target, pred, seg)
-            else:
-                L1_loss = self.L1_loss(target, pred)
+                    pred, _ = self._sample_patches(x[-1], y[-1], pred)
+                    
+                    # Calculate L1
+                    if seg is not None:
+                        L1_loss = self.L1_loss(target_patch, pred, seg_patch)
+                    else:
+                        L1_loss = self.L1_loss(target_patch, pred)
 
-            if self.use_vq:
-                vq_loss = sum(self.UNet.losses)
-            else:
-                vq_loss = 0
-            total_loss = L1_loss + vq_loss
-            self.L1_metric.update_state(L1_loss)
-            self.vq_metric.update_state(vq_loss)
-            self.total_metric.update_state(total_loss)
+                    if self.use_vq:
+                        vq_loss = sum(self.UNet.losses)
+                    else:
+                        vq_loss = 0
+                    total_loss = L1_loss + vq_loss
+                    self.L1_metric.update_state(L1_loss)
+                    self.vq_metric.update_state(vq_loss)
+                    self.total_metric.update_state(total_loss)
 
-        # Get gradients and update weights
-        grads = tape.gradient(total_loss, self.UNet.trainable_variables)
-        self.optimiser.apply_gradients(zip(grads, self.UNet.trainable_variables))
+                # Get gradients and update weights
+                grads = tape.gradient(total_loss, self.UNet.trainable_variables)
+                self.optimiser.apply_gradients(zip(grads, self.UNet.trainable_variables))
 
     @tf.function
     def test_step(self, source, target, seg=None, times=None):
@@ -135,37 +139,41 @@ class MultiscaleModel(tf.keras.Model):
         # Down-sample source image
         source = self._downsample_images(source)
 
-        # Randomise segments of image to sample, iteratively get random indices of smaller segments
-        x, y, target_x, target_y = self._get_scale_indices()
-        target, seg = self._sample_patches(target_x, target_y, target, seg)
+        # Iterate over image patches, get patch indices for each scale
+        xs = list(range(self.scales[0]))
+        ys = list(range(self.scales[0]))
+        for target_x in xs:
+            for target_y in ys:
+                x, y, target_x, target_y = self._get_scale_indices(target_x, target_y)
+                target_patch, seg_patch = self._sample_patches(target_x, target_y, target, seg)
 
-        # Perform multi-scale inference
-        source, _ = self._sample_patches(x[0], y[0], source)
-        pred, vq = self(source, times)
+                # Perform multi-scale inference
+                source_patch, _ = self._sample_patches(x[0], y[0], source)
+                pred, vq = self(source_patch, times)
 
-        for i in range(1, len(self.scales) - 1):
-            pred, vq = self._sample_patches(x[i], y[i], pred, vq)
-            if self.intermediate_vq:
-                pred, vq = self(vq, times)
-            else:
-                pred, vq = self(pred, times)
+                for i in range(1, len(self.scales) - 1):
+                    pred, vq = self._sample_patches(x[i], y[i], pred, vq)
+                    if self.intermediate_vq:
+                        pred, vq = self(vq, times)
+                    else:
+                        pred, vq = self(pred, times)
 
-        pred, _ = self._sample_patches(x[-1], y[-1], pred)
+                pred, _ = self._sample_patches(x[-1], y[-1], pred)
 
-        # Calculate L1
-        if seg is not None:
-            L1_loss = self.L1_loss(target, pred, seg)
-        else:
-            L1_loss = self.L1_loss(target, pred)
+                # Calculate L1
+                if seg is not None:
+                    L1_loss = self.L1_loss(target_patch, pred, seg_patch)
+                else:
+                    L1_loss = self.L1_loss(target_patch, pred)
 
-        if self.use_vq:
-            vq_loss = sum(self.UNet.losses)
-        else:
-            vq_loss = 0
-        total_loss = L1_loss + vq_loss
-        self.L1_metric.update_state(L1_loss)
-        self.vq_metric.update_state(vq_loss)
-        self.total_metric.update_state(total_loss)
+                if self.use_vq:
+                    vq_loss = sum(self.UNet.losses)
+                else:
+                    vq_loss = 0
+                total_loss = L1_loss + vq_loss
+                self.L1_metric.update_state(L1_loss)
+                self.vq_metric.update_state(vq_loss)
+                self.total_metric.update_state(total_loss)
 
     def _get_scale_indices(self, target_x=None, target_y=None):
         if target_x is None or target_y is None:
