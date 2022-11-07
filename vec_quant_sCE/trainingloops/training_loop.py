@@ -33,7 +33,7 @@ class TrainingLoop:
 
         if "scales" not in config["hyperparameters"].keys():
             self.multi_scale = False
-        elif len(config["hyperparameters"]["scales"]) == 1:
+        elif config["hyperparameters"]["scales"] == [1]:
             self.multi_scale = False
         else:
             self.multi_scale = True
@@ -199,8 +199,8 @@ class TrainingLoop:
 
         source = data_generator.un_normalise(source)
         target = data_generator.un_normalise(target)
-        for img in pred.values():
-            img = data_generator.un_normalise(img)
+        for scale in pred.keys():
+            pred[scale] = data_generator.un_normalise(pred[scale])
 
         _, axs = plt.subplots(target.shape[0], 4 + len(pred.keys()))
 

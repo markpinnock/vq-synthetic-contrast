@@ -16,7 +16,7 @@ data:
 expt:
     mb_size: 4
     save_every: 10
-    epochs: 1000
+    epochs: 100
     verbose: true # Output model summary
     graph: false # Save graph for visualisation in Tensorboard
     log_scalars: true # Log losses for visualisation in Tensorboard

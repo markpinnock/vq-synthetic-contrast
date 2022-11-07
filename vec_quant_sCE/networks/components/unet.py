@@ -123,6 +123,7 @@ class UNet(tf.keras.Model):
                     vq_config=vq_config,
                     name=f"up_{i + 1}")
                 )
+            self.upsample = tf.keras.layers.UpSampling3D(size=(2, 2, 1))
 
         self.final_layer = tf.keras.layers.Conv3DTranspose(
             1, (4, 4, 4), (2, 2, 2),
@@ -143,6 +144,7 @@ class UNet(tf.keras.Model):
         skip_layers = []
 
         if len(self.decoder) > len(self.encoder):
+            upsampled_x = self.upsample(x)
             skip_layers.append(x[:, :, :, ::2, :])
 
         for layer in self.encoder:
@@ -170,6 +172,9 @@ class UNet(tf.keras.Model):
             x = self.final_layer(x, t, training=True)
         else:
             x = self.final_layer(x, training=True)
+
+        if len(self.decoder) > len(self.encoder):
+            x = x + upsampled_x
 
         if self.output_vq is None:
             return x, None

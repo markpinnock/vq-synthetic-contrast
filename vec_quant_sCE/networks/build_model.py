@@ -12,7 +12,7 @@ MODEL_DICT = {
 def build_model(config: dict, purpose: str = "training"):
     if "scales" not in config["hyperparameters"].keys():
         model_type = "single_scale"
-    elif len(config["hyperparameters"]["scales"]) == 1:
+    elif config["hyperparameters"]["scales"] == [1]:
         model_type = "single_scale"
     else:
         model_type = "multi_scale"
