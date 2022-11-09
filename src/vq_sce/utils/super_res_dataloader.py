@@ -327,7 +327,7 @@ if __name__ == "__main__":
 
     test_config = yaml.load(open(Path("vec_quant_sCE/utils/test_config.yml"), 'r'), Loader=yaml.FullLoader)
 
-    TestLoader = ImgLoader(config=test_config["data"], dataset_type="training")
+    TestLoader = SuperResDataloader(config=test_config["data"], dataset_type="training")
 
     output_types = ["source", "target"]
 

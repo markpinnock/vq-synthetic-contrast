@@ -6,9 +6,9 @@ import sys
 import tensorflow as tf
 import yaml
 
-from vec_quant_sCE.networks.build_model import build_model
-from vec_quant_sCE.trainingloops.training_loop import TrainingLoop
-from vec_quant_sCE.utils.build_dataloader import get_train_dataloader
+from vq_sce.networks.build_model import build_model
+from vq_sce.trainingloops.training_loop import TrainingLoop
+from vq_sce.utils.build_dataloader import get_train_dataloader
 
 
 #-------------------------------------------------------------------------

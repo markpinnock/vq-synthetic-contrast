@@ -28,8 +28,8 @@ def get_train_dataloader(config: dict):
         config["data"]["scales"] = [8]
 
     # Initialise datasets and set normalisation parameters
-    TrainGenerator = ImgLoader(config=config["data"], dataset_type="training")
-    ValGenerator = ImgLoader(config=config["data"], dataset_type="validation")
+    TrainGenerator = ContrastDataloader(config=config["data"], dataset_type="training")
+    ValGenerator = ContrastDataloader(config=config["data"], dataset_type="validation")
 
     # Create dataloader
     train_ds = tf.data.Dataset.from_generator(
@@ -69,7 +69,7 @@ def get_test_dataloader(config: dict,
     config["data"]["times"] = None
 
     # Initialise datasets and set normalisation parameters
-    TestGenerator = ImgLoader(config=config["data"], dataset_type="validation")
+    TestGenerator = ContrastDataloader(config=config["data"], dataset_type="validation")
 
     # So Pix2Pix doesn't raise that error
     config["data"]["times"] = temp_times

@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-from vec_quant_sCE.utils.affinetransformation import AffineTransform2D
+from vq_sce.utils.affinetransformation import AffineTransform2D
 
 
 #-------------------------------------------------------------------------
@@ -110,7 +110,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     import numpy as np
     import yaml
-    from vec_quant_sCE.utils.dataloader import ImgLoader
+    from vq_sce.utils.contrast_dataloader import ImgLoader
 
     test_config = yaml.load(open("vec_quant_sCE/utils/test_config.yml", 'r'), Loader=yaml.FullLoader)
 

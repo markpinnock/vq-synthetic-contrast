@@ -1,9 +1,10 @@
-from setuptools import find_packages, setup
+from setuptools import find_namespace_packages, setup
 
 
 setup(
     name='vec-quant-sCE',
-    packages=find_packages(),
+    packages=find_namespace_packages(where='src'),
+    package_dir={'': 'src'},
     version='0.1.0',
     description=(
         'Vector quantization for synthetic contrast enhancement'
@@ -12,8 +13,8 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
-            'train=vec_quant_sCE.cli.training:main',
-            'predict=vec_quant_sCE.cli.inference:main',
+            'train=vq_sce.cli.training:main',
+            'predict=vq_sce.cli.inference:main',
         ],
     },
 )

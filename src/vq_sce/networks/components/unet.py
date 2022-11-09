@@ -178,9 +178,13 @@ class UNet(tf.keras.Model):
         else:
             x = self.final_layer(x, training=True)
 
-        x = x + upsampled_x
-
         if self.output_vq is None:
-            return x, None
+            return (
+                x + upsampled_x,
+                None
+            )
         else:
-            return x, self.output_vq(x)
+            return (
+                x + upsampled_x,
+                self.output_vq(x) + upsampled_x
+            )

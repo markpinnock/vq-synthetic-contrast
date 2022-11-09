@@ -2,8 +2,8 @@ import numpy as np
 import tensorflow as tf
 
 from .components.unet import UNet
-from vec_quant_sCE.utils.augmentation import StdAug
-from vec_quant_sCE.utils.losses import L1, FocalLoss
+from vq_sce.utils.augmentation import StdAug
+from vq_sce.utils.losses import L1, FocalLoss
 
 
 #-------------------------------------------------------------------------
