@@ -22,6 +22,7 @@ class UNet(tf.keras.Model):
         assert len(img_dims) == 3, "3D input only"
         max_num_layers = int(np.log2(np.min([img_dims[0], img_dims[1]])))
         max_z_downsample = int(np.floor(np.log2(img_dims[2])))
+        self.upsample_layer = config["upsample_layer"]
         
         if config["time_layers"] is not None:
             self.time_layers = config["time_layers"]
@@ -112,18 +113,17 @@ class UNet(tf.keras.Model):
 
         use_vq = f"up_{i + 1}" in self.vq_layers
         if use_vq: vq_config["embeddings"] = config["vq_layers"][f"up_{i + 1}"]
-        if config["upsample_layer"]:
-            self.decoder.append(
-                UpBlock(
-                    channels,
-                    (4, 4, 2),
-                    (2, 2, 1),
-                    initialiser=initialiser,
-                    use_vq=use_vq,
-                    vq_config=vq_config,
-                    name=f"up_{i + 1}")
-                )
-            self.upsample = tf.keras.layers.UpSampling3D(size=(2, 2, 1))
+        if self.upsample_layer:
+            self.upsample_in = tf.keras.layers.UpSampling3D(size=(2, 2, 1))
+            self.upsample_out = UpBlockNoSkip(
+                channels,
+                (4, 4, 2),
+                (2, 2, 1),
+                initialiser=initialiser,
+                use_vq=use_vq,
+                vq_config=vq_config,
+                name=f"up_{i + 1}"
+            )
 
         self.final_layer = tf.keras.layers.Conv3DTranspose(
             1, (4, 4, 4), (2, 2, 2),
@@ -143,9 +143,11 @@ class UNet(tf.keras.Model):
     def call(self, x, t=None):
         skip_layers = []
 
-        if len(self.decoder) > len(self.encoder):
-            upsampled_x = self.upsample(x)
-            skip_layers.append(x[:, :, :, ::2, :])
+        if self.upsample_layer:
+            upsampled_x = self.upsample_in(x)
+            #skip_layers.append(x[:, :, :, ::2, :])
+        else:
+            upsampled_x = x
 
         for layer in self.encoder:
             if layer.name in self.time_layers:
@@ -168,13 +170,15 @@ class UNet(tf.keras.Model):
             else:
                 x = tconv(x, skip, training=True)
 
+        if self.upsample_layer:
+            x = self.upsample_out(x)
+
         if self.final_layer.name in self.time_layers:
             x = self.final_layer(x, t, training=True)
         else:
             x = self.final_layer(x, training=True)
 
-        if len(self.decoder) > len(self.encoder):
-            x = x + upsampled_x
+        x = x + upsampled_x
 
         if self.output_vq is None:
             return x, None

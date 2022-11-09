@@ -6,13 +6,13 @@ import os
 from pathlib import Path
 import tensorflow as tf
 
-from vec_quant_sCE.utils.patch_utils import generate_indices, extract_patches
+from vq_sce.utils.patch_utils import generate_indices, extract_patches
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------
 """ ImgLoader class: data_generator method for use with tf.data.Dataset.from_generator """
 
-class ImgLoader:
+class ContrastDataloader:
     def __init__(self, config: dict, dataset_type: str):
         # Expects at least two sub-folders within data folder e.g. "AC", "VC, "HQ"
         self.img_path = Path(config["data_path"]) / "Images"

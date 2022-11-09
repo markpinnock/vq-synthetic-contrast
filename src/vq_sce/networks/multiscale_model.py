@@ -45,7 +45,7 @@ class MultiscaleModel(tf.keras.Model):
     def compile(self, optimiser):
         self.optimiser = optimiser
 
-        if self.config["expt"]["focal"]:
+        if self.config["hyperparameters"]["mu"] > 0.0:
             self.L1_loss = FocalLoss(self.config["hyperparameters"]["mu"], name="FocalLoss")
         else:
             self.L1_loss = L1
@@ -227,10 +227,12 @@ class MultiscaleModel(tf.keras.Model):
             pred, vq = self._sample_patches(x[i], y[i], pred, vq)
             if self.intermediate_vq:
                 pred, vq = self(vq, times)
+                preds[str(self.scales[i])] = vq
             else:
                 pred, vq = self(pred, times)
-            preds[str(self.scales[i])] = pred
-        pred, _ = self._sample_patches(x[-1], y[-1], pred)
+                preds[str(self.scales[i])] = pred
+
+        pred, vq = self._sample_patches(x[-1], y[-1], pred, vq)
         preds[str(self.scales[-1])] = pred
 
         return source_patch, target, preds

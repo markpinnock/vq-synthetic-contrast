@@ -2,7 +2,13 @@ import glob
 from pathlib import Path
 import tensorflow as tf
 
-from .dataloader import ImgLoader
+from vq_sce.utils.contrast_dataloader import ContrastDataloader
+from vq_sce.utils.super_res_dataloader import SuperResDataloader
+
+DATALOADER_DICT = {
+    "contrast": ContrastDataloader,
+    "super_res": SuperResDataloader
+}
 
 
 def get_train_dataloader(config: dict):
