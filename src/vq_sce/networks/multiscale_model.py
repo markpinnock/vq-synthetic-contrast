@@ -20,6 +20,7 @@ class MultiscaleModel(tf.keras.Model):
         config["hyperparameters"]["img_dims"] = self.img_dims
         self.intermediate_vq = "output" in config["hyperparameters"]["vq_layers"]
         self.scales = config["hyperparameters"]["scales"]
+        config["hyperparameters"]["upsample_layer"] = True
 
         if config["hyperparameters"]["time_layers"] is None:
             self.input_times = False

@@ -33,7 +33,7 @@ class TrainingLoop:
 
         if "scales" not in config["hyperparameters"].keys():
             self.multi_scale = False
-        elif config["hyperparameters"]["scales"] == [1]:
+        elif len(config["hyperparameters"]["scales"]) == 1:
             self.multi_scale = False
         else:
             self.multi_scale = True

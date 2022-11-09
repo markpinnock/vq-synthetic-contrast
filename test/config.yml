@@ -2,6 +2,7 @@ paths:
     cuda_path: "/usr/local/cuda/lib64"
 data:
     data_path: "D:/ProjectImages/SyntheticContrast"
+    type: "contrast"
     target: ["AC", "VC"]
     source: ["HQ"]
     segs: ["AC"]
@@ -15,7 +16,7 @@ data:
     fold: 5
 expt:
     mb_size: 4
-    save_every: 1
+    save_every: 10
     epochs: 100
     verbose: true # Output model summary
     graph: false # Save graph for visualisation in Tensorboard
@@ -28,9 +29,8 @@ hyperparameters:
     mu: 0.2 # Focal loss weighting (0.0 == OFF)
     nf: 64 # Generator starting channels
     layers: 4
-    upsample_layer: true # Additional up-sampling layer on output
     time_layers: ["up_0", "up_1", "up_2"]
-    vq_layers: {"bottom": 128, "output": 64}
+    vq_layers: {"bottom": 512}
     vq_time: false
     vq_beta: 0.25
 augmentation:

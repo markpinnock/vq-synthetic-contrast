@@ -18,6 +18,7 @@ class Model(tf.keras.Model):
         self.mb_size = config["expt"]["mb_size"]
         self.img_dims = config["data"]["patch_size"]
         config["hyperparameters"]["img_dims"] = self.img_dims
+        config["hyperparameters"]["upsample_layer"] = False
         self.intermediate_vq = "output" in config["hyperparameters"]["vq_layers"]
         self.scales = [
             config["augmentation"]["img_dims"][0] // config["data"]["patch_size"][0]
@@ -47,7 +48,7 @@ class Model(tf.keras.Model):
     def compile(self, optimiser):
         self.optimiser = optimiser
 
-        if self.config["expt"]["focal"]:
+        if self.config["hyperparameters"]["mu"] > 0.0:
             self.L1_loss = FocalLoss(self.config["hyperparameters"]["mu"], name="FocalLoss")
         else:
             self.L1_loss = L1

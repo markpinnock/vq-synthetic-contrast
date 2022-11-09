@@ -8,52 +8,29 @@ import tensorflow as tf
 
 from vq_sce.utils.patch_utils import generate_indices, extract_patches
 
+SEED = 5
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------
 """ ImgLoader class: data_generator method for use with tf.data.Dataset.from_generator """
 
 class SuperResDataloader:
     def __init__(self, config: dict, dataset_type: str):
-        # Expects at least two sub-folders within data folder e.g. "AC", "VC, "HQ"
-        self.img_path = Path(config["data_path"]) / "Images"
-        self.seg_path = Path(config["data_path"]) / "Segmentations"
+        self._source_path = Path(config["data_path"]) / "source"
+        self._target_path = Path(config["data_path"]) / "target"
         self._dataset_type = dataset_type
-        self.config = config
-        self.down_sample = config["down_sample"]
-        self.num_targets = len(config["target"])
+        self._config = config
+        self._down_sample = config["down_sample"]
         self._patch_size = config["patch_size"]
-        if config["times"] is not None:
-            self._json = json.load(open(Path(config["data_path"]) / config["times"], 'r'))
-        else:
-            self._json = None
 
-        self.param_1 = self.config["norm_param_1"]
-        self.param_2 = self.config["norm_param_2"]
+        self._param_1 = config["norm_param_1"]
+        self._param_2 = config["norm_param_2"]
 
         # Optional list of targets and sources e.g. ["AC", "VC"], ["HQ"]
-        self._targets = []
-        self._sources = []
-        self._segs = []
-
-        if len(config["target"]) > 0:
-            for key in config["target"]:
-                self._targets += [t for t in os.listdir(self.img_path) if key in t]
-
-        elif len(config["target"]) == 0:
-            self._targets += os.listdir(self.img_path)
-
-        if len(config["source"]) > 0:
-            for key in config["source"]:
-                self._sources += [s for s in os.listdir(self.img_path) if key in s]
-
-        elif len(config["source"]) == 0:
-            self._sources += os.listdir(self.img_path)
-        
-        if len(config["segs"]) > 0:
-            self._segs += os.listdir(self.seg_path)
+        self._sources = os.listdir(self._source_path)
+        self._targets = os.listdir(self._target_path)
 
         print("==================================================")
-        print(f"Data: {len(self._targets)} targets, {len(self._sources)} sources, {len(self._segs)} segmentations")
+        print(f"Data: {len(self._targets)} targets, {len(self._sources)} sources")
         print(f"Using unpaired loader for {self._dataset_type}")
 
         self.train_val_split()
@@ -76,7 +53,7 @@ class SuperResDataloader:
                 "target": self._normalise(self._ex_targets)
                 }
     
-    def train_val_split(self, seed: int = 5) -> None:
+    def train_val_split(self) -> None:
         # Get unique subject IDs for subject-level train/val split
         self._unique_ids = []
 
@@ -101,23 +78,20 @@ class SuperResDataloader:
             self._subject_imgs[key] = sorted(self._subject_imgs[key], key=lambda x: int(x[-3:]))
 
         if self.config["fold"] > self.config["cv_folds"] - 1:
-            raise ValueError(f"Fold number {self.config['fold']} of {self.config['cv_folds']} folds")
+            raise ValueError(f"Fold number {self._config['fold']} of {self._config['cv_folds']} folds")
 
-        np.random.seed(seed)
+        np.random.seed(SEED)
         N = len(self._unique_ids)
         np.random.shuffle(self._unique_ids)
 
         # Split into folds by subject
         if self.config["cv_folds"] > 1:
-            if seed == None:
-                self._unique_ids.sort()
-
-            num_in_fold = N // self.config["cv_folds"]
+            num_in_fold = N // self._config["cv_folds"]
 
             if self._dataset_type == "training":
-                fold_ids = self._unique_ids[0:self.config["fold"] * num_in_fold] + self._unique_ids[(self.config["fold"] + 1) * num_in_fold:]
+                fold_ids = self._unique_ids[0:self._config["fold"] * num_in_fold] + self._unique_ids[(self._config["fold"] + 1) * num_in_fold:]
             elif self._dataset_type == "validation":
-                fold_ids = self._unique_ids[self.config["fold"] * num_in_fold:(self.config["fold"] + 1) * num_in_fold]
+                fold_ids = self._unique_ids[self._config["fold"] * num_in_fold:(self._config["fold"] + 1) * num_in_fold]
             else:
                 raise ValueError("Select 'training' or 'validation'")
 
@@ -130,7 +104,6 @@ class SuperResDataloader:
         elif self.config["cv_folds"] == 1:
             self._fold_targets = self._targets
             self._fold_sources = self._sources
-            self._fold_segs = self._segs
         
         else:
             raise ValueError("Number of folds must be > 0")
@@ -325,7 +298,7 @@ if __name__ == "__main__":
 
     """ Routine for visually testing dataloader """
 
-    test_config = yaml.load(open(Path("vec_quant_sCE/utils/test_config.yml"), 'r'), Loader=yaml.FullLoader)
+    test_config = yaml.load(open(Path("src/vq_sce/utils/test_config.yml"), 'r'), Loader=yaml.FullLoader)
 
     TestLoader = SuperResDataloader(config=test_config["data"], dataset_type="training")
 

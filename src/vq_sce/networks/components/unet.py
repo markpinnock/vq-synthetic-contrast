@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-from .layer.layers import DownBlock, UpBlock, UpBlockNoSkip, VQBlock
+from .layer.layers import DownBlock, UpBlock, BottomBlock, UpBlockNoSkip, VQBlock
 
 
 class UNet(tf.keras.Model):
@@ -74,10 +74,10 @@ class UNet(tf.keras.Model):
 
         use_vq = "bottom" in self.vq_layers
         if use_vq: vq_config["embeddings"] = config["vq_layers"]["bottom"]
-        self.bottom_layer = DownBlock(
+        self.bottom_layer = BottomBlock(
             channels,
             kernel,
-            strides,
+            (1, 1, 1),
             initialiser=initialiser,
             use_vq=use_vq,
             vq_config=vq_config,
@@ -115,7 +115,7 @@ class UNet(tf.keras.Model):
         if use_vq: vq_config["embeddings"] = config["vq_layers"][f"up_{i + 1}"]
         if self.upsample_layer:
             self.upsample_in = tf.keras.layers.UpSampling3D(size=(2, 2, 1))
-            self.upsample_out = UpBlockNoSkip(
+            self.upsample_out = UpBlock(
                 channels,
                 (4, 4, 2),
                 (2, 2, 1),
@@ -125,8 +125,8 @@ class UNet(tf.keras.Model):
                 name=f"up_{i + 1}"
             )
 
-        self.final_layer = tf.keras.layers.Conv3DTranspose(
-            1, (4, 4, 4), (2, 2, 2),
+        self.final_layer = tf.keras.layers.Conv3D(
+            1, (4, 4, 4), (1, 1, 1),
             padding="same", activation="linear",
             kernel_initializer=initialiser, name="output")
 
@@ -145,17 +145,16 @@ class UNet(tf.keras.Model):
 
         if self.upsample_layer:
             upsampled_x = self.upsample_in(x)
-            #skip_layers.append(x[:, :, :, ::2, :])
         else:
             upsampled_x = x
 
         for layer in self.encoder:
             if layer.name in self.time_layers:
-                x = layer(x, t, training=True)
+                x, skip = layer(x, t, training=True)
             else:
-                x = layer(x, training=True)
+                x, skip = layer(x, training=True)
 
-            skip_layers.append(x)
+            skip_layers.append(skip)
 
         if self.bottom_layer.name in self.time_layers:
             x = self.bottom_layer(x, t, training=True)
@@ -171,7 +170,7 @@ class UNet(tf.keras.Model):
                 x = tconv(x, skip, training=True)
 
         if self.upsample_layer:
-            x = self.upsample_out(x)
+            x = self.upsample_out(x, upsampled_x)
 
         if self.final_layer.name in self.time_layers:
             x = self.final_layer(x, t, training=True)

@@ -1,5 +1,7 @@
 import tensorflow as tf
 
+WEIGHT_SCALE = 0.02
+
 
 #-------------------------------------------------------------------------
 """ Instance normalisation layer for Pix2Pix generator """
@@ -34,7 +36,8 @@ class DownBlock(tf.keras.layers.Layer):
 
     def __init__(self, nc, weights, strides, initialiser, use_vq, vq_config, name=None):
         super().__init__(name=name)
-        self.conv = tf.keras.layers.Conv3D(nc, weights, strides=strides, padding="same", kernel_initializer=initialiser, name="conv")
+        self.conv1 = tf.keras.layers.Conv3D(nc, weights, strides=(1, 1, 1), padding="same", kernel_initializer=initialiser, name="conv1")
+        self.conv2 = tf.keras.layers.Conv3D(nc, weights, strides=strides, padding="same", kernel_initializer=initialiser, name="conv2")
         self.use_vq = use_vq
         self.vq_time = False
         if use_vq:
@@ -42,15 +45,72 @@ class DownBlock(tf.keras.layers.Layer):
             self.vq_time = vq_config["vq_time"]
 
         # Normalisation
-        self.inst_norm = InstanceNorm(name="instancenorm")
+        self.inst_norm_1 = InstanceNorm(name="instancenorm1")
+        self.inst_norm_2 = InstanceNorm(name="instancenorm2")
 
     def call(self, x, t=None, training=True):
         if t is not None and self.vq_time is False:
             tiled_time = tf.tile(tf.reshape(t, [-1, 1, 1, 1, 1]), [1] + x.shape[1:4] + [1], "time_tile")
             x = tf.concat([x, tiled_time], axis=4, name="time_concat")
 
-        x = self.conv(x)
-        x = self.inst_norm(x, training=training)
+        # 1st convolution - output to skip layer
+        x = self.conv1(x)
+        x = self.inst_norm_1(x, training=training)
+        x = tf.nn.relu(x)
+        skip = x
+
+        # 2nd convolution and down-sample
+        x = self.conv2(x)
+        x = self.inst_norm_2(x, training=training)
+
+        if self.use_vq and self.vq_time is False:
+            x = self.vq(x)
+        elif self.use_vq and self.vq_time is True:
+            x = self.vq(x, t)
+        else:
+            pass
+
+        return tf.nn.relu(x), skip
+
+
+#-------------------------------------------------------------------------
+""" Bottom convolutional block """
+
+class BottomBlock(tf.keras.layers.Layer):
+
+    """ Input:
+        - nc: number of feature maps
+        - strides: tuple of strides e.g. (2, 2, 1)
+        - initialiser: e.g. keras.initializers.RandomNormal
+        - batch_norm: True/False """
+
+    def __init__(self, nc, weights, strides, initialiser, use_vq, vq_config, name=None):
+        super().__init__(name=name)
+        self.conv1 = tf.keras.layers.Conv3D(nc, weights, strides=strides, padding="same", kernel_initializer=initialiser, name="conv1")
+        self.conv2 = tf.keras.layers.Conv3D(nc, weights, strides=strides, padding="same", kernel_initializer=initialiser, name="conv2")
+        self.use_vq = use_vq
+        self.vq_time = False
+        if use_vq:
+            self.vq = VQBlock(vq_config["embeddings"], nc, vq_config["vq_beta"], name=f"{name}_vq")
+            self.vq_time = vq_config["vq_time"]
+
+        # Normalisation
+        self.inst_norm_1 = InstanceNorm(name="instancenorm1")
+        self.inst_norm_2 = InstanceNorm(name="instancenorm2")
+
+    def call(self, x, t=None, training=True):
+        if t is not None and self.vq_time is False:
+            tiled_time = tf.tile(tf.reshape(t, [-1, 1, 1, 1, 1]), [1] + x.shape[1:4] + [1], "time_tile")
+            x = tf.concat([x, tiled_time], axis=4, name="time_concat")
+
+        # 1st convolution
+        x = self.conv1(x)
+        x = self.inst_norm_1(x, training=training)
+        x = tf.nn.relu(x)
+
+        # 2nd convolution
+        x = self.conv2(x)
+        x = self.inst_norm_2(x, training=training)
 
         if self.use_vq and self.vq_time is False:
             x = self.vq(x)
@@ -77,7 +137,8 @@ class UpBlock(tf.keras.layers.Layer):
     def __init__(self, nc, weights, strides, initialiser, use_vq, vq_config, name=None):
         super().__init__(name=name)
         self.tconv = tf.keras.layers.Conv3DTranspose(nc, weights, strides=strides, padding="same", kernel_initializer=initialiser, name="tconv")
-        self.conv = tf.keras.layers.Conv3D(nc, weights, strides=(1, 1, 1), padding="same", kernel_initializer=initialiser, name="conv")
+        self.conv1 = tf.keras.layers.Conv3D(nc, weights, strides=(1, 1, 1), padding="same", kernel_initializer=initialiser, name="conv1")
+        self.conv2 = tf.keras.layers.Conv3D(nc, weights, strides=(1, 1, 1), padding="same", kernel_initializer=initialiser, name="conv1")
 
         self.use_vq = use_vq
         self.vq_time = False
@@ -86,6 +147,7 @@ class UpBlock(tf.keras.layers.Layer):
             self.vq_time = vq_config["vq_time"]
 
         # Instance normalisation
+        self.inst_norm_t = InstanceNorm(name="instancenormt")
         self.inst_norm_1 = InstanceNorm(name="instancenorm1")
         self.inst_norm_2 = InstanceNorm(name="instancenorm2")
 
@@ -96,11 +158,17 @@ class UpBlock(tf.keras.layers.Layer):
             tiled_time = tf.tile(tf.reshape(t, [-1, 1, 1, 1, 1]), [1] + x.shape[1:4] + [1], "time_tile")
             x = tf.concat([x, tiled_time], axis=4, name="time_concat")
 
+        # Transpose convolution and up-sample
         x = self.tconv(x)
+        x = self.inst_norm_t(x)
+        x = tf.nn.relu(x)
+
+        # 1st and 2nd convolutions
+        x = self.concat([x, skip])
+        x = self.conv1(x)
         x = self.inst_norm_1(x)
         x = tf.nn.relu(x)
-        x = self.concat([x, skip])
-        x = self.conv(x)
+        x = self.conv2(x)
         x = self.inst_norm_2(x)
 
         if self.use_vq and self.vq_time is False:
@@ -114,7 +182,7 @@ class UpBlock(tf.keras.layers.Layer):
 
 
 #-------------------------------------------------------------------------
-""" Up-sampling convolutional block with skip layer"""
+""" Up-sampling convolutional block without skip layer"""
 
 class UpBlockNoSkip(tf.keras.layers.Layer):
 
@@ -162,6 +230,10 @@ class UpBlockNoSkip(tf.keras.layers.Layer):
 
 
 #-------------------------------------------------------------------------
+
+
+
+#-------------------------------------------------------------------------
 """ Vector quantization layer -
     adapted from https://keras.io/examples/generative/vq_vae
     https://arxiv.org/pdf/2207.06189.pdf """
@@ -197,6 +269,7 @@ class VQBlock(tf.keras.layers.Layer):
 
         if self.embedding_dim == 1:
             quantized = tf.reduce_sum(idx_one_hot * self.dictionary, axis=1)
+            quantized *= WEIGHT_SCALE
         else:
             quantized = tf.matmul(idx_one_hot, self.dictionary, transpose_b=True) # NHWD X C
 

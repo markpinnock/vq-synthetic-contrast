@@ -16,8 +16,10 @@ def get_train_dataloader(config: dict):
     # Specify output types
     output_types = ["source", "target"]
 
-    if len(config["data"]["segs"]) > 0:
+    if config["data"]["segs"] is not None:
         output_types += ["seg"]
+    else:
+        assert config["hyperparameters"]["mu"] == 0.0
     
     if config["data"]["times"] is not None:
         output_types += ["times"]
@@ -28,8 +30,9 @@ def get_train_dataloader(config: dict):
         config["data"]["scales"] = [8]
 
     # Initialise datasets and set normalisation parameters
-    TrainGenerator = ContrastDataloader(config=config["data"], dataset_type="training")
-    ValGenerator = ContrastDataloader(config=config["data"], dataset_type="validation")
+    Dataloader = DATALOADER_DICT[config["data"]["type"]]
+    TrainGenerator = Dataloader(config=config["data"], dataset_type="training")
+    ValGenerator = Dataloader(config=config["data"], dataset_type="validation")
 
     # Create dataloader
     train_ds = tf.data.Dataset.from_generator(
@@ -44,13 +47,14 @@ def get_train_dataloader(config: dict):
 
     return train_ds, val_ds, TrainGenerator, ValGenerator
 
+
 #-------------------------------------------------------------------------
 
 def get_test_dataloader(config: dict,
                          by_subject: bool = False,
                          mb_size: int = None,
                          stride_length: int = None):
-
+    raise NotImplementedError
     assert mb_size is not None, "Set minibatch size"
     assert stride_length is not None, "Set stride length"
 

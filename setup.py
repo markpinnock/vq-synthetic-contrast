@@ -2,7 +2,7 @@ from setuptools import find_namespace_packages, setup
 
 
 setup(
-    name='vec-quant-sCE',
+    name='vq-sce',
     packages=find_namespace_packages(where='src'),
     package_dir={'': 'src'},
     version='0.1.0',
