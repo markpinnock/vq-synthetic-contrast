@@ -18,7 +18,10 @@ class MultiscaleModel(tf.keras.Model):
         self.mb_size = config["expt"]["mb_size"]
         self.img_dims = config["data"]["patch_size"]
         config["hyperparameters"]["img_dims"] = self.img_dims
-        self.intermediate_vq = "output" in config["hyperparameters"]["vq_layers"]
+        if config["hyperparameters"]["vq_layers"] is not None:
+            self.intermediate_vq = "output" in config["hyperparameters"]["vq_layers"]
+        else:
+            self.intermediate_vq = False
         self.scales = config["hyperparameters"]["scales"]
         config["hyperparameters"]["upsample_layer"] = True
 

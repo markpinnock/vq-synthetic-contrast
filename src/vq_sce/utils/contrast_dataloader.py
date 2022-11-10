@@ -325,7 +325,7 @@ if __name__ == "__main__":
 
     """ Routine for visually testing dataloader """
 
-    test_config = yaml.load(open(Path("vec_quant_sCE/utils/test_config.yml"), 'r'), Loader=yaml.FullLoader)
+    test_config = yaml.load(open(Path("src/vq_sce/utils/test_config.yml"), 'r'), Loader=yaml.FullLoader)
 
     TestLoader = ContrastDataloader(config=test_config["data"], dataset_type="training")
 

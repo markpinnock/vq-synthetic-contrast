@@ -1,9 +1,9 @@
 data:
-    data_path: "D:/ProjectImages/SuperRes"
-    target: ["HQ"]
-    source: ["LQ"]
+    data_path: "D:/ProjectImages/SyntheticContrast"
+    target: ["AC"]
+    source: ["HQ"]
     segs: ["AC"]
-    times: "times_ordinal.json"
+    times: null
     down_sample: 1
     patch_size: [64, 64, 12]
     norm_param_1: -500
