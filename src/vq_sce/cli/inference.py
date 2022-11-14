@@ -1,8 +1,8 @@
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
-import os
 from pathlib import Path
+import SimpleITK as itk
 import tensorflow as tf
 import yaml
 
@@ -52,33 +52,18 @@ def inference(config: dict, save: bool):
 
         if save:
             save_path = config["paths"]["expt_path"] / "predictions"
-            if not os.path.exists(save_path): os.mkdir(save_path)
-
-            if args.phase == "AC":
-                np.save(f"{save_path}/{subject_id[0:6]}AP{subject[-3:]}", AC)
-            elif args.phase == "VC":
-                np.save(f"{save_path}/{subject_id[0:6]}VP{subject[-3:]}", VC)
-            elif args.phase == "both":
-                np.save(f"{save_path}/{subject[0:6]}AP{subject[-3:]}", AC)
-                np.save(f"{save_path}/{subject[0:6]}VP{subject[-3:]}", VC)
-            else:
-                raise ValueError
-
+            save_path.mkdir(parents=True, exist_ok=True)
+            img_nrrd = itk.GetImageFromArray(pred).astype("int16").transpose([2, 0, 1])
+            itk.WriteImage(img_nrrd, save_path / f"{subject_id}.nrrd")
             print(f"{subject_id} saved")
 
         else:
             print(subject_id)
-            plt.subplot(2, 2, 1)
-            plt.imshow(AC[:, :, 32], cmap="gray", vmin=-150, vmax=250)
+            plt.subplot(1, 2, 1)
+            plt.imshow(pred[:, :, 32], cmap="gray", vmin=-150, vmax=250)
             plt.axis("off")
-            plt.subplot(2, 2, 2)
-            plt.imshow(np.flipud(AC[128, :, :].T), cmap="gray", vmin=-150, vmax=250)
-            plt.axis("off")
-            plt.subplot(2, 2, 3)
-            plt.imshow(VC[:, :, 32], cmap="gray", vmin=-150, vmax=250)
-            plt.axis("off")
-            plt.subplot(2, 2, 4)
-            plt.imshow(np.flipud(VC[128, :, :].T), cmap="gray", vmin=-150, vmax=250)
+            plt.subplot(1, 2, 2)
+            plt.imshow(np.flipud(pred[128, :, :].T), cmap="gray", vmin=-150, vmax=250)
             plt.axis("off")
             plt.show()
 
