@@ -1,0 +1,4 @@
+matplotlib>=3.4
+pyyaml==6.0
+scikit-image>=0.18
+tensorflow==2.9.1
