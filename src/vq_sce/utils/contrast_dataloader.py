@@ -6,8 +6,6 @@ import os
 from pathlib import Path
 import tensorflow as tf
 
-from vq_sce.utils.patch_utils import generate_indices, extract_patches
-
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------
 """ ImgLoader class: data_generator method for use with tf.data.Dataset.from_generator """
@@ -49,7 +47,7 @@ class ContrastDataloader:
         elif len(config["source"]) == 0:
             self._sources += os.listdir(self.img_path)
         
-        if len(config["segs"]) > 0:
+        if config["segs"] is not None:
             self._segs += os.listdir(self.seg_path)
 
         print("==================================================")
@@ -147,8 +145,8 @@ class ContrastDataloader:
             except ValueError:
                 ex_targets_list = [np.random.choice([t for t in self._fold_targets if s[0:6] in t and 'VC' in t and t not in s]) for s in ex_sources_list[0:len(ex_sources_list)]]
 
-        ex_sources = [np.load(Path(self.img_path) / img)[::self.down_sample, ::self.down_sample, :] for img in ex_sources_list]
-        ex_targets = [np.load(Path(self.img_path) / img)[::self.down_sample, ::self.down_sample, :] for img in ex_targets_list]
+        ex_sources = [np.load(self.img_path / img)[::self.down_sample, ::self.down_sample, :] for img in ex_sources_list]
+        ex_targets = [np.load(self.img_path / img)[::self.down_sample, ::self.down_sample, :] for img in ex_targets_list]
         ex_sources_stack = []
         ex_targets_stack = []
 
@@ -232,17 +230,16 @@ class ContrastDataloader:
             source_name = self._fold_sources[i]
             names = self.img_pairer(source_name)
             source_name = names["source"]
-            source = np.load(Path(self.img_path) / source_name)[::self.down_sample, ::self.down_sample, :]
+            source = np.load(self.img_path / source_name)[::self.down_sample, ::self.down_sample, :]
             source = self._normalise(source)
 
             for target_name in names["target"]:
-                target = np.load(Path(self.img_path) / target_name)[::self.down_sample, ::self.down_sample, :]
+                target = np.load(self.img_path / target_name)[::self.down_sample, ::self.down_sample, :]
                 target = self._normalise(target)
 
                 total_depth = target.shape[2]
                 num_iter = total_depth // self._patch_size[2]
 
-                # TODO: allow using different seg channels
                 if len(self._fold_segs) > 0:
                     candidate_segs = glob.glob(str(Path(self.seg_path) / f"{target_name[0:6]}AC*{target_name[-4:]}"))
                     assert len(candidate_segs) == 1, candidate_segs
@@ -261,7 +258,6 @@ class ContrastDataloader:
                         "target": sub_target
                     }
 
-                    # TODO: allow using different seg channels
                     if seg is not None:
                         sub_seg = seg[:, :, z:(z + self._patch_size[2]), np.newaxis]
                         data_dict["seg"] = sub_seg
@@ -281,41 +277,12 @@ class ContrastDataloader:
         # Pair source and target images
         while i < N:
             source_name = self._fold_sources[i]
-
-            if len(self.sub_folders) == 0:
-                source = np.load(Path(self._img_paths) / source_name)
-            else:
-                source = np.load(Path(self._img_paths[source_name[6:8]]) / source_name)
-
+            source = np.load(self.img_path / source_name)
             source = self._normalise(source)
-            patches, indices = extract_patches(source, self.config["xy_patch"], self.config["stride_length"], self._patch_size, self.down_sample)
 
-            for patch, index in zip(patches, indices):
-                yield {"source": patch, "subject_ID": source_name, "x": index[0], "y": index[1], "z": index[2]}
+            yield {"source": source, "subject_id": source_name.split('.')[0]}
 
             i += 1
-
-    def subject_generator(self, source_name):
-        source_name = source_name.decode("utf-8")
-
-        if len(self.sub_folders) == 0:
-            source = np.load(Path(self._img_paths) / source_name)
-        else:
-            source = np.load(Path(self._img_paths[source_name[6:8]]) / source_name)
-
-        # Linear coords are what we'll use to do our patch updates in 1D
-        # E.g. [1, 2, 3
-        #       4, 5, 6
-        #       7, 8, 9]
-        linear_coords = generate_indices(source, self.config["stride_length"], self._patch_size, self.down_sample)
-
-        source = self._normalise(source)
-        linear_source = tf.reshape(source, -1)
-
-        for coords in linear_coords:
-            patch = tf.reshape(tf.gather(linear_source, coords), self._patch_size + [1])
-
-            yield {"source": patch, "subject_ID": source_name, "coords": coords}
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------

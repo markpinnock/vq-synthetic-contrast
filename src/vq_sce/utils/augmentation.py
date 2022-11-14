@@ -12,7 +12,7 @@ class StdAug(tf.keras.layers.Layer):
         super().__init__(name=name)
 
         # If segmentations available, these can be stacked on the target for transforming
-        if len(config["segs"]) > 0:
+        if config["segs"] is not None:
             self.transform = AffineTransform2D(config["img_dims"] + [2])
         else:
             self.transform = AffineTransform2D(config["img_dims"] + [1])

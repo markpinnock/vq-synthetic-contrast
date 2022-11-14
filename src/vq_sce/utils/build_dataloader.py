@@ -10,6 +10,8 @@ DATALOADER_DICT = {
     "super_res": SuperResDataloader
 }
 
+INFERENCE_MB_SIZE = 1
+
 
 def get_train_dataloader(config: dict):
 
@@ -50,33 +52,22 @@ def get_train_dataloader(config: dict):
 
 #-------------------------------------------------------------------------
 
-def get_test_dataloader(config: dict,
-                         by_subject: bool = False,
-                         mb_size: int = None,
-                         stride_length: int = None):
-    raise NotImplementedError
-    assert mb_size is not None, "Set minibatch size"
-    assert stride_length is not None, "Set stride length"
+def get_test_dataloader(
+    config: dict,
+    by_subject: bool = False,
+    stride_length: int = None
+):
 
     # Inference-specific config settings
     config["data"]["cv_folds"] = 1
     config["data"]["fold"] = 0
-    config["data"]["segs"] = []
+    config["data"]["segs"] = None
     config["data"]["xy_patch"] = True
     config["data"]["stride_length"] = stride_length
-    config["expt"]["mb_size"] = mb_size
-
-    # Pix2Pix raises an error if no time json is provided
-    # (to ensure we don't ask for time encoding layers with
-    # no time data) but we don't want the dataloader reading this in...
-    temp_times = config["data"]["times"]
-    config["data"]["times"] = None
 
     # Initialise datasets and set normalisation parameters
-    TestGenerator = ContrastDataloader(config=config["data"], dataset_type="validation")
-
-    # So Pix2Pix doesn't raise that error
-    config["data"]["times"] = temp_times
+    Dataloader = DATALOADER_DICT[config["data"]["type"]]
+    TestGenerator = Dataloader(config=config["data"], dataset_type="validation")
 
     # Create dataloader
     if by_subject:
@@ -87,7 +78,6 @@ def get_test_dataloader(config: dict,
             "coords": "int32"
         }
 
-        assert TestGenerator.__class__.__name__ == "UnpairedLoader", "Only works with unpaired loader" 
         data_path = config["data"]["data_path"]
         source_list = glob.glob(str(Path(data_path) / "Images" / "*HQ*"))
         source_list = [f[-15:] for f in source_list]
@@ -104,15 +94,10 @@ def get_test_dataloader(config: dict,
         return subject_datasets, TestGenerator
 
     else:
-        # Specify output types (x, y, and z are the coords of the patch)
-        output_types = {"source": "float32",
-                        "subject_ID": tf.string,
-                        "x": "int32",
-                        "y": "int32",
-                        "z": "int32"}
+        output_types = {"source": "float32", "subject_id": tf.string}
 
         test_ds = tf.data.Dataset.from_generator(
             generator=TestGenerator.inference_generator,
-            output_types=output_types).batch(config["expt"]["mb_size"])
+            output_types=output_types).batch(INFERENCE_MB_SIZE)
 
         return test_ds, TestGenerator

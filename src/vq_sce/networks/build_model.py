@@ -24,7 +24,8 @@ def build_model(config: dict, purpose: str = "training"):
         model.compile(optimiser)
         return model
     elif purpose == "inference":
-        model.load_weights()
+        _ = model(tf.zeros([1] + config["data"]["patch_size"] + [1]))
+        model.UNet.load_weights(config["paths"]["expt_path"] / "models" / "model.ckpt")
         return model
     else:
         raise ValueError("Purpose must be 'training' or 'inference'")

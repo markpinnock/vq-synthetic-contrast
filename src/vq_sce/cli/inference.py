@@ -1,69 +1,73 @@
 import argparse
-import glob
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+from pathlib import Path
 import tensorflow as tf
 import yaml
 
-from syntheticcontrast_v02.networks.models import get_model
-from syntheticcontrast_v02.utils.build_dataloader import get_test_dataloader
-from syntheticcontrast_v02.utils.combine_patches import CombinePatches
+from vq_sce.networks.build_model import build_model
+from vq_sce.utils.build_dataloader import get_test_dataloader
+from vq_sce.utils.combine_patches import CombinePatches
+from vq_sce.utils.patch_utils import extract_patches
+
+STRIDE_LENGTH = 16
 
 
 #-------------------------------------------------------------------------
 
-def inference(CONFIG, args):
-    assert args.phase in ["AC", "VC", "both"], args.phase
-    times = args.time.split(",")
-    assert len(times) == 2
-    times = [float(t) for t in times]
+def inference(config: dict, save: bool):
+    patch_size = config["data"]["patch_size"]
+    mb_size = config["expt"]["mb_size"]
 
-    test_ds_dict, TestGenerator = get_test_dataloader(config=CONFIG,
-                                                      by_subject=True,
-                                                      mb_size=args.minibatch,
-                                                      stride_length=args.stride)
+    test_ds, TestGenerator = get_test_dataloader(
+        config=config,
+        by_subject=False,
+        stride_length=STRIDE_LENGTH
+    )
 
-    Model = get_model(config=CONFIG, purpose="inference")
+    model = build_model(config=config, purpose="inference")
+    combine = CombinePatches(STRIDE_LENGTH)
 
-    Combine = CombinePatches(CONFIG)
+    for data in test_ds:
+        source = data["source"][0, ...]
+        subject_id = data["subject_id"]
+        combine.new_subject(source.shape)
 
-    for subject, test_ds in test_ds_dict.items():
+        patches, indices = extract_patches(source, STRIDE_LENGTH, patch_size)
+        patch_stack = tf.stack(patches, axis=0)
+        num_patches = patch_stack.shape[0]
+        pred_list = []
 
-        # Get original img dims
-        original_img = glob.glob(f"{CONFIG['data']['data_path']}/Images/{subject}*")[0]
-        img_dims = np.load(original_img).shape
-        Combine.new_subject(img_dims)
+        for i in range(0, num_patches, mb_size):
+            print(i, i + mb_size)
+            pred_mb = model(patch_stack[i:(i + mb_size), ...])
+            pred_list.append(pred_mb)
 
-        for data in test_ds:
-            AC_pred = Model(data["real_source"], tf.ones([data["real_source"].shape[0], 1]) * times[0])
-            VC_pred = Model(data["real_source"], tf.ones([data["real_source"].shape[0], 1]) * times[1])
+        pred_stack = tf.stack(pred_list, axis=0)
+        pred_stack = TestGenerator.un_normalise(pred_stack)[:, :, :, :, 0]
 
-            AC_pred = TestGenerator.un_normalise(AC_pred)[:, :, :, :, 0].numpy()
-            VC_pred = TestGenerator.un_normalise(VC_pred)[:, :, :, :, 0].numpy()
+        combine.apply_patches(pred_stack, indices)
+        pred = combine.get_img()
 
-            Combine.apply_patches(AC_pred, VC_pred, data["coords"])
-
-        AC = Combine.get_AC()
-        VC = Combine.get_VC()
-
-        if args.save:
-            save_path = f"{CONFIG['paths']['expt_path']}/predictions"
-            print(f"{subject} saved")
+        if save:
+            save_path = config["paths"]["expt_path"] / "predictions"
             if not os.path.exists(save_path): os.mkdir(save_path)
 
             if args.phase == "AC":
-                np.save(f"{save_path}/{subject[0:6]}AP{subject[-3:]}", AC)
+                np.save(f"{save_path}/{subject_id[0:6]}AP{subject[-3:]}", AC)
             elif args.phase == "VC":
-                np.save(f"{save_path}/{subject[0:6]}VP{subject[-3:]}", VC)
+                np.save(f"{save_path}/{subject_id[0:6]}VP{subject[-3:]}", VC)
             elif args.phase == "both":
                 np.save(f"{save_path}/{subject[0:6]}AP{subject[-3:]}", AC)
                 np.save(f"{save_path}/{subject[0:6]}VP{subject[-3:]}", VC)
             else:
                 raise ValueError
 
+            print(f"{subject_id} saved")
+
         else:
-            print(subject)
+            print(subject_id)
             plt.subplot(2, 2, 1)
             plt.imshow(AC[:, :, 32], cmap="gray", vmin=-150, vmax=250)
             plt.axis("off")
@@ -77,32 +81,33 @@ def inference(CONFIG, args):
             plt.imshow(np.flipud(VC[128, :, :].T), cmap="gray", vmin=-150, vmax=250)
             plt.axis("off")
             plt.show()
-    
+
 
 #-------------------------------------------------------------------------
 
-if __name__ == "__main__":
-
-    """ Inference routine """
-
+def main():
     # Handle arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", "-p", help="Expt path", type=str)
     parser.add_argument("--data", '-d', help="Data path", type=str)
-    parser.add_argument("--phase", '-f', help="Phase: AC/VC/both", type=str, default="both")
     parser.add_argument("--minibatch", '-m', help="Minibatch size", type=int, default=128)
-    parser.add_argument("--stride", '-st', help="Stride length", type=int, default=16)
-    parser.add_argument("--time", '-tt', help="Phase time, comma separated", type=str, default="1,2")
     parser.add_argument("--save", '-s', help="Save images", action="store_true")
     arguments = parser.parse_args()
 
-    EXPT_PATH = arguments.path
+    expt_path = Path(arguments.path)
 
     # Parse config json
-    with open(f"{EXPT_PATH}/config.yml", 'r') as infile:
-        CONFIG = yaml.load(infile, yaml.FullLoader)
+    with open(expt_path / "config.yml", 'r') as infile:
+        config = yaml.load(infile, yaml.FullLoader)
+
+    config["paths"]["expt_path"] = Path(arguments.path)
+    config["data"]["data_path"] = Path(arguments.data)
+    config["expt"]["mb_size"] = arguments.minibatch
     
-    CONFIG["paths"]["expt_path"] = arguments.path
-    CONFIG["data"]["data_path"] = arguments.data
-    
-    inference(CONFIG, arguments)
+    inference(config, arguments.save)
+
+
+#-------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    main()

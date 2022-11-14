@@ -5,7 +5,7 @@ data:
     segs: ["AC"]
     times: null
     down_sample: 1
-    patch_size: [64, 64, 12]
+    patch_size: [64, 64, 64]
     norm_param_1: -500
     norm_param_2: 2500
     num_examples: 4
@@ -13,7 +13,7 @@ data:
     fold: 2
 augmentation:
     use: true
-    img_dims: [256, 256, 12]
+    img_dims: [256, 256, 64]
     depth: 64
     flip_prob: 0.5
     rotation: 45.0

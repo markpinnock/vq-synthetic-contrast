@@ -19,7 +19,10 @@ class Model(tf.keras.Model):
         self.img_dims = config["data"]["patch_size"]
         config["hyperparameters"]["img_dims"] = self.img_dims
         config["hyperparameters"]["upsample_layer"] = False
-        self.intermediate_vq = "output" in config["hyperparameters"]["vq_layers"]
+        if config["hyperparameters"]["vq_layers"] is not None:
+            self.intermediate_vq = "output" in config["hyperparameters"]["vq_layers"]
+        else:
+            self.intermediate_vq = False
         self.scales = [
             config["augmentation"]["img_dims"][0] // config["data"]["patch_size"][0]
         ]
