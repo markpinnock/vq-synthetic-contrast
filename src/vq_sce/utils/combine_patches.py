@@ -14,18 +14,17 @@ class CombinePatches:
         self.stride_length = stride_length
 
     def new_subject(self, subject_dims: list) -> None:
-        self.HWD_dims = subject_dims
-        self.DHW_dims = [self.HWD_dims[2], self.HWD_dims[0], self.HWD_dims[1]]
+        self.DHW_dims = subject_dims
         self.linear_img_size = tf.reduce_prod(self.DHW_dims)
         self.linear = tf.zeros(self.linear_img_size, "int16")
         self.linear_weights = np.zeros(self.linear_img_size, "int16")
 
         # Need linear coords for our (HWD) dim order
-        self.linear_coords = tf.reshape(tf.range(self.linear_img_size), self.HWD_dims)
+        self.linear_coords = tf.reshape(tf.range(self.linear_img_size), self.DHW_dims)
 
     def get_img(self) -> np.ndarray:
         linear = tf.cast(tf.round(self.linear / self.linear_weights), "int16")
-        img = tf.reshape(linear, self.HWD_dims)
+        img = tf.reshape(linear, self.DHW_dims)
 
         return img.numpy()
 
@@ -54,29 +53,27 @@ if __name__ == "__main__":
 
     """ Quick routine to visually check output of CombinePatches """
 
-    # stride = 2
-    # patch_size = [2, 2, 2]
-    # test_config = {"data": {"stride_length": stride}}
-
-    # Combine = CombinePatches(test_config)
-
-    # im = np.zeros((8, 8, 5))
-    # im[0:4, 0:4, 0:2] = 1
-    # im[-4:, -4:, 0:2] = 1
-    # im[0:4, -4:, -2:] = 1
-    # im[-4:, 0:4, -2:] = 1
-
-    stride = 8
-    patch_size = [16, 16, 16]
+    stride = 2
+    patch_size = [2, 2, 2]
     Combine = CombinePatches(stride)
 
-    im = np.zeros((64, 64, 64))
-    im[0:32, 0:32, 0:16] = 1
-    im[-32:, -32:, 0:16] = 1
-    im[0:32, -32:, -16:] = 1
-    im[-32:, 0:32, -16:] = 1
+    im = np.zeros((4, 8, 8))
+    im[0:2, 0:4, 0:4] = 1
+    im[0:2, -4:, -4:] = 1
+    im[-2:, -4:, 0:4] = 1
+    im[-2:, 0:4, -4:] = 1
 
-    indices = generate_indices(im, stride_length=stride, patch_size=patch_size, downsample=1)
+    # stride = 8
+    # patch_size = [16, 16, 16]
+    # Combine = CombinePatches(stride)
+
+    # im = np.zeros((32, 64, 64))
+    # im[0:16, 0:32, 0:32] = 1
+    # im[0:16, -32:, -32:] = 1
+    # im[-16:, 0:32, -32:] = 1
+    # im[-16:, -32:, 0:32] = 1
+
+    indices = generate_indices(im, stride_length=stride, patch_size=patch_size)
     linear_img = np.reshape(im, -1)
     linear_img_size = tf.reduce_prod(linear_img.shape)
     single_coords = tf.reshape(tf.range(linear_img_size), im.shape)
@@ -87,13 +84,14 @@ if __name__ == "__main__":
         patches_to_stack.append(patch.numpy())
 
     mb = np.squeeze(np.stack(patches_to_stack, axis=0)).astype("int16")
+
     idx_mb = tf.stack(indices, axis=0)
     print(idx_mb.shape, mb.shape)
     Combine.new_subject(im.shape)
     Combine.apply_patches(mb, idx_mb)
     img = Combine.get_img()
 
-    plt.imshow(img[:, :, 0])
+    plt.imshow(img[0, :, :])
     plt.show()
-    plt.imshow(img[:, :, -1])
+    plt.imshow(img[-1, :, :])
     plt.show()
