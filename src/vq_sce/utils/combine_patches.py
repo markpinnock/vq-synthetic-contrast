@@ -16,27 +16,29 @@ class CombinePatches:
     def new_subject(self, subject_dims: list) -> None:
         self.DHW_dims = subject_dims
         self.linear_img_size = tf.reduce_prod(self.DHW_dims)
-        self.linear = tf.zeros(self.linear_img_size, "int16")
-        self.linear_weights = np.zeros(self.linear_img_size, "int16")
+        self.reset()
 
         # Need linear coords for our (HWD) dim order
         self.linear_coords = tf.reshape(tf.range(self.linear_img_size), self.DHW_dims)
 
-    def get_img(self) -> np.ndarray:
-        linear = tf.cast(tf.round(self.linear / self.linear_weights), "int16")
+    def get_img(self, int16: bool = True) -> np.ndarray:
+        if not int16:
+            linear = self.linear / self.linear_weights
+        else:
+            linear = tf.cast(tf.round(self.linear / self.linear_weights), "int16")
         img = tf.reshape(linear, self.DHW_dims)
 
         return img.numpy()
 
     def reset(self) -> None:
-        self.linear = tf.zeros(self.linear_img_size, "int16")
-        self.linear_weights = np.zeros(self.linear_img_size, "int16")
+        self.linear = tf.zeros(self.linear_img_size)
+        self.linear_weights = np.zeros(self.linear_img_size)
 
     def apply_patches(self, patches, coords) -> None:
         # Flatten minibatch of linear coords
         coords = tf.reshape(coords, [-1, 1])
+        update = tf.reshape(patches, -1)
 
-        update = tf.cast(tf.round(tf.reshape(patches, -1)), "int16")
         # Update 1D image with patches
         self.linear = tf.tensor_scatter_nd_add(self.linear, coords, update)
 

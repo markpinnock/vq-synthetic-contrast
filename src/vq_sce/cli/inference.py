@@ -9,11 +9,7 @@ import yaml
 from vq_sce.networks.build_model import build_model
 from vq_sce.utils.build_dataloader import get_test_dataloader
 from vq_sce.utils.combine_patches import CombinePatches
-from vq_sce.utils.patch_utils import (
-    generate_indices,
-    extract_patches,
-    scale_indices
-)
+from vq_sce.utils.patch_utils import generate_indices, extract_patches
 
 STRIDE_LENGTH = 16
 
@@ -24,6 +20,7 @@ def inference(config: dict, save: bool):
     save_path = config["paths"]["expt_path"] / "predictions"
     save_path.mkdir(parents=True, exist_ok=True)
     patch_size = config["data"]["patch_size"]
+    strides = [STRIDE_LENGTH, STRIDE_LENGTH, STRIDE_LENGTH]
     mb_size = config["expt"]["mb_size"]
 
     test_ds, TestGenerator = get_test_dataloader(
@@ -41,7 +38,7 @@ def inference(config: dict, save: bool):
         subject_id = data["subject_id"][0].numpy().decode("utf-8")
         combine.new_subject(source.shape)
 
-        linear_coords = generate_indices(source, STRIDE_LENGTH, patch_size)
+        linear_coords = generate_indices(source.shape, strides, patch_size)
         patch_stack = extract_patches(source, linear_coords, patch_size)
         patch_stack = tf.transpose(patch_stack, [0, 2, 3, 1, 4])    # TODO CHANGE
         num_patches = patch_stack.shape[0]
@@ -80,6 +77,9 @@ def multiscale_inference(config: dict, save: bool):
     save_path = config["paths"]["expt_path"] / "predictions"
     save_path.mkdir(parents=True, exist_ok=True)
     patch_size = config["data"]["patch_size"]
+    upscale_patch_size = (patch_size[2], patch_size[1] * 2, patch_size[0] * 2)
+    strides = (STRIDE_LENGTH, STRIDE_LENGTH, STRIDE_LENGTH)
+    upscale_strides = (STRIDE_LENGTH, STRIDE_LENGTH * 2, STRIDE_LENGTH * 2)
     mb_size = config["expt"]["mb_size"]
     dn_samp = config["hyperparameters"]["scales"][0]
     num_scales = len(config["hyperparameters"]["scales"])
@@ -95,35 +95,52 @@ def multiscale_inference(config: dict, save: bool):
 
     for data in test_ds:
         source = data["source"][0, ...]
-        source = tf.transpose(source, [2, 0, 1])                   # TODO THIS NEEDS CHANGING
+        source = source[::dn_samp, ::dn_samp, :]
+        source = tf.transpose(source, [2, 0, 1])                    # TODO CHANGE
         subject_id = data["subject_id"][0].numpy().decode("utf-8")
 
-        source = source[:, ::dn_samp, ::dn_samp]
-        new_dims = (source.shape[0], source.shape[1] * 2, source.shape[2] * 2)
-        combine.new_subject(new_dims)
-
-        linear_coords = generate_indices(source, STRIDE_LENGTH, patch_size)
-        print(linear_coords[0])
+        linear_coords = generate_indices(source.shape, strides, patch_size)
         patch_stack = extract_patches(source, linear_coords, patch_size)
-        print(patch_stack.shape)
-        scaled_coords = []
-        for coords in linear_coords:
-            scaled_coords.append(scale_indices(coords))
-
         patch_stack = tf.transpose(patch_stack, [0, 2, 3, 1, 4])    # TODO CHANGE
         num_patches = patch_stack.shape[0]
         pred_stack = []
 
         for i in range(0, num_patches, mb_size):
             pred_mb, _ = model(patch_stack[i:(i + mb_size), ...])
-            pred_mb = TestGenerator.un_normalise(pred_mb)
             pred_stack.extend(pred_mb)
 
         pred_stack = tf.stack(pred_stack, axis=0)[:, :, :, :, 0]
         pred_stack = tf.transpose(pred_stack, [0, 3, 1, 2])    # TODO CHANGE
-        combine.apply_patches(pred_stack, tf.stack(scaled_coords, axis=0))
-        pred = combine.get_img()
+        upscale_dims = (source.shape[0], source.shape[1] * 2, source.shape[2] * 2)
+        combine.new_subject(upscale_dims)
+        upscale_linear_coords = generate_indices(upscale_dims, upscale_strides, upscale_patch_size)
+        combine.apply_patches(pred_stack, tf.stack(upscale_linear_coords, axis=0))
+        pred = combine.get_img(False)
         pred = tf.transpose(pred, [1, 2, 0]).numpy()    # TODO CHANGE
+
+        for _ in range(1, num_scales - 1):
+            pred = tf.transpose(pred, [2, 0, 1])                    # TODO CHANGE
+            upscale_dims = (upscale_dims[0], upscale_dims[1] * 2, upscale_dims[2] * 2)
+            combine.new_subject(upscale_dims)
+            linear_coords = generate_indices(pred.shape, strides, patch_size)
+            patch_stack = extract_patches(pred, linear_coords, patch_size)
+            patch_stack = tf.transpose(patch_stack, [0, 2, 3, 1, 4])    # TODO CHANGE
+            num_patches = patch_stack.shape[0]
+            pred_stack = []
+
+            for i in range(0, num_patches, mb_size):
+                pred_mb, _ = model(patch_stack[i:(i + mb_size), ...])
+                pred_stack.extend(pred_mb)
+
+            pred_stack = tf.stack(pred_stack, axis=0)[:, :, :, :, 0]
+            pred_stack = tf.transpose(pred_stack, [0, 3, 1, 2])    # TODO CHANGE
+            upscale_linear_coords = generate_indices(upscale_dims, upscale_strides, upscale_patch_size)
+            combine.apply_patches(pred_stack, tf.stack(upscale_linear_coords, axis=0))
+            pred = combine.get_img(False)
+            pred = tf.transpose(pred, [1, 2, 0])    # TODO CHANGE
+
+        pred = TestGenerator.un_normalise(pred)
+        pred = tf.cast(tf.round(pred), "int16").numpy()
 
         if save:
             img_nrrd = itk.GetImageFromArray(pred.astype("int16").transpose([2, 0, 1]))
