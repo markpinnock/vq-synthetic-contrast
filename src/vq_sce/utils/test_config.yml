@@ -1,19 +1,13 @@
 data:
-    data_path: "D:/ProjectImages/SuperRes"
-    target: ["AC"]
-    source: ["HQ"]
-    segs: ["AC"]
-    times: null
+    data_path: "D:/ProjectImages/SyntheticContrast/Train"
     down_sample: 1
     patch_size: [64, 64, 64]
-    norm_param_1: -500
-    norm_param_2: 2500
     num_examples: 4
     cv_folds: 3
     fold: 2
 augmentation:
     use: true
-    img_dims: [256, 256, 64]
+    img_dims: [512, 512, 64]
     depth: 64
     flip_prob: 0.5
     rotation: 45.0
