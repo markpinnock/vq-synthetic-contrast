@@ -5,11 +5,11 @@ import os
 from pathlib import Path
 import SimpleITK as itk
 
+from vq_sce import HU_MIN, HU_MAX
+
 HQ_SLICE_THICK = 1
 LQ_DEPTH = 3
 LQ_SLICE_THICK = 4
-HU_MIN = -500
-HU_MAX = 2500
 
 
 class ImgConv:

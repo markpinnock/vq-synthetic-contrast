@@ -6,9 +6,8 @@ import os
 from pathlib import Path
 import tensorflow as tf
 
+from vq_sce import HU_MIN, HU_MAX, RANDOM_SEED
 from vq_sce.utils.patch_utils import generate_indices, extract_patches
-
-SEED = 5
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------
 """ ImgLoader class: data_generator method for use with tf.data.Dataset.from_generator """
@@ -21,9 +20,6 @@ class SuperResDataloader:
         self._config = config
         self._down_sample = config["down_sample"]
         self._patch_size = config["patch_size"]
-
-        self._param_1 = config["norm_param_1"]
-        self._param_2 = config["norm_param_2"]
 
         # Optional list of targets and sources e.g. ["AC", "VC"], ["HQ"]
         self._sources = os.listdir(self._source_path)

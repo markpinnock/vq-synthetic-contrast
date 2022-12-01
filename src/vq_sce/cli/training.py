@@ -5,6 +5,7 @@ from pathlib import Path
 import tensorflow as tf
 import yaml
 
+from vq_sce import RANDOM_SEED
 from vq_sce.networks.build_model import build_model
 from vq_sce.trainingloops.training_loop import TrainingLoop
 from vq_sce.utils.build_dataloader import get_train_dataloader
@@ -13,7 +14,7 @@ from vq_sce.utils.build_dataloader import get_train_dataloader
 #-------------------------------------------------------------------------
 
 def train(config: dict):
-    tf.random.set_seed(5)
+    tf.random.set_seed(RANDOM_SEED)
     tf.get_logger().setLevel("ERROR")
 
     # Get datasets and data generator

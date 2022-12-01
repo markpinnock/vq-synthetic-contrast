@@ -6,27 +6,21 @@ import os
 from pathlib import Path
 import tensorflow as tf
 
+from vq_sce import HU_MIN, HU_MAX, RANDOM_SEED
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------
 """ ImgLoader class: data_generator method for use with tf.data.Dataset.from_generator """
 
 class ContrastDataloader:
     def __init__(self, config: dict, dataset_type: str):
-        # Expects at least two sub-folders within data folder e.g. "AC", "VC, "HQ"
-        self.img_path = Path(config["data_path"]) / "Images"
-        self.seg_path = Path(config["data_path"]) / "Segmentations"
+
+        self._img_path = Path(config["data_path"])
         self._dataset_type = dataset_type
         self.config = config
         self.down_sample = config["down_sample"]
         self.num_targets = len(config["target"])
         self._patch_size = config["patch_size"]
-        if config["times"] is not None:
-            self._json = json.load(open(Path(config["data_path"]) / config["times"], 'r'))
-        else:
-            self._json = None
-
-        self.param_1 = self.config["norm_param_1"]
-        self.param_2 = self.config["norm_param_2"]
+        self._source_coords = json.load(self._img_path / config["source_coords"], 'r'))
 
         # Optional list of targets and sources e.g. ["AC", "VC"], ["HQ"]
         self._targets = []
