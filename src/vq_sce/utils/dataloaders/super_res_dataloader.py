@@ -22,7 +22,6 @@ class SuperResDataloader(BaseDataloader):
         self._dataset_type = dataset_type
         self._config = config
         self._down_sample = config["down_sample"]
-        self._patch_size = config["patch_size"]
 
         with open(self._img_path / "source_coords.json", 'r') as fp:
             self._source_coords = json.load(fp)
@@ -143,7 +142,7 @@ if __name__ == "__main__":
     for data in train_ds.batch(2).take(16):
         source = TestLoader.un_normalise(data["source"])
         target = TestLoader.un_normalise(data["target"])
-        print(source.shape, target.shape)
+
         plt.subplot(3, 2, 1)
         plt.imshow(source[0, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
