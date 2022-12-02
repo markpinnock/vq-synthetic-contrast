@@ -63,10 +63,14 @@ class BaseDataloader(ABC):
         return img
 
     def _normalise(self, img: np.ndarray) -> np.ndarray:
-        return (img - HU_MIN) / (HU_MAX - HU_MIN)
+        img = (img - HU_MIN) / (HU_MAX - HU_MIN)
+        img = 2 * img - 1
+        return img
     
     def un_normalise(self, img: np.ndarray) -> np.ndarray:
-        return img * (HU_MAX - HU_MIN) + HU_MIN
+        img = (img + 1) / 2
+        img = img * (HU_MAX - HU_MIN) + HU_MIN
+        return img
 
     @abstractmethod
     def data_generator(self):
@@ -86,4 +90,4 @@ class BaseDataloader(ABC):
     def data(self) -> dict[str, dict[str, Path]]:
         """ Return list of all images """
 
-        return {"targets": self._targets, "sources": self._sources}
+        return {"target": self._targets, "source": self._sources}

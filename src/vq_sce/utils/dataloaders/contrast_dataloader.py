@@ -74,8 +74,10 @@ class ContrastDataloader(BaseDataloader):
             ex_targets.append(target[lower:upper, :, :])
             ex_sources.append(source[lower:upper, :, :])
 
-        self._ex_sources = np.stack(ex_sources, axis=0)[:, :, :, :, np.newaxis].astype("float32")
-        self._ex_targets = np.stack(ex_targets, axis=0)[:, :, :, :, np.newaxis].astype("float32")
+        self._ex_sources = np.stack(ex_sources, axis=0) \
+            [:, :, :, :, np.newaxis].astype("float32")
+        self._ex_targets = np.stack(ex_targets, axis=0) \
+            [:, :, :, :, np.newaxis].astype("float32")
 
     def data_generator(self) -> dict[str, np.ndarray]:
         if self._dataset_type == "training":

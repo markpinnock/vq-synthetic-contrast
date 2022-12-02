@@ -2,8 +2,8 @@ import glob
 from pathlib import Path
 import tensorflow as tf
 
-from vq_sce.utils.contrast_dataloader import ContrastDataloader
-from vq_sce.utils.super_res_dataloader import SuperResDataloader
+from vq_sce.utils.dataloaders.contrast_dataloader import ContrastDataloader
+from vq_sce.utils.dataloaders.super_res_dataloader import SuperResDataloader
 
 DATALOADER_DICT = {
     "contrast": ContrastDataloader,
