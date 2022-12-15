@@ -12,7 +12,7 @@ class StdAug(tf.keras.layers.Layer):
         super().__init__(name=name)
 
         # If segmentations available, these can be stacked on the target for transforming
-        if config["segs"] is not None:
+        if "segs" in config.keys():
             self.transform = AffineTransform2D(config["img_dims"] + [2])
         else:
             self.transform = AffineTransform2D(config["img_dims"] + [1])
@@ -99,7 +99,7 @@ class StdAug(tf.keras.layers.Layer):
         else:
             imgs = self.transform(im=imgs, mb_size=mb_size, thetas=thetas)
             imgs = [imgs[:, :, :, :, i][:, :, :, :, tf.newaxis] for i in range(l)]
-            return tuple(imgs), None
+            return tuple(imgs)
 
 
 #-------------------------------------------------------------------------
@@ -110,75 +110,132 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     import numpy as np
     import yaml
-    from vq_sce.utils.dataloaders.contrast_dataloader import ImgLoader
+    from vq_sce.utils.dataloaders.contrast_dataloader import ContrastDataloader
+    from vq_sce.utils.dataloaders.super_res_dataloader import SuperResDataloader
 
-    test_config = yaml.load(open("vec_quant_sCE/utils/test_config.yml", 'r'), Loader=yaml.FullLoader)
+    test_config = yaml.load(
+        open("src/vq_sce/utils/test_config.yml", 'r'),
+        Loader=yaml.FullLoader
+    )
 
-    FILE_PATH = "D:/ProjectImages/SyntheticContrast"
-    TestLoader = ImgLoader(test_config["data"], dataset_type="training")
-    aug_config = test_config["augmentation"]
-    aug_config["segs"] = test_config["data"]["segs"]
-    TestAug = StdAug(aug_config)
+    contrast_loader = ContrastDataloader(
+        test_config["data"],
+        dataset_type="training"
+    )
+    super_res_loader = SuperResDataloader(
+        test_config["data"],
+        dataset_type="training"
+    )
 
     output_types = ["source", "target"]
+    contrast_ds = tf.data.Dataset.from_generator(
+        contrast_loader.data_generator,
+        output_types={k: "float32" for k in output_types}
+    )
+    super_res_ds = tf.data.Dataset.from_generator(
+        super_res_loader.data_generator,
+        output_types={k: "float32" for k in output_types}
+    )
 
-    if len(test_config["data"]["segs"]) > 0:
-        output_types += ["seg"]
+    aug_config = test_config["augmentation"]
+    TestAug = StdAug(aug_config)
 
-    if test_config["data"]["times"] is not None:
-        output_types += ["times"]
-
-    train_ds = tf.data.Dataset.from_generator(TestLoader.data_generator, output_types={k: "float32" for k in output_types})
-
-    for data in train_ds.batch(2):
+    for data in contrast_ds.batch(2).take(2):
         pred = np.zeros_like(data["source"].numpy())
         pred[:, 0:pred.shape[1] // 2, 0:pred.shape[1] // 2, :, :] = 1
         pred[:, pred.shape[1] // 2:, pred.shape[1] // 2:, :, :] = 1
         inv_pred = 1 - pred
 
-        (source, target, pred, inv_pred), seg = TestAug([data["source"], data["target"], pred, inv_pred], seg=data["seg"])
+        source, target, pred, inv_pred = TestAug(
+            [data["source"],
+            data["target"],
+            pred,
+            inv_pred]
+        )
 
         plt.subplot(2, 6, 1)
-        plt.imshow(data["source"][0, :, :, 0, 0], cmap="gray")
+        plt.imshow(data["source"][0, 0, :, :, 0], cmap="gray")
         plt.axis("off")
         plt.subplot(2, 6, 7)
-        plt.imshow(data["source"][1, :, :, 0, 0], cmap="gray")
+        plt.imshow(data["source"][1, 0, :, :, 0], cmap="gray")
         plt.axis("off")
 
         plt.subplot(2, 6, 2)
-        plt.imshow(source[0, :, :, 0, 0], cmap="gray")
+        plt.imshow(source[0, 0, :, :, 0], cmap="gray")
         plt.axis("off")
         plt.subplot(2, 6, 8)
-        plt.imshow(source[1, :, :, 0, 0], cmap="gray")
+        plt.imshow(source[1, 0, :, :, 0], cmap="gray")
         plt.axis("off")
         
         plt.subplot(2, 6, 3)
-        plt.imshow(target[0, :, :, 0, 0], cmap="gray")
+        plt.imshow(target[0, 0, :, :, 0], cmap="gray")
         plt.axis("off")
         plt.subplot(2, 6, 9)
-        plt.imshow(target[1, :, :, 0, 0], cmap="gray")
+        plt.imshow(target[1, 0, :, :, 0], cmap="gray")
         plt.axis("off")
 
         plt.subplot(2, 6, 4)
-        plt.imshow(pred[0, :, :, 0, 0], cmap="gray")
+        plt.imshow(pred[0, 0, :, :, 0], cmap="gray")
         plt.axis("off")
         plt.subplot(2, 6, 10)
-        plt.imshow(pred[1, :, :, 0, 0], cmap="gray")
+        plt.imshow(pred[1, 0, :, :, 0], cmap="gray")
         plt.axis("off")
 
         plt.subplot(2, 6, 5)
-        plt.imshow(inv_pred[0, :, :, 0, 0], cmap="gray")
+        plt.imshow(inv_pred[0, 0, :, :, 0], cmap="gray")
         plt.axis("off")
         plt.subplot(2, 6, 11)
-        plt.imshow(inv_pred[1, :, :, 0, 0], cmap="gray")
+        plt.imshow(inv_pred[1, 0, :, :, 0], cmap="gray")
         plt.axis("off")
 
-        if "seg" in data.keys():
-            plt.subplot(2, 6, 6)
-            plt.imshow(seg[0, :, :, 0, 0])
-            plt.axis("off")
-            plt.subplot(2, 6, 12)
-            plt.imshow(seg[1, :, :, 0, 0])
-            plt.axis("off")
+        plt.show()
+
+    for data in super_res_ds.batch(2).take(2):
+        pred = np.zeros_like(data["source"].numpy())
+        pred[:, 0:pred.shape[1] // 2, 0:pred.shape[1] // 2, :, :] = 1
+        pred[:, pred.shape[1] // 2:, pred.shape[1] // 2:, :, :] = 1
+        inv_pred = 1 - pred
+
+        source, target, pred, inv_pred = TestAug(
+            [data["source"],
+            data["target"],
+            pred,
+            inv_pred]
+        )
+
+        plt.subplot(2, 6, 1)
+        plt.imshow(data["source"][0, 0, :, :, 0], cmap="gray")
+        plt.axis("off")
+        plt.subplot(2, 6, 7)
+        plt.imshow(data["source"][1, 0, :, :, 0], cmap="gray")
+        plt.axis("off")
+
+        plt.subplot(2, 6, 2)
+        plt.imshow(source[0, 0, :, :, 0], cmap="gray")
+        plt.axis("off")
+        plt.subplot(2, 6, 8)
+        plt.imshow(source[1, 0, :, :, 0], cmap="gray")
+        plt.axis("off")
+        
+        plt.subplot(2, 6, 3)
+        plt.imshow(target[0, 0, :, :, 0], cmap="gray")
+        plt.axis("off")
+        plt.subplot(2, 6, 9)
+        plt.imshow(target[1, 0, :, :, 0], cmap="gray")
+        plt.axis("off")
+
+        plt.subplot(2, 6, 4)
+        plt.imshow(pred[0, 0, :, :, 0], cmap="gray")
+        plt.axis("off")
+        plt.subplot(2, 6, 10)
+        plt.imshow(pred[1, 0, :, :, 0], cmap="gray")
+        plt.axis("off")
+
+        plt.subplot(2, 6, 5)
+        plt.imshow(inv_pred[0, 0, :, :, 0], cmap="gray")
+        plt.axis("off")
+        plt.subplot(2, 6, 11)
+        plt.imshow(inv_pred[1, 0, :, :, 0], cmap="gray")
+        plt.axis("off")
 
         plt.show()
