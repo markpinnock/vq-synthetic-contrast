@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-from vq_sce.utils.augmentation.affinetransformation import AffineTransform2D
+from vq_sce.utils.augmentation.affine_transform import AffineTransform2D
 
 
 #-------------------------------------------------------------------------
