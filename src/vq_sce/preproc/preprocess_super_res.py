@@ -229,7 +229,7 @@ class ImgConv:
 
             # Clamp HU values
             nce = self.HU_filter.Execute(nce)
-            ace = self.HU_filter.Execute(ace)
+            ace_trim = self.HU_filter.Execute(ace_trim)
             nce_npy = itk.GetArrayFromImage(nce).astype("float16")
             ace_npy = itk.GetArrayFromImage(ace_trim).astype("float16")
 
@@ -303,6 +303,7 @@ class ImgConv:
 
             np.save(self.HQ_save_path / f"{nce_name}.npy", nce_npy)
             np.save(self.CE_save_path / f"{ace_name}.npy", ace_npy)
+            print(f"{ace_name}, {nce_name} saved")
 
             # Process HQ and LQ post-CE images
             for hq_name, hq in HQs.items():
@@ -365,6 +366,7 @@ class ImgConv:
                 hq_npy = itk.GetArrayFromImage(hq).astype("float16")
                 np.save(self.HQ_save_path / f"{hq_name}.npy", hq_npy)
                 print(f"{hq_name} saved")
+
                 self.source_coords = dict(sorted(self.source_coords.items()))
                 with open(self.save_path / "source_coords.json", 'w') as fp:
                     json.dump(self.source_coords, fp, indent=4)
@@ -377,7 +379,7 @@ if __name__ == "__main__":
     with open("src/vq_sce/preproc/ignore.json", 'r') as fp:
         ignore = json.load(fp)
 
-    to_include = ["T044A0", "T047A0", "T047A1", "T048A0", "T049A0", "T050A0"]
+    to_include = None#["T042A0"]
 
     img_conv = ImgConv(
         img_path,

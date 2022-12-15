@@ -7,7 +7,7 @@ import tensorflow as tf
 import yaml
 
 from vq_sce.networks.build_model import build_model
-from vq_sce.utils.build_dataloader import get_test_dataloader
+from vq_sce.utils.dataloaders.build_dataloader import get_test_dataloader
 from vq_sce.utils.combine_patches import CombinePatches
 from vq_sce.utils.patch_utils import generate_indices, extract_patches
 

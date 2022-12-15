@@ -8,7 +8,7 @@ import yaml
 from vq_sce import RANDOM_SEED
 from vq_sce.networks.build_model import build_model
 from vq_sce.trainingloops.training_loop import TrainingLoop
-from vq_sce.utils.build_dataloader import get_train_dataloader
+from vq_sce.utils.dataloaders.build_dataloader import get_train_dataloader
 
 
 #-------------------------------------------------------------------------
