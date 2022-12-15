@@ -17,3 +17,4 @@ dependencies:
   - statsmodels=0.13
   - pip:
     - tensorflow==2.9.1
+    - pytest-subtests==0.9.0
