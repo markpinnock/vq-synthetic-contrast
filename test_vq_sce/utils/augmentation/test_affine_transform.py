@@ -1,6 +1,5 @@
 import numpy as np
 import tensorflow as tf
-from typing import Any, Callable, TypeVar
 
 from vq_sce import RANDOM_SEED
 from vq_sce.utils.augmentation.affine_transform import AffineTransform2D
@@ -8,32 +7,20 @@ from vq_sce.utils.augmentation.affine_transform import AffineTransform2D
 PCT_CORRECT_THRESHOLD = 0.6
 DEFAULT_IMG_SIZE = [4, 6, 8]
 NUM_HOMOGENOUS_DIMS = 3
+
 TEST_IMG_DIMS_2D = [
     [2, 64, 64, 1],
     [4, 64, 64, 1],
     [4, 128, 128, 1],
     [4, 128, 128, 3]
 ]
+
 TEST_IMG_DIMS_3D = [
     [2, 32, 64, 64, 1],
     [4, 32, 64, 64, 1],
     [4, 64, 128, 128, 1],
     [4, 64, 128, 128, 3]
 ]
-
-Self = TypeVar("Self")
-
-
-#-------------------------------------------------------------------------
-""" Parameterize decorator as pytest does not work with tf.test.TestCase """
-
-def parametrize(args: list[Any]):
-    def decorator(func: Callable):
-        def wrapper(s: Self, *args: list[Any]):
-            for arg in args:
-                func(s, *arg)
-        return wrapper
-    return decorator
 
 
 #-------------------------------------------------------------------------
@@ -112,7 +99,12 @@ class TestAffine2D(tf.test.TestCase):
                 self.assertAllEqual(X, ground_truth_X)
                 self.assertAllEqual(Y, ground_truth_Y)
 
-    def setup_flipping_img(self, img_dims, horizontal, vertical) -> None:
+    def setup_flipping_img(
+        self,
+        img_dims: list[int],
+        horizontal: np.ndarray,
+        vertical: np.ndarray
+    ) -> None:
         """ Create fixtures for flipping tests """
 
         if img_dims[0] == 2:
@@ -191,7 +183,11 @@ class TestAffine2D(tf.test.TestCase):
                 pct_correct_voxels = np.sum(new_mb.numpy() == gt_mb.numpy()) / np.prod(new_mb.shape)
                 assert pct_correct_voxels > PCT_CORRECT_THRESHOLD
 
-    def setup_rotation_img(self, img_dims, base_img) -> None:
+    def setup_rotation_img(
+        self,
+        img_dims: list[int],
+        base_img: np.ndarray
+    ) -> None:
         """ Create fixtures for rotation tests """
 
         if img_dims[0] == 2:
@@ -269,7 +265,11 @@ class TestAffine2D(tf.test.TestCase):
                 pct_correct_voxels = np.sum(new_mb.numpy() == gt_mb.numpy()) / np.prod(new_mb.shape)
                 assert pct_correct_voxels > PCT_CORRECT_THRESHOLD
 
-    def setup_scaling_img(self, img_dims, img_small) -> None:
+    def setup_scaling_img(
+        self,
+        img_dims: list[int],
+        img_small: np.ndarray
+    ) -> None:
         """ Create fixtures for scaling tests """
 
         img_large = np.ones(img_dims[1:])

@@ -11,7 +11,7 @@ DEG_TO_RAD = 180 * np.pi
 
 class StdAug(tf.keras.layers.Layer):
 
-    def __init__(self, config, name="std_aug") -> None:
+    def __init__(self, config: dict, name: str = "std_aug") -> None:
         super().__init__(name=name)
 
         self.source_affine_transform = AffineTransform2D(config["source_dims"])
