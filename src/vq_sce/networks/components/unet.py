@@ -1,7 +1,9 @@
 import numpy as np
 import tensorflow as tf
 
-from .layers.conv_layers import DownBlock, UpBlock, BottomBlock, VQBlock
+from .layers.conv_layers import DownBlock, UpBlock, VQBlock
+
+MAX_CHANNELS = 512
 
 
 class UNet(tf.keras.Model):
@@ -14,43 +16,52 @@ class UNet(tf.keras.Model):
         Returns:
         - keras.Model """
 
-    def __init__(self, initialiser, config, name=None):
+    def __init__(
+        self,
+        initialiser: tf.keras.initializers.Initializer,
+        config: dict,
+        name: str | None = None
+    ) -> None:
+
         super().__init__(name=name)
 
         # Check network and image dimensions
         img_dims = config["img_dims"]
         assert len(img_dims) == 3, "3D input only"
-        max_num_layers = int(np.log2(np.min([img_dims[0], img_dims[1]])))
-        max_z_downsample = int(np.floor(np.log2(img_dims[2])))
-        self.upsample_layer = config["upsample_layer"]
-        
-        if config["time_layers"] is not None:
-            self.time_layers = config["time_layers"]
-        else:
-           self.time_layers = []
+        self._config = config
+        self._max_z_downsample = int(np.floor(np.log2(img_dims[0])))
+        self._upsample_layer = config["upsample_layer"]
+        self._residual = config["residual"]
 
         if config["vq_layers"] is not None:
-            self.vq_layers = config["vq_layers"].keys()
-            vq_config = {
-                "vq_time": config["vq_time"],
-                "vq_beta": config["vq_beta"]
-            }
+            self._vq_layers = config["vq_layers"].keys()
+            self._vq_config = {"vq_beta": config["vq_beta"]}
         else:
-           self.vq_layers = []
-           vq_config = None
+           self._vq_layers = []
+           self._vq_config = None
 
-        assert config["layers"] <= max_num_layers and config["layers"] >= 0, f"Maximum number of generator layers: {max_num_layers}"
-        self.encoder = []
+        self._initialiser = initialiser
+        max_num_layers = int(np.log2(np.min([img_dims[1], img_dims[2]])))
+        assert config["layers"] <= max_num_layers and config["layers"] >= 0, (
+            f"Maximum number of generator layers: {max_num_layers}"
+        )
+
+        self.encoder, self.decoder = [], []
+        cache = self.get_encoder()
+        self.get_decoder(cache)
+
+    def get_encoder(self) -> dict[str, int | tuple[int]]:
+        """" Create U-Net encoder """
 
         # Cache channels, strides and weights
         cache = {"channels": [], "strides": [], "kernels": []}
 
-        for i in range(0, config["layers"] - 1):
-            channels = np.min([config["nf"] * 2 ** i, 512])
+        for i in range(0, self._config["layers"]):
+            channels = np.min([self._config["nc"] * 2 ** i, MAX_CHANNELS])
 
-            if i >= max_z_downsample - 1:
-                strides = (2, 2, 1)
-                kernel = (4, 4, 2)
+            if i >= self._max_z_downsample - 1:
+                strides = (1, 2, 2)
+                kernel = (2, 4, 4)
             else:
                 strides = (2, 2, 2)
                 kernel = (4, 4, 4)
@@ -59,131 +70,125 @@ class UNet(tf.keras.Model):
             cache["strides"].append(strides)
             cache["kernels"].append(kernel)
 
-            use_vq = f"down_{i}" in self.vq_layers
-            if use_vq: vq_config["embeddings"] = config["vq_layers"][f"down_{i}"]
+            use_vq = f"down_{i}" in self._vq_layers
+            if use_vq:
+                self._vq_config["embeddings"] = self._config["vq_layers"][f"down_{i}"]
+
             self.encoder.append(
                 DownBlock(
                     channels,
                     kernel,
                     strides,
-                    initialiser=initialiser,
+                    initialiser=self._initialiser,
                     use_vq=use_vq,
-                    vq_config=vq_config,
+                    vq_config=self._vq_config,
                     name=f"down_{i}")
                 )
 
-        use_vq = "bottom" in self.vq_layers
-        if use_vq: vq_config["embeddings"] = config["vq_layers"]["bottom"]
-        self.bottom_layer = BottomBlock(
+        use_vq = "bottom" in self._vq_layers
+        if use_vq:
+            self._vq_config["embeddings"] = self._config["vq_layers"]["bottom"]
+
+        self.bottom_layer = DownBlock(
             channels,
             kernel,
             (1, 1, 1),
-            initialiser=initialiser,
+            initialiser=self._initialiser,
             use_vq=use_vq,
-            vq_config=vq_config,
+            vq_config=self._vq_config,
             name="bottom"
         )
 
-        cache["strides"].append(strides)
-        cache["kernels"].append(kernel)
+        return cache
 
-        cache["channels"].reverse()
-        cache["kernels"].reverse()
-        cache["strides"].reverse()
+    def get_decoder(self, cache: dict[str, int | tuple[int]]) -> None:
+        """ Create U-Net decoder """
 
-        self.decoder = []
-
-        for i in range(0, config["layers"] - 1):
+        for i in range(self._config["layers"] - 1, -1, -1):
             channels = cache["channels"][i]
             strides = cache["strides"][i]
             kernel = cache["kernels"][i]
 
-            use_vq = f"up_{i}" in self.vq_layers
-            if use_vq: vq_config["embeddings"] = config["vq_layers"][f"up_{i}"]
+            use_vq = f"up_{i}" in self._vq_layers
+            if use_vq:
+                self._vq_config["embeddings"] = self._config["vq_layers"][f"up_{i}"]
+
             self.decoder.append(
                 UpBlock(
                     channels,
                     kernel,
                     strides,
-                    initialiser=initialiser,
+                    initialiser=self._initialiser,
                     use_vq=use_vq,
-                    vq_config=vq_config,
+                    vq_config=self._vq_config,
                     name=f"up_{i}")
                 )
 
-        use_vq = f"up_{i + 1}" in self.vq_layers
-        if use_vq: vq_config["embeddings"] = config["vq_layers"][f"up_{i + 1}"]
-        if self.upsample_layer:
-            self.upsample_in = tf.keras.layers.UpSampling3D(size=(2, 2, 1))
+        if self._upsample_layer:
+            use_vq = "upsamp" in self._vq_layers
+            if use_vq:
+                self._vq_config["embeddings"] = self._config["vq_layers"][f"upsamp"]
+
+            self.upsample_in = tf.keras.layers.UpSampling3D(size=(1, 2, 2))
             self.upsample_out = UpBlock(
                 channels,
-                (4, 4, 2),
-                (2, 2, 1),
-                initialiser=initialiser,
+                (2, 4, 4),
+                (1, 2, 2),
+                initialiser=self._initialiser,
                 use_vq=use_vq,
-                vq_config=vq_config,
-                name=f"up_{i + 1}"
+                vq_config=self._vq_config,
+                name=f"upsamp"
             )
 
         self.final_layer = tf.keras.layers.Conv3D(
-            1, (4, 4, 4), (1, 1, 1),
-            padding="same", activation="linear",
-            kernel_initializer=initialiser, name="output")
+            1, (1, 1, 1), (1, 1, 1),
+            padding="same",
+            activation="tanh",
+            kernel_initializer=self._initialiser,
+            name="final"
+        )
 
-        if "output" in self.vq_layers:
-            self.output_vq = VQBlock(config["vq_layers"]["output"], 1, vq_config["vq_beta"], name="output_vq")
+        if "final" in self._vq_layers:
+            self.output_vq = VQBlock(
+                num_embeddings=self._vq_config["embeddings"],
+                embedding_dim=1,
+                beta=self._vq_config["vq_beta"],
+                name="output_vq"
+            )
         else:
             self.output_vq = None
-        
-        layer_names = [layer.name for layer in self.encoder] + ["bottom"] + [layer.name for layer in self.decoder]
 
-        for time_input in self.time_layers:
-            assert time_input in layer_names, (time_input, layer_names)
-
-    def call(self, x, t=None):
+    def call(self, x: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor | None]:
         skip_layers = []
 
-        if self.upsample_layer:
+        if self._upsample_layer:
             upsampled_x = self.upsample_in(x)
         else:
             upsampled_x = x
 
         for layer in self.encoder:
-            if layer.name in self.time_layers:
-                x, skip = layer(x, t, training=True)
-            else:
-                x, skip = layer(x, training=True)
-
+            x, skip = layer(x, training=True)
             skip_layers.append(skip)
 
-        if self.bottom_layer.name in self.time_layers:
-            x = self.bottom_layer(x, t, training=True)
-        else:
-            x = self.bottom_layer(x, training=True)
-
+        x, _ = self.bottom_layer(x, training=True)
         skip_layers.reverse()
 
         for skip, tconv in zip(skip_layers, self.decoder):
-            if tconv.name in self.time_layers:
-                x = tconv(x, skip, t, training=True)
-            else:
-                x = tconv(x, skip, training=True)
+            x = tconv(x, skip, training=True)
 
-        if self.upsample_layer:
+        if self._upsample_layer:
             x = self.upsample_out(x, upsampled_x)
 
-        if self.final_layer.name in self.time_layers:
-            x = self.final_layer(x, t, training=True)
-        else:
-            x = self.final_layer(x, training=True)
+        x = self.final_layer(x, training=True)
 
-        if self.output_vq is None:
-            return (
-                x + upsampled_x,
-                None
-            )
+        if self.output_vq is None and not self._residual:
+            return x, None
+
+        elif self.output_vq is None and self._residual:
+            return x + upsampled_x, None
+
+        elif self.output_vq is not None and not self._residual:
+            return x, self.output_vq(x) + upsampled_x
+
         else:
-            return (
-                x + upsampled_x,
-                self.output_vq(x) + upsampled_x
-            )
+            return x + upsampled_x, self.output_vq(x) + upsampled_x
