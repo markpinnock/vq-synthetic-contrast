@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-from .layer.layers import DownBlock, UpBlock, BottomBlock, VQBlock
+from .layers.conv_layers import DownBlock, UpBlock, BottomBlock, VQBlock
 
 
 class UNet(tf.keras.Model):

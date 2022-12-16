@@ -1,7 +1,7 @@
 import pytest
 import tensorflow as tf
 
-from vq_sce.networks.components.layer.layers import (
+from vq_sce.networks.components.layers.conv_layers import (
     DownBlock,
     UpBlock
 )
