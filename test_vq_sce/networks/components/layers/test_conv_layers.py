@@ -12,8 +12,8 @@ from vq_sce.networks.components.layers.conv_layers import (
 @pytest.mark.parametrize(
     "strides,out_dims",
     [
-        ([2, 2, 2], [4, 32, 32, 6, 4]),
-        ([2, 2, 1], [4, 32, 32, 12, 4])
+        ([2, 2, 2], [4, 6, 32, 32, 4]),
+        ([1, 2, 2], [4, 12, 32, 32, 4])
     ]
 )
 def test_DownBlock(strides, out_dims):
@@ -29,7 +29,7 @@ def test_DownBlock(strides, out_dims):
         name=None
     )
 
-    in_dims = [4, 64, 64, 12, 4]
+    in_dims = [4, 12, 64, 64, 4]
     img = tf.zeros(in_dims)
     x, skip = down(img)
     assert x.shape == out_dims
@@ -41,8 +41,8 @@ def test_DownBlock(strides, out_dims):
 @pytest.mark.parametrize(
     "strides,out_dims",
     [
-        ([2, 2, 2], [4, 64, 64, 12, 8]),
-        ([2, 2, 1], [4, 64, 64, 6, 8])
+        ([2, 2, 2], [4, 12, 64, 64, 8]),
+        ([1, 2, 2], [4, 6, 64, 64, 8])
     ]
 )
 def test_UpBlock(strides, out_dims):
@@ -58,7 +58,7 @@ def test_UpBlock(strides, out_dims):
         name=None
     )
 
-    in_dims = [4, 32, 32, 6, 4]
+    in_dims = [4, 6, 32, 32, 4]
     img = tf.zeros(in_dims)
     skip = tf.zeros(out_dims)
     x = up(img, skip)

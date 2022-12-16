@@ -26,7 +26,7 @@ class InstanceNorm(tf.keras.layers.Layer):
             trainable=True
         )
 
-    def call(self, x, **kwargs):
+    def call(self, x: tf.Tensor, training: bool):
         mu = tf.math.reduce_mean(x, axis=[1, 2, 3], keepdims=True)
         sigma = tf.math.reduce_std(x, axis=[1, 2, 3], keepdims=True)
 
@@ -77,13 +77,13 @@ class DownBlock(tf.keras.layers.Layer):
     def call(self, x: tf.Tensor, training: bool) -> tuple[tf.Tensor]:
 
         # 1st convolution - output to skip layer
-        x = self.conv1(x, training)
+        x = self.conv1(x)
         x = self.inst_norm_1(x, training)
         x = tf.nn.relu(x)
         skip = x
 
         # 2nd convolution and down-sample
-        x = self.conv2(x, training)
+        x = self.conv2(x)
         x = self.inst_norm_2(x, training)
 
         # Perform vector quantization if necessary
@@ -137,12 +137,12 @@ class BottomBlock(tf.keras.layers.Layer):
     def call(self, x: tf.Tensor, training: bool) -> tf.Tensor:
 
         # 1st convolution
-        x = self.conv1(x, training)
+        x = self.conv1(x)
         x = self.inst_norm_1(x, training)
         x = tf.nn.relu(x)
 
         # 2nd convolution
-        x = self.conv2(x, training)
+        x = self.conv2(x)
         x = self.inst_norm_2(x, training)
 
         # Perform vector quantization if necessary
@@ -211,16 +211,16 @@ class UpBlock(tf.keras.layers.Layer):
     ) -> tf.Tensor:
 
         # Transpose convolution and up-sample
-        x = self.tconv(x, training)
+        x = self.tconv(x)
         x = self.inst_norm_t(x, training)
         x = tf.nn.relu(x)
 
         # 1st and 2nd convolutions
         x = self.concat([x, skip])
-        x = self.conv1(x, training)
+        x = self.conv1(x)
         x = self.inst_norm_1(x, training)
         x = tf.nn.relu(x)
-        x = self.conv2(x, training)
+        x = self.conv2(x)
         x = self.inst_norm_2(x, training)
 
         # Perform vector quantization if necessary
@@ -273,10 +273,10 @@ class UpBlockNoSkip(tf.keras.layers.Layer):
     
     def call(self, x: tf.Tensor, training: bool):
 
-        x = self.tconv(x, training)
+        x = self.tconv(x)
         x = self.inst_norm_1(x, training)
         x = tf.nn.relu(x)
-        x = self.conv(x, training)
+        x = self.conv(x)
         x = self.inst_norm_2(x, training)
 
         # Perform vector quantization if necessary
