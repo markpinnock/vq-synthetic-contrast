@@ -5,7 +5,8 @@ import tensorflow as tf
 from vq_sce.networks.components.unet import UNet
 
 CONFIG = {
-    "img_dims": [4, 16, 16],
+    "source_dims": [4, 16, 16],
+    "target_dims": [4, 16, 16],
     "nc": 4,
     "layers": 2,
     "upsample_layer": False,
@@ -33,7 +34,8 @@ def test_unet_output(depth: int, img_dims: list[int]) -> None:
 
     config = dict(CONFIG)
     config["layers"] = depth
-    config["img_dims"] = img_dims[1:-1]
+    config["source_dims"] = img_dims[1:-1]
+    config["target_dims"] = img_dims[1:-1]
     init = tf.keras.initializers.Zeros()
 
     model = UNet(init, config)
@@ -53,7 +55,7 @@ def test_residual_unet() -> None:
     init = tf.keras.initializers.Zeros()
 
     model = UNet(init, config)
-    img = tf.ones([2] + config["img_dims"] + [1])
+    img = tf.ones([2] + config["source_dims"] + [1])
     out, _ = model(img)
 
     assert np.equal(img.numpy(), out.numpy()).all()
@@ -69,7 +71,7 @@ def test_upsample_unet(residual: bool) -> None:
     config["residual"] = residual
     config["upsample_layer"] = True
     init = tf.keras.initializers.Zeros()
-    dims = config["img_dims"]
+    dims = config["source_dims"]
 
     model = UNet(init, config)
     img = tf.ones([2] + dims + [1])

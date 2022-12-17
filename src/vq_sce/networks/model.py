@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 
 from .components.unet import UNet
-from vq_sce.utils.augmentation import StdAug
+from vq_sce.utils.augmentation.augmentation import StdAug
 from vq_sce.utils.losses import L1, FocalLoss
 
 
@@ -24,13 +24,8 @@ class Model(tf.keras.Model):
         else:
             self.intermediate_vq = False
         self.scales = [
-            config["augmentation"]["img_dims"][0] // config["data"]["patch_size"][0]
+            config["augmentation"]["source_dims"][0] // config["data"]["patch_size"][0]
         ]
-
-        if config["hyperparameters"]["time_layers"] is None:
-            self.input_times = False
-        else:
-            self.input_times = True
 
         if config["hyperparameters"]["vq_layers"] is None:
             self.use_vq = False
@@ -71,11 +66,7 @@ class Model(tf.keras.Model):
 
     def summary(self):
         source = tf.keras.Input(shape=self.img_dims + [1])
-
-        if self.input_times:
-            pred, vq = self.UNet.call(source, tf.zeros(1))
-        else:
-            pred, vq = self.UNet.call(source)
+        pred, vq = self.UNet.call(source)
 
         print("===========================================================")
         print("UNet")
@@ -87,7 +78,7 @@ class Model(tf.keras.Model):
             tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
 
     @tf.function
-    def train_step(self, source, target, seg=None, times=None):
+    def train_step(self, source, target, seg=None):
 
         """ Expects data in order 'source, target' or 'source, target, segmentations'"""
 
@@ -101,7 +92,7 @@ class Model(tf.keras.Model):
 
         with tf.GradientTape(persistent=True) as tape:
 
-            pred, _ = self(source, times)
+            pred, _ = self(source)
 
             # Calculate L1
             if seg is not None:
@@ -125,12 +116,12 @@ class Model(tf.keras.Model):
         self.optimiser.apply_gradients(zip(grads, self.UNet.trainable_variables))
 
     @tf.function
-    def test_step(self, source, target, seg=None, times=None):
+    def test_step(self, source, target, seg=None):
 
         # Get random image patch and generate predicted target
         x, y = self._get_scale_indices()
         source, target, seg = self._sample_patches(x, y, source, target, seg)
-        pred, _ = self(source, times)
+        pred, _ = self(source)
 
         # Calculate L1
         if seg is not None:
@@ -172,11 +163,11 @@ class Model(tf.keras.Model):
 
         return source, target, seg
 
-    def example_inference(self, source, target, seg=None, times=None):
+    def example_inference(self, source, target, seg=None):
         ex_x = self.scales[0] // 2
         ex_y = self.scales[0] // 2
         source, target, _ = self._sample_patches(ex_x, ex_y, source, target, seg)
-        pred, _ = self(source, times)
+        pred, _ = self(source)
 
         return source, target, pred
 

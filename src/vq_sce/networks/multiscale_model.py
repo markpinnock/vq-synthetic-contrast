@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 
 from .components.unet import UNet
-from vq_sce.utils.augmentation import StdAug
+from vq_sce.utils.augmentation.augmentation import StdAug
 from vq_sce.utils.losses import L1, FocalLoss
 
 
@@ -24,11 +24,6 @@ class MultiscaleModel(tf.keras.Model):
             self.intermediate_vq = False
         self.scales = config["hyperparameters"]["scales"]
         config["hyperparameters"]["upsample_layer"] = True
-
-        if config["hyperparameters"]["time_layers"] is None:
-            self.input_times = False
-        else:
-            self.input_times = True
 
         if config["hyperparameters"]["vq_layers"] is None:
             self.use_vq = False
@@ -85,7 +80,7 @@ class MultiscaleModel(tf.keras.Model):
             tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
 
     @tf.function
-    def train_step(self, source, target, seg=None, times=None):
+    def train_step(self, source, target, seg=None):
 
         """ Expects data in order 'source, target' or 'source, target, segmentations'"""
 
@@ -107,14 +102,14 @@ class MultiscaleModel(tf.keras.Model):
                 with tf.GradientTape(persistent=True) as tape:
                     # Perform multi-scale training
                     source_patch, _ = self._sample_patches(x[0], y[0], source)
-                    pred, vq = self(source_patch, times)
+                    pred, vq = self(source_patch)
 
                     for i in range(1, len(self.scales) - 1):
                         pred, vq = self._sample_patches(x[i], y[i], pred, vq)
                         if self.intermediate_vq:
-                            pred, vq = self(vq, times)
+                            pred, vq = self(vq)
                         else:
-                            pred, vq = self(pred, times)
+                            pred, vq = self(pred)
 
                     pred, _ = self._sample_patches(x[-1], y[-1], pred)
                     
@@ -138,7 +133,7 @@ class MultiscaleModel(tf.keras.Model):
                 self.optimiser.apply_gradients(zip(grads, self.UNet.trainable_variables))
 
     @tf.function
-    def test_step(self, source, target, seg=None, times=None):
+    def test_step(self, source, target, seg=None):
 
         # Down-sample source image
         source = self._downsample_images(source)
@@ -153,14 +148,14 @@ class MultiscaleModel(tf.keras.Model):
 
                 # Perform multi-scale inference
                 source_patch, _ = self._sample_patches(x[0], y[0], source)
-                pred, vq = self(source_patch, times)
+                pred, vq = self(source_patch)
 
                 for i in range(1, len(self.scales) - 1):
                     pred, vq = self._sample_patches(x[i], y[i], pred, vq)
                     if self.intermediate_vq:
-                        pred, vq = self(vq, times)
+                        pred, vq = self(vq)
                     else:
-                        pred, vq = self(pred, times)
+                        pred, vq = self(pred)
 
                 pred, _ = self._sample_patches(x[-1], y[-1], pred)
 
@@ -215,7 +210,7 @@ class MultiscaleModel(tf.keras.Model):
 
         return img1, img2
 
-    def example_inference(self, source, target, seg=None, times=None):
+    def example_inference(self, source, target, seg=None):
         x, y, target_x, target_y = self._get_scale_indices(
             self.scales[0] // 2,
             self.scales[0] // 2
@@ -224,16 +219,16 @@ class MultiscaleModel(tf.keras.Model):
         source_patch, target = self._sample_patches(target_x, target_y, source, target)
         source = self._downsample_images(source)
         source, _ = self._sample_patches(x[0], y[0], source)
-        pred, vq = self(source, times)
+        pred, vq = self(source)
         preds[str(self.scales[0])] = pred
 
         for i in range(1, len(self.scales) - 1):
             pred, vq = self._sample_patches(x[i], y[i], pred, vq)
             if self.intermediate_vq:
-                pred, vq = self(vq, times)
+                pred, vq = self(vq)
                 preds[str(self.scales[i])] = vq
             else:
-                pred, vq = self(pred, times)
+                pred, vq = self(pred)
                 preds[str(self.scales[i])] = pred
 
         pred, vq = self._sample_patches(x[-1], y[-1], pred, vq)

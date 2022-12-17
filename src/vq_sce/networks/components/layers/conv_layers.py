@@ -162,6 +162,7 @@ class UpBlock(tf.keras.layers.Layer):
         nc: int,
         weights: tuple[int],
         strides: tuple[int],
+        upsamp_factor: int,
         initialiser: tf.keras.initializers.Initializer,
         use_vq: bool,
         vq_config: dict,
@@ -169,6 +170,7 @@ class UpBlock(tf.keras.layers.Layer):
     ) -> None:
 
         super().__init__(name=name)
+        self._upsamp_factor = upsamp_factor
         self.tconv = tf.keras.layers.Conv3DTranspose(
             nc, weights, strides=strides,
             padding="same",
@@ -202,6 +204,15 @@ class UpBlock(tf.keras.layers.Layer):
         self.inst_norm_2 = InstanceNorm(name="instancenorm2")
 
         self.concat = tf.keras.layers.Concatenate(name="concat")
+
+        # Up-sampling module for skip layer if differing input and output dims
+        if upsamp_factor > 1:
+            self.upsample_skip = UpsampleSkip(
+                nc, (upsamp_factor * 2, 1, 1),
+                strides=(upsamp_factor, 1, 1),
+                initialiser=initialiser,
+                name="upsample_skip"
+            )
     
     def call(
         self,
@@ -214,6 +225,10 @@ class UpBlock(tf.keras.layers.Layer):
         x = self.tconv(x)
         x = self.inst_norm_t(x, training)
         x = tf.nn.relu(x)
+
+        # Upsample skip if needed
+        if self._upsamp_factor > 1:
+            skip = self.upsample_skip(skip, training)
 
         # 1st and 2nd convolutions
         x = self.concat([x, skip])
@@ -231,9 +246,9 @@ class UpBlock(tf.keras.layers.Layer):
 
 
 #-------------------------------------------------------------------------
-""" Up-sampling convolutional block without skip layer"""
+""" Layer for up-sampling skip layer if different input and output depth """
 
-class UpBlockNoSkip(tf.keras.layers.Layer):
+class UpsampleSkip(tf.keras.layers.Layer):
 
     def __init__(
         self,
@@ -241,47 +256,22 @@ class UpBlockNoSkip(tf.keras.layers.Layer):
         weights: tuple[int],
         strides: tuple[int],
         initialiser: tf.keras.initializers.Initializer,
-        use_vq: bool,
-        vq_config: dict,
         name: str | None = None
     ) -> None:
+
         super().__init__(name=name)
-        self.tconv = tf.keras.layers.Conv3DTranspose(
+        self.tconv = tf.keras.layers.Conv3D(
             nc, weights, strides=strides,
             padding="same",
             kernel_initializer=initialiser,
             name="tconv"
         )
-        self.conv = tf.keras.layers.Conv3D(
-            nc, weights, strides=(1, 1, 1),
-            padding="same",
-            kernel_initializer=initialiser,
-            name="conv"
-        )
 
-        self.use_vq = use_vq
-        if use_vq:
-            self.vq = VQBlock(
-                vq_config["vq_embeddings"],
-                nc, vq_config["vq_beta"],
-                name=f"{name}_vq"
-            )
-
-        # Instance normalisation
-        self.inst_norm_1 = InstanceNorm(name="instancenorm1")
-        self.inst_norm_2 = InstanceNorm(name="instancenorm2")
+        self.inst_norm = InstanceNorm(name="instancenorm")
     
     def call(self, x: tf.Tensor, training: bool):
 
         x = self.tconv(x)
-        x = self.inst_norm_1(x, training)
-        x = tf.nn.relu(x)
-        x = self.conv(x)
-        x = self.inst_norm_2(x, training)
-
-        # Perform vector quantization if necessary
-        if self.use_vq:
-            x = self.vq(x)
+        x = self.inst_norm(x, training)
 
         return tf.nn.relu(x)
-

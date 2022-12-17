@@ -22,9 +22,6 @@ def get_train_dataloader(config: dict):
         output_types += ["seg"]
     else:
         assert config["hyperparameters"]["mu"] == 0.0
-    
-    if config["data"]["times"] is not None:
-        output_types += ["times"]
 
     try:
         config["data"]["scales"] = config["hyperparameters"]["scales"]

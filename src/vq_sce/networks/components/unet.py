@@ -26,10 +26,10 @@ class UNet(tf.keras.Model):
         super().__init__(name=name)
 
         # Check network and image dimensions
-        img_dims = config["img_dims"]
-        assert len(img_dims) == 3, "3D input only"
+        self._source_dims = tuple(config["source_dims"])
+        self._target_dims = tuple(config["target_dims"])
+        assert len(self._source_dims) == 3, "3D input only"
         self._config = config
-        self._max_z_downsample = int(np.floor(np.log2(img_dims[0])))
         self._upsample_layer = config["upsample_layer"]
         self._residual = config["residual"]
 
@@ -41,7 +41,7 @@ class UNet(tf.keras.Model):
            self._vq_config = None
 
         self._initialiser = initialiser
-        max_num_layers = int(np.log2(np.min([img_dims[1], img_dims[2]])))
+        max_num_layers = int(np.log2(np.min([self._source_dims[1], self._source_dims[2]])))
         assert config["layers"] <= max_num_layers and config["layers"] >= 0, (
             f"Maximum number of generator layers: {max_num_layers}"
         )
@@ -54,22 +54,53 @@ class UNet(tf.keras.Model):
         """" Create U-Net encoder """
 
         # Cache channels, strides and weights
-        cache = {"channels": [], "strides": [], "kernels": []}
+        cache = {"channels": [], "strides": [], "kernels": [], "upsamp_factor": []}
+        source_dims = self._source_dims
+        target_dims = self._target_dims
 
         for i in range(0, self._config["layers"]):
             channels = np.min([self._config["nc"] * 2 ** i, MAX_CHANNELS])
 
-            if i >= self._max_z_downsample - 1:
-                strides = (1, 2, 2)
-                kernel = (2, 4, 4)
+            if (source_dims[0] // 2) < 2:
+                source_strides = (2, 2, 2)
+                source_kernel = (4, 4, 4)
+                source_dims = (
+                    source_dims[0] // 2,
+                    source_dims[1] // 2,
+                    source_dims[2] // 2
+                )
             else:
-                strides = (2, 2, 2)
-                kernel = (4, 4, 4)
+                source_strides = (1, 2, 2)
+                source_kernel = (2, 4, 4)
+                source_dims = (
+                    source_dims[0],
+                    source_dims[1] // 2,
+                    source_dims[2] // 2
+                )
+
+            if (target_dims[0] // 2) < 2:
+                target_strides = (2, 2, 2)
+                target_kernel = (4, 4, 4)
+                target_dims = (
+                    target_dims[0] // 2,
+                    target_dims[1] // 2,
+                    target_dims[2] // 2
+                )
+            else:
+                target_strides = (1, 2, 2)
+                target_kernel = (2, 4, 4)
+                target_dims = (
+                    target_dims[0],
+                    target_dims[1] // 2,
+                    target_dims[2] // 2
+                )
 
             cache["channels"].append(channels)
-            cache["strides"].append(strides)
-            cache["kernels"].append(kernel)
+            cache["strides"].append(target_strides)
+            cache["kernels"].append(target_kernel)
+            cache["upsamp_factor"].append(target_dims[0] // source_dims[0])
 
+        for i in range(0, self._config["layers"]):
             use_vq = f"down_{i}" in self._vq_layers
             if use_vq:
                 self._vq_config["embeddings"] = self._config["vq_layers"][f"down_{i}"]
@@ -77,8 +108,8 @@ class UNet(tf.keras.Model):
             self.encoder.append(
                 DownBlock(
                     channels,
-                    kernel,
-                    strides,
+                    source_kernel,
+                    source_strides,
                     initialiser=self._initialiser,
                     use_vq=use_vq,
                     vq_config=self._vq_config,
@@ -91,7 +122,7 @@ class UNet(tf.keras.Model):
 
         self.bottom_layer = DownBlock(
             channels,
-            kernel,
+            source_kernel,
             (1, 1, 1),
             initialiser=self._initialiser,
             use_vq=use_vq,
@@ -108,6 +139,7 @@ class UNet(tf.keras.Model):
             channels = cache["channels"][i]
             strides = cache["strides"][i]
             kernel = cache["kernels"][i]
+            upsamp_factor = cache["upsamp_factor"][i]
 
             use_vq = f"up_{i}" in self._vq_layers
             if use_vq:
@@ -118,6 +150,7 @@ class UNet(tf.keras.Model):
                     channels,
                     kernel,
                     strides,
+                    upsamp_factor=upsamp_factor,
                     initialiser=self._initialiser,
                     use_vq=use_vq,
                     vq_config=self._vq_config,
@@ -127,13 +160,14 @@ class UNet(tf.keras.Model):
         if self._upsample_layer:
             use_vq = "upsamp" in self._vq_layers
             if use_vq:
-                self._vq_config["embeddings"] = self._config["vq_layers"][f"upsamp"]
+                self._vq_config["embeddings"] = self._config["vq_layers"]["upsamp"]
 
             self.upsample_in = tf.keras.layers.UpSampling3D(size=(1, 2, 2))
             self.upsample_out = UpBlock(
                 channels,
                 (2, 4, 4),
                 (1, 2, 2),
+                upsamp_factor=1,
                 initialiser=self._initialiser,
                 use_vq=use_vq,
                 vq_config=self._vq_config,
