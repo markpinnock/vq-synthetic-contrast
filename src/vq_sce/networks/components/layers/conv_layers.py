@@ -260,7 +260,7 @@ class UpsampleSkip(tf.keras.layers.Layer):
     ) -> None:
 
         super().__init__(name=name)
-        self.tconv = tf.keras.layers.Conv3D(
+        self.tconv = tf.keras.layers.Conv3DTranspose(
             nc, weights, strides=strides,
             padding="same",
             kernel_initializer=initialiser,
