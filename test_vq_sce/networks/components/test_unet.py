@@ -83,3 +83,38 @@ def test_upsample_unet(residual: bool) -> None:
     if residual:
         res = tf.ones(exp_out_dims)
         assert np.equal(res.numpy(), out.numpy()).all()
+
+
+#-------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "depth,in_dims,out_dims",
+    [
+        (2, [1, 3, 16, 16, 1], [1, 12, 16, 16, 1]),
+        (3, [2, 8, 16, 16, 1], [2, 32, 16, 16, 1]),
+        (4, [2, 4, 16, 16, 1], [2, 8, 16, 16, 1]),
+        (3, [4, 16, 32, 32, 1], [4, 32, 32, 32, 1]),
+        (4, [4, 5, 32, 32, 1], [4, 20, 32, 32, 1]),
+        (5, [4, 6, 32, 32, 1], [4, 48, 32, 32, 1])
+    ]
+)
+def test_asymmetric_unet_output(
+    depth: int,
+    in_dims: list[int],
+    out_dims: list[int]) -> None:
+    """ Test UNet output is correct size with different
+        input and output depths
+    """
+
+    config = dict(CONFIG)
+    config["layers"] = depth
+    config["source_dims"] = in_dims[1:-1]
+    config["target_dims"] = out_dims[1:-1]
+    init = tf.keras.initializers.Zeros()
+
+    model = UNet(init, config)
+    img = tf.zeros(in_dims)
+    out, _ = model(img)
+
+    assert out.shape == out_dims
+    

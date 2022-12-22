@@ -54,53 +54,49 @@ class UNet(tf.keras.Model):
         """" Create U-Net encoder """
 
         # Cache channels, strides and weights
-        cache = {"channels": [], "strides": [], "kernels": [], "upsamp_factor": []}
-        source_dims = self._source_dims
-        target_dims = self._target_dims
+        cache = {
+            "channels": [],
+            "encode_strides": [],
+            "encode_kernels": [],
+            "decode_strides": [],
+            "decode_kernels": [],
+            "upsamp_factor": []
+        }
+
+        # Determine number of up-scaling layers needed
+        source_z = self._source_dims[0]
+        target_z = self._target_dims[0]
 
         for i in range(0, self._config["layers"]):
             channels = np.min([self._config["nc"] * 2 ** i, MAX_CHANNELS])
-
-            if (source_dims[0] // 2) < 2:
-                source_strides = (2, 2, 2)
-                source_kernel = (4, 4, 4)
-                source_dims = (
-                    source_dims[0] // 2,
-                    source_dims[1] // 2,
-                    source_dims[2] // 2
-                )
-            else:
-                source_strides = (1, 2, 2)
-                source_kernel = (2, 4, 4)
-                source_dims = (
-                    source_dims[0],
-                    source_dims[1] // 2,
-                    source_dims[2] // 2
-                )
-
-            if (target_dims[0] // 2) < 2:
-                target_strides = (2, 2, 2)
-                target_kernel = (4, 4, 4)
-                target_dims = (
-                    target_dims[0] // 2,
-                    target_dims[1] // 2,
-                    target_dims[2] // 2
-                )
-            else:
-                target_strides = (1, 2, 2)
-                target_kernel = (2, 4, 4)
-                target_dims = (
-                    target_dims[0],
-                    target_dims[1] // 2,
-                    target_dims[2] // 2
-                )
-
             cache["channels"].append(channels)
-            cache["strides"].append(target_strides)
-            cache["kernels"].append(target_kernel)
-            cache["upsamp_factor"].append(target_dims[0] // source_dims[0])
+            cache["upsamp_factor"].append(target_z // source_z)
+
+            # If source z dim is odd or if source feature dim
+            # smaller than target feature dim, don't downsample source
+            if ((source_z / 2) - (source_z // 2) != 0 or
+                source_z < target_z):
+                cache["encode_strides"].append((1, 2, 2))
+                cache["encode_kernels"].append((2, 4, 4))
+            else:
+                cache["encode_strides"].append((2, 2, 2))
+                cache["encode_kernels"].append((4, 4, 4))
+                source_z //= 2
+
+            # If target z dim will be odd, don't upsample
+            if (target_z / 2) - (target_z // 2) != 0:
+                cache["decode_strides"].append((1, 2, 2))
+                cache["decode_kernels"].append((2, 4, 4))
+            else:
+                cache["decode_strides"].append((2, 2, 2))
+                cache["decode_kernels"].append((4, 4, 4))
+                target_z //= 2
 
         for i in range(0, self._config["layers"]):
+            channels = cache["channels"][i]
+            strides = cache["encode_strides"][i]
+            kernel = cache["encode_kernels"][i]
+
             use_vq = f"down_{i}" in self._vq_layers
             if use_vq:
                 self._vq_config["embeddings"] = self._config["vq_layers"][f"down_{i}"]
@@ -108,8 +104,8 @@ class UNet(tf.keras.Model):
             self.encoder.append(
                 DownBlock(
                     channels,
-                    source_kernel,
-                    source_strides,
+                    kernel,
+                    strides,
                     initialiser=self._initialiser,
                     use_vq=use_vq,
                     vq_config=self._vq_config,
@@ -122,7 +118,7 @@ class UNet(tf.keras.Model):
 
         self.bottom_layer = DownBlock(
             channels,
-            source_kernel,
+            kernel,
             (1, 1, 1),
             initialiser=self._initialiser,
             use_vq=use_vq,
@@ -137,8 +133,8 @@ class UNet(tf.keras.Model):
 
         for i in range(self._config["layers"] - 1, -1, -1):
             channels = cache["channels"][i]
-            strides = cache["strides"][i]
-            kernel = cache["kernels"][i]
+            strides = cache["decode_strides"][i]
+            kernel = cache["decode_kernels"][i]
             upsamp_factor = cache["upsamp_factor"][i]
 
             use_vq = f"up_{i}" in self._vq_layers
