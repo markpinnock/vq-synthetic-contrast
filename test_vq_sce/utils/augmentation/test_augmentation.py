@@ -37,7 +37,7 @@ class TestAffine2D(tf.test.TestCase):
         super().setUp()
 
         self.config = {
-            "flip_prob": 0.5,
+            "flip_prob": 1.0,
             "rotation": 45.0,
             "scale": [0.8, 1.6],
             "shear": 15.0,

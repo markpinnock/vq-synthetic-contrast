@@ -9,8 +9,6 @@ data:
     down_sample: 1
     source_patch: [3, 64, 64]
     target_patch: [12, 64, 64]
-    norm_param_1: -500
-    norm_param_2: 2500
     num_examples: 4
     cv_folds: 3
     fold: 2
@@ -24,12 +22,12 @@ expt:
     log_histograms: false # Log weights for visualisation in Tensorboard
     save_model: true
 hyperparameters:
-    scales: [8]#, 2, 1]
+    scales: [8]
     opt: [1.0e-4, 0.5, 0.999]
     mu: 0.0 # Focal loss weighting (0.0 == OFF)
     nc: 16 # Generator starting channels
     layers: 4
-    residual: False
+    residual: false
     vq_layers: {"bottom": 512}
     vq_beta: 0.25
 augmentation:
