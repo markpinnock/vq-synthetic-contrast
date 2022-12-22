@@ -13,24 +13,33 @@ class Model(tf.keras.Model):
 
     def __init__(self, config, name="Model"):
         super().__init__(name=name)
-        self.initialiser = tf.keras.initializers.HeNormal()
-        self.config = config
-        self.mb_size = config["expt"]["mb_size"]
-        self.img_dims = config["data"]["patch_size"]
-        config["hyperparameters"]["img_dims"] = self.img_dims
+        self._initialiser = tf.keras.initializers.HeNormal()
+        self._config = config
+        self._mb_size = config["expt"]["mb_size"]
+        self._source_dims = config["data"]["source_patch"]
+        self._target_dims = config["data"]["target_patch"]
+        config["hyperparameters"]["source_dims"] = self._source_dims
+        config["hyperparameters"]["target_dims"] = self._target_dims
         config["hyperparameters"]["upsample_layer"] = False
+
         if config["hyperparameters"]["vq_layers"] is not None:
-            self.intermediate_vq = "output" in config["hyperparameters"]["vq_layers"]
+            self._intermediate_vq = "output" in \
+                config["hyperparameters"]["vq_layers"]
         else:
-            self.intermediate_vq = False
-        self.scales = [
-            config["augmentation"]["source_dims"][0] // config["data"]["patch_size"][0]
+            self._intermediate_vq = False
+
+        self._scales = [
+            config["augmentation"]["source_dims"][1] \
+                // config["data"]["source_patch"][1]
         ]
 
         if config["hyperparameters"]["vq_layers"] is None:
-            self.use_vq = False
+            self._use_vq = False
         else:
-            self.use_vq = True
+            self._use_vq = True
+
+        # Hyperparameter if using focused loss
+        self._mu = config["hyperparameters"]["mu"]
 
         # Set up augmentation
         aug_config = config["augmentation"]
@@ -41,13 +50,17 @@ class Model(tf.keras.Model):
         else:
             self.Aug = None
 
-        self.UNet = UNet(self.initialiser, config["hyperparameters"], name="unet")
+        self.UNet = UNet(
+            self._initialiser,
+            config["hyperparameters"],
+            name="unet"
+        )
 
     def compile(self, optimiser):
         self.optimiser = optimiser
 
-        if self.config["hyperparameters"]["mu"] > 0.0:
-            self.L1_loss = FocalLoss(self.config["hyperparameters"]["mu"], name="FocalLoss")
+        if self._mu > 0.0:
+            self.L1_loss = FocalLoss(self._mu, name="FocusedLoss")
         else:
             self.L1_loss = L1
 
@@ -65,12 +78,8 @@ class Model(tf.keras.Model):
         ]
 
     def summary(self):
-        source = tf.keras.Input(shape=self.img_dims + [1])
+        source = tf.keras.Input(shape=self._source_dims + [1])
         pred, vq = self.UNet.call(source)
-
-        print("===========================================================")
-        print("UNet")
-        print("===========================================================")
 
         if vq is None:
             tf.keras.Model(inputs=source, outputs=pred).summary()
@@ -80,11 +89,13 @@ class Model(tf.keras.Model):
     @tf.function
     def train_step(self, source, target, seg=None):
 
-        """ Expects data in order 'source, target' or 'source, target, segmentations'"""
+        """ Expects data in order 'source, target'
+            or 'source, target, segmentations'
+        """
 
         # Augmentation if required
         if self.Aug:
-            (source, target), seg = self.Aug(imgs=[source, target], seg=seg)
+            (source,), (target,) = self.Aug(source=[source], target=[target])
 
         # Randomise segments of image to sample, get patch indices for each scale
         x, y = self._get_scale_indices()
@@ -101,7 +112,7 @@ class Model(tf.keras.Model):
                 L1_loss = self.L1_loss(target, pred)
 
             # Calculate VQ loss
-            if self.use_vq:
+            if self._use_vq:
                 vq_loss = sum(self.UNet.losses)
             else:
                 vq_loss = 0
@@ -130,7 +141,7 @@ class Model(tf.keras.Model):
             L1_loss = self.L1_loss(target, pred)
 
         # Calculate VQ loss
-        if self.use_vq:
+        if self._use_vq:
             vq_loss = sum(self.UNet.losses)
         else:
             vq_loss = 0
@@ -144,28 +155,54 @@ class Model(tf.keras.Model):
 
         # Want higher probability of training on more central regions
         if np.random.randn() > 0.5:
-            x = np.random.randint(0, self.scales[0])
-            y = np.random.randint(0, self.scales[0])
+            x = np.random.randint(0, self._scales[0])
+            y = np.random.randint(0, self._scales[0])
         else:
-            x = np.random.randint(self.scales[0] / 4, self.scales[0] - self.scales[0] / 4)
-            y = np.random.randint(self.scales[0] / 4, self.scales[0] - self.scales[0] / 4)
+            x = np.random.randint(
+                self._scales[0] / 4,
+                self._scales[0] - self._scales[0] / 4
+            )
+            y = np.random.randint(
+                self._scales[0] / 4,
+                self._scales[0] - self._scales[0] / 4
+            )
 
         return x, y
 
     def _sample_patches(self, x, y, source, target, seg=None):
-        x_img = x * self.img_dims[0]
-        y_img = y * self.img_dims[1]
-        source = source[:, x_img:(x_img + self.img_dims[0]), y_img:(y_img + self.img_dims[1]), :, :]
-        target = target[:, x_img:(x_img + self.img_dims[0]), y_img:(y_img + self.img_dims[1]), :, :]
+        x_src = x * self._source_dims[1]
+        y_src = y * self._source_dims[2]
+        x_tar = x * self._target_dims[1]
+        y_tar = y * self._target_dims[2]
+        source = source[
+            :,
+            :,
+            x_src:(x_src + self._source_dims[1]),
+            y_src:(y_src + self._source_dims[2]),
+            :
+        ]
+        target = target[
+            :,
+            :,
+            x_tar:(x_tar + self._target_dims[1]),
+            y_tar:(y_tar + self._target_dims[2]),
+            :
+        ]
 
         if seg is not None:
-            seg = seg[:, x_img:(x_img + self.img_dims[0]), y_img:(y_img + self.img_dims[1]), :, :]
+            seg = seg[
+                :,
+                :,
+                x_tar:(x_tar + self._target_dims[1]),
+                y_tar:(y_tar + self._target_dims[2]),
+                :
+            ]
 
         return source, target, seg
 
     def example_inference(self, source, target, seg=None):
-        ex_x = self.scales[0] // 2
-        ex_y = self.scales[0] // 2
+        ex_x = self._scales[0] // 2
+        ex_y = self._scales[0] // 2
         source, target, _ = self._sample_patches(ex_x, ex_y, source, target, seg)
         pred, _ = self(source)
 
@@ -175,5 +212,5 @@ class Model(tf.keras.Model):
         for metric in self.metrics:
             metric.reset_states()
 
-    def call(self, x, t=None):
-        return self.UNet(x, t)
+    def call(self, x):
+        return self.UNet(x)

@@ -156,7 +156,8 @@ class UNet(tf.keras.Model):
         if self._upsample_layer:
             use_vq = "upsamp" in self._vq_layers
             if use_vq:
-                self._vq_config["embeddings"] = self._config["vq_layers"]["upsamp"]
+                self._vq_config["embeddings"] = \
+                    self._config["vq_layers"]["upsamp"]
 
             self.upsample_in = tf.keras.layers.UpSampling3D(size=(1, 2, 2))
             self.upsample_out = UpBlock(

@@ -8,6 +8,8 @@ from pathlib import Path
 import tensorflow as tf
 import time
 
+from vq_sce import ABDO_WINDOW
+
 np.set_printoptions(precision=4, suppress=True)
 
 
@@ -154,7 +156,7 @@ class TrainingLoop:
         elif phase == "validation":
             data_generator = self.val_generator
 
-        data = data_generator.example_images()
+        data = data_generator.example_images
         source, target, pred = self.Model.example_inference(**data)
 
         source = data_generator.un_normalise(source)
@@ -164,15 +166,15 @@ class TrainingLoop:
         _, axs = plt.subplots(target.shape[0], 5)
 
         for i in range(target.shape[0]):
-            axs[i, 0].imshow(source[i, :, :, 11, 0], cmap="gray", vmin=-150, vmax=250)
+            axs[i, 0].imshow(source[i, -1, :, :, 0], cmap="bone", **ABDO_WINDOW)
             axs[i, 0].axis("off")
-            axs[i, 1].imshow(target[i, :, :, 11, 0], cmap="gray", vmin=-150, vmax=250)
+            axs[i, 1].imshow(target[i, -1, :, :, 0], cmap="bone", **ABDO_WINDOW)
             axs[i, 1].axis("off")
-            axs[i, 3].imshow(target[i, :, :, 11, 0] - source[i, :, :, 11, 0], norm=mpl.colors.CenteredNorm(), cmap="bwr")
+            axs[i, 3].imshow(target[i, -1, :, :, 0] - source[i, -1, :, :, 0], norm=mpl.colors.CenteredNorm(), cmap="bwr")
             axs[i, 3].axis("off")
-            axs[i, 2].imshow(pred[i, :, :, 11, 0], cmap="gray", vmin=-150, vmax=250)
+            axs[i, 2].imshow(pred[i, -1, :, :, 0], cmap="bone", **ABDO_WINDOW)
             axs[i, 2].axis("off")
-            axs[i, 4].imshow(np.abs(target[i, :, :, 11, 0] - pred[i, :, :, 11, 0]), norm=mpl.colors.CenteredNorm(), cmap="bwr")
+            axs[i, 4].imshow(np.abs(target[i, -1, :, :, 0] - pred[i, -1, :, :, 0]), norm=mpl.colors.CenteredNorm(), cmap="bwr")
             axs[i, 4].axis("off")
 
         plt.tight_layout()

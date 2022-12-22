@@ -34,13 +34,10 @@ def train(config: dict):
 
         @tf.function
         def trace(x):
-            if config["data"]["times"] is not None:
-                return model.UNet(x, 0.0)
-            else:
-                return model.UNet(x)
+            model.UNet(x)
 
         tf.summary.trace_on(graph=True)
-        trace(tf.zeros([1] + config["hyperparameters"]["img_dims"] + [1]))
+        trace(tf.zeros([1] + config["data"]["source_patch"] + [1]))
 
         with writer.as_default():
             tf.summary.trace_export("graph", step=0)
