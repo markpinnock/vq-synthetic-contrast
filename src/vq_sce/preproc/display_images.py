@@ -1,70 +1,90 @@
+import json
 import matplotlib.pyplot as plt
-import nrrd
-import os
+import numpy as np
+from pathlib import Path
+
+ABDO_WINDOW = {"vmin": -150, "vmax": 250}
+IMAGE_HEIGHT = 512
+LQ_DEPTH = 3
 
 
-def display_needle(subject, slice, expt, phase='AC', save=True):
-    file_path = "C:/Users/roybo/OneDrive - University College London/PhD/PhD_Prog/007_CNN_Virtual_Contrast/Phase2/output"
-    save_path = "C:/Users/roybo/OneDrive - University College London/PhD/Publications/005_QuantVirtualContrast/needle"
-    imgs = [f for f in os.listdir(f"{file_path}/{expt}/Needle") if subject in f]
+#-------------------------------------------------------------------------
 
-    if expt == "Real":
-        HQ = [f for f in imgs if 'HQ' in f]
-        HQ.sort()
-        N = len(HQ)
-    else:
-        AC = [f for f in imgs if 'AP' in f]
-        VC = [f for f in imgs if 'VP' in f]
-        AC.sort()
-        VC.sort()
-        assert len(AC) == len(VC)
-        N = len(AC)
+def display_images(
+    img1: np.ndarray,
+    img2: np.ndarray,
+    name1: str,
+    name2: str
+) -> None:
 
-    nrows = 3
-    ncols = N // nrows
-    remainder = N % nrows
+    if img1.shape[0] == LQ_DEPTH:
+        img1 = np.repeat(img1, 4, axis=0)
 
-    plt.figure(figsize=(18, 12))
-    for i in range(N):
-        if phase == 'AC' and expt != "Real":
-            im, _ = nrrd.read(f"{file_path}/{expt}/Needle/{AC[i]}")
-        elif phase == 'VC' and expt != "Real":
-            im, _ = nrrd.read(f"{file_path}/{expt}/Needle/{VC[i]}")
-        else:
-            im, _ = nrrd.read(f"{file_path}/{expt}/Needle/{HQ[i]}")
-        plt.subplot(nrows, ncols + remainder, i + 1)
-        plt.imshow(im[:, :, slice].T, cmap="gray", vmin=-150, vmax=250)
-        plt.axis("off")
+    mid_point = img1.shape[0] // 2
 
-    if save:
-        plt.savefig(f"{save_path}/{subject}_{slice}_{expt}.png")
-        plt.close()
-    else:
-        plt.show()
+    plt.figure(figsize=(12, 6))
+    plt.subplot(2, 3, 1)
+    plt.imshow(img1[mid_point, ...], cmap="bone", **ABDO_WINDOW)
+    plt.title(name1)
+    plt.subplot(2, 3, 2)
+    plt.imshow(img2[mid_point, ...], cmap="bone", **ABDO_WINDOW)
+    plt.title(name2)
+    plt.subplot(2, 3, 3)
+    plt.imshow(
+        img1[mid_point, ...] - img2[mid_point, ...],
+        cmap="bone", **ABDO_WINDOW
+    )
+    plt.subplot(2, 3, 4)
+    plt.imshow(img1[:, IMAGE_HEIGHT // 2, :], cmap="bone", **ABDO_WINDOW)
+    plt.subplot(2, 3, 5)
+    plt.imshow(img2[:, IMAGE_HEIGHT // 2, :], cmap="bone", **ABDO_WINDOW)
+    plt.subplot(2, 3, 6)
+    plt.imshow(
+        img1[:, IMAGE_HEIGHT // 2, :] - img2[:, IMAGE_HEIGHT // 2, :],
+        cmap="bone", **ABDO_WINDOW
+    )
+    plt.show()
 
+
+#-------------------------------------------------------------------------
+
+def main() -> None:
+    cwd = Path()
+    ce_path = cwd / "CE"
+    hq_path = cwd / "HQ"
+    lq_path = cwd / "LQ"
+
+    with open(cwd / "source_coords.json", 'r') as fp:
+        source_coords = json.load(fp)
+
+    for ce_name in ce_path.glob('*'):
+        subject_id = ce_name.stem[0:6]
+        ce_img = np.load(ce_name)
+
+        hq_name = list(hq_path.glob(f"{subject_id}*.npy"))[0]
+        hq_img = np.load(hq_name)
+        ce_coords = source_coords[ce_name.stem][hq_name.stem]
+        hq_img = hq_img[ce_coords[0]:ce_coords[1], ...]
+
+        assert ce_img.shape == hq_img.shape
+        display_images(ce_img, hq_img, ce_name.stem, hq_name.stem)
+
+        lq_names = list(lq_path.glob(f"{subject_id}*.npy"))
+
+        for lq_name in lq_names:
+            lq_img = np.load(lq_name)
+            hq_candidates = list(source_coords[lq_name.stem].keys())
+
+            hq_name = hq_candidates[0]
+            hq_img = np.load(hq_path / f"{hq_name}.npy")
+            lq_coords = source_coords[lq_name.stem][hq_name]
+            hq_img = hq_img[lq_coords[0]:lq_coords[1], ...]
+
+            display_images(lq_img, hq_img, lq_name.stem, hq_name)
+
+
+#-------------------------------------------------------------------------
+""" Check images saved by preprocessing pipeline """
 
 if __name__ == "__main__":
-    expt_list = ["Real",
-                 "UNetACVC",
-                 "UNetT_save1000",
-                 "2_save170_patch",
-                 "CycleGANT_save880"]
-    subject_dict = {"T057A0": [22, 34],
-                    "T058A0": [12, 20, 31],
-                    "T061A0": [26, 29],
-                    "T063A0": [51, 56],
-                    "T064A0": [31, 42],
-                    "T069A0": [67]}
-
-    for subject, slices in subject_dict.items():
-        for slice in slices:
-            for expt in expt_list:
-                display_needle(subject, slice, expt, save=True)
-
-
-""" T057A0 22, 34
-    T058A0 12, 20, 31
-    T061A0 26, 29
-    T063A0 51, 56
-    T064A0 31, 42
-    T069A0 67 """
+    main()
