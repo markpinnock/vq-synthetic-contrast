@@ -7,10 +7,11 @@ from pathlib import Path
 import SimpleITK as itk
 
 from vq_sce import HU_MIN, HU_MAX
-
-HQ_SLICE_THICK = 1
-LQ_DEPTH = 3
-LQ_SLICE_THICK = 4
+from . import (
+    HQ_SLICE_THICK,
+    LQ_DEPTH,
+    LQ_SLICE_THICK
+)
 
 
 #-------------------------------------------------------------------------

@@ -3,9 +3,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
 
-ABDO_WINDOW = {"vmin": -150, "vmax": 250}
-IMAGE_HEIGHT = 512
-LQ_DEPTH = 3
+from vq_sce import ABDO_WINDOW
+from . import IMAGE_HEIGHT, LQ_DEPTH
 
 
 #-------------------------------------------------------------------------
