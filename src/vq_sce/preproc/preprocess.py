@@ -364,10 +364,10 @@ def main() -> None:
         start_at=arguments.start_at,
         stop_before=arguments.stop_before
     )
-    # img_conv.process_images()
+    img_conv.process_images()
     img_conv.check_saved()
 
-    # Check T083A0
+    # Check T070A0, T083A0
     # T005A0, T065A1, T066A0, T069A0, T086A0, T088A0, T105A0, T107A0, T109A0, T115A0, T126A0, T136A0, T140A0
 
 #-------------------------------------------------------------------------
