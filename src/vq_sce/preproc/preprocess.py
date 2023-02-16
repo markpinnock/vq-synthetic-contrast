@@ -6,12 +6,17 @@ import os
 from pathlib import Path
 import SimpleITK as itk
 
-from vq_sce import HU_MIN, HU_MAX
-from . import (
+from vq_sce import (
+    HU_MIN,
+    HU_MAX,
     HQ_SLICE_THICK,
     LQ_DEPTH,
-    LQ_SLICE_THICK
+    LQ_SLICE_THICK,
+    MIN_HQ_DEPTH
 )
+
+HU_DEFAULT = -2048
+HU_THRESHOLD = -2000
 
 
 #-------------------------------------------------------------------------
@@ -37,7 +42,6 @@ class ImgConv:
         self.HQ_save_path.mkdir(parents=True, exist_ok=True)
         self.LQ_save_path = self.save_path / "LQ"
         self.LQ_save_path.mkdir(parents=True, exist_ok=True)
-        self.HU_min = -2048
 
         self.HU_filter = itk.ClampImageFilter()
         self.HU_filter.SetLowerBound(HU_MIN)
@@ -83,20 +87,17 @@ class ImgConv:
 
         source_img = itk.Resample(
             source_img, target_img,
-            defaultPixelValue=self.HU_min
+            defaultPixelValue=HU_DEFAULT
         )
 
         if len(transform_candidates) == 1:
             transform = itk.ReadTransform(str(transform_candidates[0]))
             source_img = itk.Resample(
                 source_img, transform,
-                defaultPixelValue=self.HU_min
+                defaultPixelValue=HU_DEFAULT
             )
-            z_shift = transform.GetParameters()[-1]
-        else:
-            z_shift = 0
 
-        return source_img, round(z_shift)
+        return source_img
 
     def _load_images(
         self,
@@ -131,10 +132,14 @@ class ImgConv:
             assert int(CE_paths[0].stem[-3:]) > int(NCE_path.stem[-3:]), (
                         f"{CE_paths[0].stem} vs {NCE_path.stem}")
 
-            if (int(CE_paths[0].stem[-3:]) > int(HQ_paths[0].stem[-3:]) or
-                int(CE_paths[0].stem[-3:]) > int(LQ_paths[0].stem[-3:])):
+            if int(CE_paths[0].stem[-3:]) > int(HQ_paths[0].stem[-3:]):
                 print(f"{subject_path.stem} CE: {CE_paths[0].stem}, HQ: {HQ_paths[0].stem}")
                 return None
+            else:
+                if (len(LQ_paths) > 0 and 
+                    int(CE_paths[0].stem[-3:]) > int(LQ_paths[0].stem[-3:])):
+                    print(f"{subject_path.stem} CE: {CE_paths[0].stem}, HQ: {HQ_paths[0].stem}")
+                    return None
 
         # Read images and transform if required
         NCE, ACE, HQs, LQs = {}, {}, {}, {}
@@ -154,55 +159,29 @@ class ImgConv:
 
         return NCE, ACE, HQs, LQs
 
-    # def _check_orientation(self, img: itk.Image) -> itk.Image:
-    #     """ Check image is orientated correctly
-    #         and flip/rotate if necessary
-    #     """
-
-    #     image_dir = np.around(img.GetDirection())
-    #     if image_dir[0] == 0.0 or image_dir[4] == 0.0:
-    #         img = itk.PermuteAxes(img, [1, 0, 2])
-    #         image_dir = np.around(img.GetDirection())
-    #         img = img[::int(image_dir[0]), ::int(image_dir[4]), :]
-
-    #     else:
-    #         img = img[::int(image_dir[0]), ::int(image_dir[4]), :]
-
-    #     return img
-
-    def _get_source_coords(
-        self,
-        source: itk.Image,
-        target: itk.Image
-    ) -> tuple[int, int]:
-
-        source_lower = int(np.round(source.GetOrigin()[2]
-                            - target.GetOrigin()[2]))
-        source_upper = source_lower + source.GetDepth()
-
-        return source_lower, source_upper
-
     def _trim_source(
         self,
         source: itk.Image,
-        target: itk.Image,
-        source_lower: int,
-        source_upper: int
+        lq: bool,
     ) -> tuple[itk.Image, int, int]:
 
-        target_z = target.GetDepth()
+        source_slice_means = itk.GetArrayFromImage(source).mean(axis=(1, 2))
+        source_slice_idx = np.argwhere(source_slice_means > HU_THRESHOLD)
+        if len(source_slice_idx) == 0 and lq:
+            return source, None, None
 
-        if source_lower > 0 and source_upper > target_z:
-            source_upper = target_z
-        elif source_lower < 0 and source_upper < target_z:
-            source_lower = 0
-        elif source_lower > 0 and source_upper < target_z:
-            pass
-        elif source_lower < 0 and source_upper > target_z:
-            source_lower = 0
-            source_upper = target_z
+        source_lower = int(source_slice_idx[0])
+        source_upper = int(source_slice_idx[-1]) + 1
 
-        source = source[:, :, source_lower:source_upper]
+        if lq:
+            source = source[:, :, source_lower:source_upper:LQ_SLICE_THICK]
+            if source.GetDepth() != LQ_DEPTH:
+                return source, None, None
+
+        else:
+            source = source[:, :, source_lower:source_upper]
+            if source.GetDepth() < MIN_HQ_DEPTH:
+                return source, None, None
 
         return source, source_lower, source_upper
 
@@ -214,55 +193,14 @@ class ImgConv:
             nce = nce[nce_name]
             ace = ace[ace_name]
 
-            # Check image is orientated correctly
-            nce = self._check_orientation(nce)
-            ace = self._check_orientation(ace)
-            ace_lower, ace_upper = self._get_source_coords(ace, nce)
-            ace, z_shift = self._transform_if_required(
+            ace = self._transform_if_required(
                 source_name=ace_name,
                 target_name=nce_name,
                 source_img=ace,
                 target_img=nce,
                 subject_path=subject_path
             )
-            ace_trim, ace_lower, ace_upper = self._trim_source(
-                source=ace,
-                target=nce,
-                source_lower=ace_lower - z_shift,
-                source_upper=ace_upper - z_shift
-            )
-
-            # Occasionally need to adjust bounds and re-trim
-            ace_npy = itk.GetArrayFromImage(ace_trim).astype("float16")
-            if (ace_npy[0, :, :].mean() == self.HU_min
-                and ace_npy[-1, :, :].mean() == self.HU_min):
-                raise ValueError(
-                    f"{ace_name}: {ace_npy[0, :, :].mean()}, {ace_npy[-1, :, :].mean()}"
-                )
-
-            elif ace_npy[0, :, :].mean() == self.HU_min:
-                ace_lower += 1
-                ace_upper += 1
-                ace_trim, ace_lower, ace_upper = self._trim_source(
-                    source=ace,
-                    target=nce,
-                    source_lower=ace_lower,
-                    source_upper=ace_upper
-                )
-
-            elif ace_npy[-1, :, :].mean() == self.HU_min:
-                ace_lower -= 1
-                ace_upper -= 1
-                ace_trim, ace_lower, ace_upper = self._trim_source(
-                    source=ace,
-                    target=nce,
-                    source_lower=ace_lower,
-                    source_upper=ace_upper
-                )
-
-            else:
-                pass
-
+            ace, ace_lower, ace_upper = self._trim_source(ace, False)
             self.source_coords[ace_name] = {nce_name: [ace_lower, ace_upper]}
 
             # Clamp HU values
@@ -270,7 +208,7 @@ class ImgConv:
             ace = self.HU_filter.Execute(ace)
 
             nce_npy = itk.GetArrayFromImage(nce).astype("float16")
-            ace_npy = itk.GetArrayFromImage(ace_trim).astype("float16")
+            ace_npy = itk.GetArrayFromImage(ace).astype("float16")
 
             np.save(self.HQ_save_path / f"{nce_name}.npy", nce_npy)
             np.save(self.CE_save_path / f"{ace_name}.npy", ace_npy)
@@ -279,14 +217,28 @@ class ImgConv:
         self,
         hqs: itk.Image,
         lqs: itk.Image,
+        nce: itk.Image,
         subject_path: Path,
         num_lq: int
     ):
+        # Process initial non-CE and CE images
+        nce_name = list(nce.keys())[0]
+        nce = nce[nce_name]
+
         # Process HQ and LQ post-CE images
         for hq_name, hq in hqs.items():
-
-            # Check image is orientated correctly
-            hq = self._check_orientation(hq)
+            hq = self._transform_if_required(
+                source_name=hq_name,
+                target_name=nce_name,
+                source_img=hq,
+                target_img=nce,
+                subject_path=subject_path
+            )
+            hq, hq_lower, hq_upper = self._trim_source(hq, False)
+            if hq_lower is None or hq_upper is None:
+                print((f"Skipping {hq_name} - no overlap "
+                       f"or size wrong {hq.GetDepth()}"))
+            self.source_coords[hq_name] = {nce_name: [hq_lower, hq_upper]}
 
             series_no = int(hq_name[-3:])
             LQ_candidates = list(lqs.keys())
@@ -297,47 +249,39 @@ class ImgConv:
             assert len(LQ_names) > 0, f"LQ candidates: {len(LQ_names)}"
 
             for lq_name in LQ_names:
-                if lq_name not in self.source_coords.keys():
-                    self.source_coords[lq_name] = {}
-
                 lq = itk.ReadImage(str(lqs[lq_name]))
                 if lq.GetSpacing()[2] != LQ_SLICE_THICK:
+                    print(f"{lq_name} spacing {lq.GetSpacing()}")
                     continue
 
-                lq_lower, lq_upper = self._get_source_coords(lq, hq)
-                if lq_lower < 0:
-                    continue
-
-                # Check image is orientated correctly and clamp values
-                lq = self._check_orientation(lq)
-                lq, _ = self._transform_if_required(
-                    source_name=lq_name,
-                    target_name=hq_name,
+                HQ_candidates = sorted(
+                hqs, key=lambda x: abs(int(x[-3:]) - int(lq_name[-3:]))
+            )
+                closest_hq = HQ_candidates[0]
+                lq = self._transform_if_required(
+                    source_name=closest_hq,
+                    target_name=nce_name,
                     source_img=lq,
-                    target_img=hq,
+                    target_img=nce,
                     subject_path=subject_path
                 )
-                lq, lq_lower, lq_upper = self._trim_source(
-                    source=lq,
-                    target=hq,
-                    source_lower=lq_lower,
-                    source_upper=lq_upper
-                )
-                lq_upper = lq_lower + LQ_DEPTH * LQ_SLICE_THICK
+                lq, lq_lower, lq_upper = self._trim_source(lq, lq=True)
+                if lq_lower is None or lq_upper is None:
+                    print((f"Skipping {lq_name} - no overlap "
+                           f"or size wrong {lq.GetDepth()}"))
+                    continue
 
-                self.source_coords[lq_name][hq_name] = [lq_lower, lq_upper]
+                self.source_coords[lq_name] = {nce_name: [lq_lower, lq_upper]}
+                if lq_lower - hq_lower < 0 or lq_lower - hq_lower + MIN_HQ_DEPTH > hq.GetDepth():
+                    print(f"Skipping {lq_name} - extends past {hq_name}")
+                    continue
 
-                #  Clamp HU values
+                #  Clamp HU values and save
                 lq = self.HU_filter.Execute(lq)
                 lq_npy = itk.GetArrayFromImage(lq).astype("float16")
-                if (lq_npy[0, :, :].mean() == HU_MIN
-                    or lq_npy[-1, :, :].mean() == HU_MIN):
-                    raise ValueError(
-                        f"{lq_name}: {lq_npy[0, :, :].mean()}, {lq_npy[-1, :, :].mean()}"
-                    )
                 np.save(self.LQ_save_path / f"{lq_name}.npy", lq_npy)
 
-            # Clamp HU values
+            # Clamp HU values and save
             hq = self.HU_filter.Execute(hq)
             hq_npy = itk.GetArrayFromImage(hq).astype("float16")
             np.save(self.HQ_save_path / f"{hq_name}.npy", hq_npy)
@@ -358,7 +302,7 @@ class ImgConv:
             # TODO elif
 
             if len(LQs) > 0:
-                self._save_lq_hq(HQs, LQs, subject_path, num_LQ)
+                self._save_lq_hq(HQs, LQs, nce, subject_path, num_LQ)
 
             self.source_coords = dict(sorted(self.source_coords.items()))
             with open(self.save_path / "source_coords.json", 'w') as fp:
@@ -366,26 +310,15 @@ class ImgConv:
 
             print(f"{subject} saved")
 
+    def check_saved(self):
 
-    @staticmethod
-    def check_saved(save_path: str, include: list | None = None):
-
-        save_path = Path(save_path)
-        with open(save_path / "source_coords.json", 'r') as fp:
-            source_coords = json.load(fp)
-
-        if include is not None:
-            subjects = include
-        else:
-            subjects = []
-            for img_id in source_coords.keys():
-                if img_id[0:6] not in subjects:
-                    subjects.append(img_id[0:6])
-
-        for subject in subjects:
-            img_paths = list((save_path / "CE").glob(f"{subject}*"))
-            img_paths += list((save_path / "HQ").glob(f"{subject}*"))
-            img_paths += list((save_path / "LQ").glob(f"{subject}*"))
+        for subject in self.subjects:
+            img_paths = list((self.save_path / "CE").glob(f"{subject}*"))
+            img_paths += list((self.save_path / "HQ").glob(f"{subject}*"))
+            img_paths += list((self.save_path / "LQ").glob(f"{subject}*"))
+            if len(img_paths) == 0:
+                print(f"No images for {subject}")
+                continue
 
             imgs = {}
             for img_path in img_paths:
@@ -431,12 +364,11 @@ def main() -> None:
         start_at=arguments.start_at,
         stop_before=arguments.stop_before
     )
-    img_conv.process_images()
-    img_conv.check_saved(arguments.save_path, to_include)
+    # img_conv.process_images()
+    img_conv.check_saved()
 
-    # Check T025A1, T161A1, T029A0AC007, T071A0, T083A0, T104A0, T114A0, T121A0AC005, T123A1, T150A0
-    # T065A1, T066A0, T069A0, T086A0, T088A0, T107A0, T115A0, T126A0, T136A0
-
+    # Check T083A0
+    # T005A0, T065A1, T066A0, T069A0, T086A0, T088A0, T105A0, T107A0, T109A0, T115A0, T126A0, T136A0, T140A0
 
 #-------------------------------------------------------------------------
 

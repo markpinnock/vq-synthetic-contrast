@@ -3,46 +3,92 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
 
-from vq_sce import ABDO_WINDOW
-from . import IMAGE_HEIGHT, LQ_DEPTH
+from vq_sce import ABDO_WINDOW, IMAGE_HEIGHT, LQ_SLICE_THICK, MIN_HQ_DEPTH
 
 
 #-------------------------------------------------------------------------
 
 def display_images(
-    img1: np.ndarray,
-    img2: np.ndarray,
-    name1: str,
-    name2: str
+    nce: np.ndarray,
+    ce: np.ndarray,
+    ce_coords: list[int],
+    hq: np.ndarray,
+    hq_coords: list[int],
+    lq: np.ndarray,
+    lq_coords: list[int],
+    lq_name: str
 ) -> None:
 
-    if img1.shape[0] == LQ_DEPTH:
-        img1 = np.repeat(img1, 4, axis=0)
+    nce_level = lq_coords[0] + LQ_SLICE_THICK
+    hq_level = nce_level - hq_coords[0]
+    ce_level = nce_level - ce_coords[0]
 
-    mid_point = img1.shape[0] // 2
+    lq = np.repeat(lq, 4, axis=0)
+    hq_lq_coords = [
+        lq_coords[0] - hq_coords[0],
+        lq_coords[0] - hq_coords[0] + MIN_HQ_DEPTH
+    ]
+    # if hq_lq_coords[0] < 0 or hq_lq_coords[1] > hq.shape[0]:
+    #     print("FAIL")
+    #     return None
 
-    plt.figure(figsize=(12, 6))
-    plt.subplot(2, 3, 1)
-    plt.imshow(img1[mid_point, ...], cmap="bone", **ABDO_WINDOW)
-    plt.title(name1)
-    plt.subplot(2, 3, 2)
-    plt.imshow(img2[mid_point, ...], cmap="bone", **ABDO_WINDOW)
-    plt.title(name2)
-    plt.subplot(2, 3, 3)
+    plt.figure(figsize=(18, 8))
+    plt.subplot(2, 6, 1)
+    plt.imshow(nce[nce_level, ...], cmap="bone", **ABDO_WINDOW)
+    plt.axis("off")
+    plt.subplot(2, 6, 2)
+    plt.imshow(ce[ce_level, ...], cmap="bone", **ABDO_WINDOW)
+    plt.axis("off")
+    plt.subplot(2, 6, 3)
     plt.imshow(
-        img1[mid_point, ...] - img2[mid_point, ...],
-        cmap="bone", **ABDO_WINDOW
-    )
-    plt.subplot(2, 3, 4)
-    plt.imshow(img1[:, IMAGE_HEIGHT // 2, :], cmap="bone", **ABDO_WINDOW)
-    plt.subplot(2, 3, 5)
-    plt.imshow(img2[:, IMAGE_HEIGHT // 2, :], cmap="bone", **ABDO_WINDOW)
-    plt.subplot(2, 3, 6)
+        ce[ce_level, ...] - nce[nce_level, ...],
+        cmap="bone", **ABDO_WINDOW)
+    plt.axis("off")
+
+    plt.subplot(2, 6, 4)
+    plt.imshow(hq[hq_level, ...], cmap="bone", **ABDO_WINDOW)
+    plt.axis("off")
+    plt.subplot(2, 6, 5)
+    plt.imshow(lq[1, ...], cmap="bone", **ABDO_WINDOW)
+    plt.title(lq_name)
+    plt.axis("off")
+    plt.subplot(2, 6, 6)
     plt.imshow(
-        img1[:, IMAGE_HEIGHT // 2, :] - img2[:, IMAGE_HEIGHT // 2, :],
-        cmap="bone", **ABDO_WINDOW
-    )
-    plt.show()
+        hq[hq_level, ...] - lq[1, ...],
+        cmap="bone", **ABDO_WINDOW)
+    plt.axis("off")
+
+    plt.subplot(2, 6, 7)
+    plt.imshow(
+        np.flipud(nce[ce_coords[0]:ce_coords[1], IMAGE_HEIGHT // 2, :]),
+        cmap="bone", **ABDO_WINDOW)
+    plt.axis("off")
+    plt.subplot(2, 6, 8)
+    plt.imshow(np.flipud(ce[:, IMAGE_HEIGHT // 2, :]), cmap="bone", **ABDO_WINDOW)
+    plt.axis("off")
+    plt.subplot(2, 6, 9)
+    plt.imshow(
+        np.flipud(ce[:, IMAGE_HEIGHT // 2, :]) - \
+        np.flipud(nce[ce_coords[0]:ce_coords[1], IMAGE_HEIGHT // 2, :]),
+        cmap="bone", **ABDO_WINDOW)
+    plt.axis("off")
+
+    plt.subplot(2, 6, 10)
+    plt.imshow(
+        np.flipud(hq[hq_lq_coords[0]:hq_lq_coords[1], IMAGE_HEIGHT // 2, :]),
+        cmap="bone", **ABDO_WINDOW)
+    plt.axis("off")
+    plt.subplot(2, 6, 11)
+    plt.imshow(np.flipud(lq[:, IMAGE_HEIGHT // 2, :]), cmap="bone", **ABDO_WINDOW)
+    plt.axis("off")
+    plt.subplot(2, 6, 12)
+    plt.imshow(
+        np.flipud(lq[:, IMAGE_HEIGHT // 2, :]) - \
+        np.flipud(hq[hq_lq_coords[0]:hq_lq_coords[1], IMAGE_HEIGHT // 2, :]),
+        cmap="bone", **ABDO_WINDOW)
+    plt.axis("off")
+
+    plt.close()
 
 
 #-------------------------------------------------------------------------
@@ -60,26 +106,35 @@ def main() -> None:
         subject_id = ce_name.stem[0:6]
         ce_img = np.load(ce_name)
 
-        hq_name = list(hq_path.glob(f"{subject_id}*.npy"))[0]
-        hq_img = np.load(hq_name)
-        ce_coords = source_coords[ce_name.stem][hq_name.stem]
-        hq_img = hq_img[ce_coords[0]:ce_coords[1], ...]
-
-        assert ce_img.shape == hq_img.shape
-        display_images(ce_img, hq_img, ce_name.stem, hq_name.stem)
+        nce_name = list(hq_path.glob(f"{subject_id}*.npy"))[0]
+        nce_img = np.load(nce_name)
+        ce_coords = source_coords[ce_name.stem][nce_name.stem]
 
         lq_names = list(lq_path.glob(f"{subject_id}*.npy"))
+        hq_names = list(hq_path.glob(f"{subject_id}*.npy"))
+        hq_names = [n.stem for n in hq_names]
 
         for lq_name in lq_names:
             lq_img = np.load(lq_name)
-            hq_candidates = list(source_coords[lq_name.stem].keys())
+            lq_coords = source_coords[lq_name.stem][nce_name.stem]
 
+            hq_candidates = sorted(
+                hq_names, key=lambda x: abs(int(x[-3:]) - int(lq_name.stem[-3:]))
+            )
             hq_name = hq_candidates[0]
             hq_img = np.load(hq_path / f"{hq_name}.npy")
-            lq_coords = source_coords[lq_name.stem][hq_name]
-            hq_img = hq_img[lq_coords[0]:lq_coords[1], ...]
+            hq_coords = source_coords[hq_name][nce_name.stem]
 
-            display_images(lq_img, hq_img, lq_name.stem, hq_name)
+            display_images(
+                nce=nce_img,
+                ce=ce_img,
+                ce_coords=ce_coords,
+                hq=hq_img,
+                hq_coords=hq_coords,
+                lq=lq_img,
+                lq_coords=lq_coords,
+                lq_name=lq_name.stem
+            )
 
 
 #-------------------------------------------------------------------------
