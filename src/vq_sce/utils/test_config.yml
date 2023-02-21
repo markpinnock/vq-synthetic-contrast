@@ -1,5 +1,5 @@
 data:
-    data_path: "D:/ProjectImages/SyntheticContrast/Train"
+    data_path: "D:/ProjectImages/SyntheticContrast/train"
     down_sample: 1
     patch_size: [64, 64, 64]
     num_examples: 4

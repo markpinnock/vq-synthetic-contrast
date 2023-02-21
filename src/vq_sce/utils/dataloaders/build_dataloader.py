@@ -15,18 +15,10 @@ INFERENCE_MB_SIZE = 1
 
 def get_train_dataloader(config: dict):
 
-    # Specify output types
+    # Specify output types and scale
     output_types = ["source", "target"]
+    config["data"]["scales"] = config["hyperparameters"]["scales"]
 
-    if config["data"]["segs"] is not None:
-        output_types += ["seg"]
-    else:
-        assert config["hyperparameters"]["mu"] == 0.0
-
-    try:
-        config["data"]["scales"] = config["hyperparameters"]["scales"]
-    except KeyError:
-        config["data"]["scales"] = [8]
 
     # Initialise datasets and set normalisation parameters
     Dataloader = DATALOADER_DICT[config["data"]["type"]]
