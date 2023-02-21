@@ -1,4 +1,3 @@
-import glob
 import json
 import numpy as np
 from pathlib import Path
@@ -6,7 +5,7 @@ import tensorflow as tf
 
 from vq_sce import RANDOM_SEED
 from vq_sce.utils.dataloaders.base_dataloader import BaseDataloader
-from vq_sce.utils.patch_utils import generate_indices, extract_patches
+from vq_sce.utils.patch_utils import generate_indices
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------
 """ SuperResDataloader class:
@@ -28,13 +27,17 @@ class SuperResDataloader(BaseDataloader):
 
         self._sources = {s.stem: s for s in self._source_path.glob("*")}
         self._targets = {}
+        self._source_target_map = {}
 
         for s in self._sources.keys():
-            target_ids = list(self._source_coords[s].keys())
-            for target_id in target_ids:
-                candidate_targets = list(self._target_path.glob(f"{target_id}.npy"))
-                assert len(candidate_targets) == 1, f"Too many sources: {candidate_targets}"
-                self._targets[candidate_targets[0].stem] = candidate_targets[0]
+            candidate_targets = list(self._target_path.glob(f"{s[0:6]}*.npy"))
+            candidate_targets = [c.stem for c in candidate_targets]
+
+            sort_by_closest = sorted(
+                candidate_targets, key=lambda x: abs(int(x[-3:]) - int(s[-3:])))
+            self._targets[sort_by_closest[0]] = \
+                self._target_path / f"{sort_by_closest[0]}.npy"
+            self._source_target_map[s] = sort_by_closest[0]
 
         np.random.seed(RANDOM_SEED)
         self._train_val_split()
@@ -42,26 +45,23 @@ class SuperResDataloader(BaseDataloader):
         np.random.seed()
 
         self._source_ids = list(self._sources.keys())
-        self._source_target_map = {
-            k: list(self._source_coords[k].keys()) for k in self._source_ids
-        }
-    
+
     def _generate_example_images(self) -> None:
         """ Generate example images for saving each epoch """
 
-        ex_targets_ids = []
-        ex_sources_ids = np.random.choice(list(self._sources.keys()), self._config["num_examples"])
-        for s in ex_sources_ids:
-            target_id = np.random.choice(list(self._source_coords[s].keys()), 1)
-            ex_targets_ids.append(target_id[0])
+        ex_sources_ids = np.random.choice(
+            list(self._sources.keys()),
+            self._config["num_examples"])
 
         ex_sources = []
         ex_targets = []
-        for target_id, source_id in zip(ex_targets_ids, ex_sources_ids):
-            lower, upper = self._source_coords[source_id][target_id]
+
+        for source_id in ex_sources_ids:
+            target_id = self._source_target_map[source_id]
+            _, hq_coords = self._calc_coords(source_id, target_id)
 
             target = np.load(self._target_path / f"{target_id}.npy")
-            target = self._preprocess_image(target, lower, upper)
+            target = self._preprocess_image(target, hq_coords[0], hq_coords[1])
             source = np.load(self._source_path / f"{source_id}.npy")
             source = self._preprocess_image(source, None, None)
 
@@ -81,17 +81,18 @@ class SuperResDataloader(BaseDataloader):
             source = np.load(self._source_path / f"{source_id}.npy")
             source = self._preprocess_image(source, None, None)
 
-            for target_id in self._source_target_map[source_id]:
-                lower, upper = self._source_coords[source_id][target_id]
-                target = np.load(self._target_path / f"{target_id}.npy")
-                target = self._preprocess_image(target, lower, upper)
+            target_id = self._source_target_map[source_id]
+            _, hq_coords = self._calc_coords(source_id, target_id)
 
-                data_dict = {
-                    "source": source[:, :, :, np.newaxis],
-                    "target": target[:, :, :, np.newaxis]
-                }
+            target = np.load(self._target_path / f"{target_id}.npy")
+            target = self._preprocess_image(target, hq_coords[0], hq_coords[1])
 
-                yield data_dict
+            data_dict = {
+                "source": source[:, :, :, np.newaxis],
+                "target": target[:, :, :, np.newaxis]
+            }
+
+            yield data_dict
 
     def inference_generator(self):
         for source_id in self._source_ids:
