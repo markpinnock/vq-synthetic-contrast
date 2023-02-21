@@ -6,6 +6,8 @@ from .layers.conv_layers import DownBlock, UpBlock, VQBlock
 MAX_CHANNELS = 512
 
 
+#-------------------------------------------------------------------------
+
 class UNet(tf.keras.Model):
 
     """ Input:
@@ -30,8 +32,8 @@ class UNet(tf.keras.Model):
         self._target_dims = tuple(config["target_dims"])
         assert len(self._source_dims) == 3, "3D input only"
         self._config = config
-        self._upsample_layer = config["upsample_layer"]
         self._residual = config["residual"]
+        self._z_upsamp_factor = self._target_dims[0] // self._source_dims[0]
 
         if config["vq_layers"] is not None:
             self._vq_layers = config["vq_layers"].keys()
@@ -63,6 +65,9 @@ class UNet(tf.keras.Model):
             "upsamp_factor": []
         }
 
+        if self._residual:
+            self.upsample_z = tf.keras.layers.UpSampling3D(size=(self._z_upsamp_factor, 1, 1))
+
         # Determine number of up-scaling layers needed
         source_z = self._source_dims[0]
         target_z = self._target_dims[0]
@@ -76,7 +81,7 @@ class UNet(tf.keras.Model):
             # smaller than target feature dim, don't downsample source
             if ((source_z / 2) - (source_z // 2) != 0 or
                 source_z < target_z):
-                cache["encode_strides"].append((1, 2, 2))
+                cache["encode_strides"].append((1, 2, 2)) # TODO: can this be moved?
                 cache["encode_kernels"].append((2, 4, 4))
             else:
                 cache["encode_strides"].append((2, 2, 2))
@@ -153,24 +158,6 @@ class UNet(tf.keras.Model):
                     name=f"up_{i}")
                 )
 
-        if self._upsample_layer:
-            use_vq = "upsamp" in self._vq_layers
-            if use_vq:
-                self._vq_config["embeddings"] = \
-                    self._config["vq_layers"]["upsamp"]
-
-            self.upsample_in = tf.keras.layers.UpSampling3D(size=(1, 2, 2))
-            self.upsample_out = UpBlock(
-                channels,
-                (2, 4, 4),
-                (1, 2, 2),
-                upsamp_factor=1,
-                initialiser=self._initialiser,
-                use_vq=use_vq,
-                vq_config=self._vq_config,
-                name=f"upsamp"
-            )
-
         self.final_layer = tf.keras.layers.Conv3D(
             1, (1, 1, 1), (1, 1, 1),
             padding="same",
@@ -192,10 +179,10 @@ class UNet(tf.keras.Model):
     def call(self, x: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor | None]:
         skip_layers = []
 
-        if self._upsample_layer:
-            upsampled_x = self.upsample_in(x)
+        if self._z_upsamp_factor > 1 and self._residual:
+            residual_x = self.upsample_z(x)
         else:
-            upsampled_x = x
+            residual_x = x
 
         for layer in self.encoder:
             x, skip = layer(x, training=True)
@@ -207,15 +194,95 @@ class UNet(tf.keras.Model):
         for skip, tconv in zip(skip_layers, self.decoder):
             x = tconv(x, skip, training=True)
 
-        if self._upsample_layer:
-            x = self.upsample_out(x, upsampled_x)
-
         x = self.final_layer(x, training=True)
 
         if self.output_vq is None and not self._residual:
             return x, None
 
         elif self.output_vq is None and self._residual:
+            return x + residual_x, None
+
+        elif self.output_vq is not None and not self._residual:
+            return x, self.output_vq(x) + residual_x
+
+        else:
+            return x + residual_x, self.output_vq(x) + residual_x
+
+
+#-------------------------------------------------------------------------
+
+class MultiscaleUNet(UNet):
+
+    """ Input:
+        - initialiser e.g. keras.initializers.RandomNormal
+        - nc: number of channels in first layer
+        - num_layers: number of layers
+        - img_dims: input image size
+        Returns:
+        - keras.Model """
+
+    def __init__(
+        self,
+        initialiser: tf.keras.initializers.Initializer,
+        config: dict,
+        name: str | None = None
+    ) -> None:
+
+        super().__init__(initialiser, config, name=name)
+
+    def get_encoder(self) -> dict[str, int | tuple[int]]:
+        """" Create multi-scale U-Net encoder """
+
+        self.upsample_in = tf.keras.layers.UpSampling3D(size=(1, 2, 2))
+
+        return super().get_encoder()
+
+
+    def get_decoder(self, cache: dict[str, int | tuple[int]]) -> None:
+        """ Create multi-scale U-Net decoder """
+
+        super().get_decoder(cache)
+
+        use_vq = "upsamp" in self._vq_layers
+        if use_vq:
+            self._vq_config["embeddings"] = \
+                self._config["vq_layers"]["upsamp"]
+
+        
+        self.upsample_out = UpBlock(
+            cache["channels"][0],
+            (2, 4, 4),
+            (1, 2, 2),
+            upsamp_factor=1,
+            initialiser=self._initialiser,
+            use_vq=use_vq,
+            vq_config=self._vq_config,
+            name=f"upsamp"
+        )
+
+    def call(self, x: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor | None]:
+        skip_layers = []
+        upsampled_x = self.upsample_in(x)
+
+        for layer in self.encoder:
+            x, skip = layer(x, training=True)
+            skip_layers.append(skip)
+
+        x, _ = self.bottom_layer(x, training=True)
+        skip_layers.reverse()
+
+        for skip, tconv in zip(skip_layers, self.decoder):
+            x = tconv(x, skip, training=True)
+
+        x = self.upsample_xy_out(x, upsampled_x)
+
+        x = self.final_layer(x, training=True)
+
+        if self.output_vq is None and not self._residual: # TODO: update
+            return x, None
+
+        elif self.output_vq is None and self._residual:
+            print(x.shape, upsampled_x.shape)
             return x + upsampled_x, None
 
         elif self.output_vq is not None and not self._residual:
