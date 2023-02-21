@@ -3,11 +3,11 @@ import tensorflow as tf
 
 from .components.unet import UNet
 from vq_sce.utils.augmentation.augmentation import StdAug
-from vq_sce.utils.losses import L1, FocalLoss
+from vq_sce.utils.losses import L1
 
 
 #-------------------------------------------------------------------------
-""" Wrapper for multi-scale U-Net """
+""" Wrapper for model """
 
 class Model(tf.keras.Model):
 
@@ -16,11 +16,13 @@ class Model(tf.keras.Model):
         self._initialiser = tf.keras.initializers.HeNormal()
         self._config = config
         self._mb_size = config["expt"]["mb_size"]
-        self._source_dims = config["data"]["source_patch"]
-        self._target_dims = config["data"]["target_patch"]
+        self._source_dims = config["data"]["source_dims"]
+        self._target_dims = config["data"]["target_dims"]
         config["hyperparameters"]["source_dims"] = self._source_dims
         config["hyperparameters"]["target_dims"] = self._target_dims
-        config["hyperparameters"]["upsample_layer"] = False
+        config["augmentation"]["source_dims"] = self._source_dims
+        config["augmentation"]["target_dims"] = self._target_dims
+        config["hyperparameters"]["multiscale"] = False
 
         if config["hyperparameters"]["vq_layers"] is not None:
             self._intermediate_vq = "output" in \
@@ -28,23 +30,15 @@ class Model(tf.keras.Model):
         else:
             self._intermediate_vq = False
 
-        self._scales = [
-            config["augmentation"]["source_dims"][1] \
-                // config["data"]["source_patch"][1]
-        ]
+        self._scales = None # TODO: implement
 
         if config["hyperparameters"]["vq_layers"] is None:
             self._use_vq = False
         else:
             self._use_vq = True
 
-        # Hyperparameter if using focused loss
-        self._mu = config["hyperparameters"]["mu"]
-
         # Set up augmentation
         aug_config = config["augmentation"]
-        aug_config["segs"] = config["data"]["segs"]
-
         if config["augmentation"]["use"]:
             self.Aug = StdAug(config=aug_config)
         else:
@@ -58,11 +52,6 @@ class Model(tf.keras.Model):
 
     def compile(self, optimiser):
         self.optimiser = optimiser
-
-        if self._mu > 0.0:
-            self.L1_loss = FocalLoss(self._mu, name="FocusedLoss")
-        else:
-            self.L1_loss = L1
 
         # Set up metrics
         self.L1_metric = tf.keras.metrics.Mean(name="L1")
@@ -87,7 +76,7 @@ class Model(tf.keras.Model):
             tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
 
     @tf.function
-    def train_step(self, source, target, seg=None):
+    def train_step(self, source, target):
 
         """ Expects data in order 'source, target'
             or 'source, target, segmentations'
@@ -97,19 +86,11 @@ class Model(tf.keras.Model):
         if self.Aug:
             (source,), (target,) = self.Aug(source=[source], target=[target])
 
-        # Randomise segments of image to sample, get patch indices for each scale
-        x, y = self._get_scale_indices()
-        source, target, seg = self._sample_patches(x, y, source, target, seg)
-
         with tf.GradientTape(persistent=True) as tape:
-
             pred, _ = self(source)
 
             # Calculate L1
-            if seg is not None:
-                L1_loss = self.L1_loss(target, pred, seg)
-            else:
-                L1_loss = self.L1_loss(target, pred)
+            L1_loss = L1(target, pred)
 
             # Calculate VQ loss
             if self._use_vq:
@@ -127,18 +108,11 @@ class Model(tf.keras.Model):
         self.optimiser.apply_gradients(zip(grads, self.UNet.trainable_variables))
 
     @tf.function
-    def test_step(self, source, target, seg=None):
-
-        # Get random image patch and generate predicted target
-        x, y = self._get_scale_indices()
-        source, target, seg = self._sample_patches(x, y, source, target, seg)
+    def test_step(self, source, target):
         pred, _ = self(source)
 
         # Calculate L1
-        if seg is not None:
-            L1_loss = self.L1_loss(target, pred, seg)
-        else:
-            L1_loss = self.L1_loss(target, pred)
+        L1_loss = L1(target, pred)
 
         # Calculate VQ loss
         if self._use_vq:
@@ -200,10 +174,7 @@ class Model(tf.keras.Model):
 
         return source, target, seg
 
-    def example_inference(self, source, target, seg=None):
-        ex_x = self._scales[0] // 2
-        ex_y = self._scales[0] // 2
-        source, target, _ = self._sample_patches(ex_x, ex_y, source, target, seg)
+    def example_inference(self, source, target):
         pred, _ = self(source)
 
         return source, target, pred
