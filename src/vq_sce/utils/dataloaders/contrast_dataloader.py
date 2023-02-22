@@ -21,8 +21,7 @@ class ContrastDataloader(BaseDataloader):
         self._dataset_type = dataset_type
         self._config = config
         self._down_sample = config["down_sample"]
-        self._patch_size = config["patch_size"]
-
+        self._patch_size = [12, 512, 512] # TODO
         with open(self._img_path / "source_coords.json", 'r') as fp:
             self._source_coords = json.load(fp)
 
@@ -46,6 +45,15 @@ class ContrastDataloader(BaseDataloader):
             k: list(self._source_coords[k].keys()) for k in self._target_ids
         }
 
+    def _calc_coords(
+        self,
+        target_id: str
+    ) -> tuple[list[int], list[int]]:
+
+        target_coords = list(self._source_coords[target_id].values())[0]
+    
+        return target_coords
+
     def _generate_example_images(self) -> None:
         """ Generate example images for saving each epoch """
 
@@ -58,12 +66,12 @@ class ContrastDataloader(BaseDataloader):
         ex_sources = []
         ex_targets = []
         for target_id, source_id in zip(ex_targets_ids, ex_sources_ids):
-            lower, upper = self._source_coords[target_id][source_id]
+            ce_coords = self._calc_coords(target_id)
 
             target = np.load(self._target_path / f"{target_id}.npy")
             target = self._preprocess_image(target, None, None)
             source = np.load(self._source_path / f"{source_id}.npy")
-            source = self._preprocess_image(source, lower, upper)
+            source = self._preprocess_image(source, ce_coords[0], ce_coords[1])
 
             lower = target.shape[0] // 3
             upper = target.shape[0] // 3 + self._patch_size[0]
@@ -88,10 +96,9 @@ class ContrastDataloader(BaseDataloader):
             target = self._preprocess_image(target, None, None)
 
             for source_id in self._target_source_map[target_id]:
-                lower, upper = self._source_coords[target_id][source_id]
+                ce_coords = self._calc_coords(target_id)
                 source = np.load(self._source_path / f"{source_id}.npy")
-                source = self._preprocess_image(source, lower, upper)
-
+                source = self._preprocess_image(source, ce_coords[0], ce_coords[1])
                 total_depth = target.shape[0]
                 num_iter = total_depth // self._patch_size[0]
 
@@ -133,10 +140,10 @@ if __name__ == "__main__":
 
     train_ds = tf.data.Dataset.from_generator(TestLoader.data_generator, output_types={k: "float32" for k in output_types})
 
-    for data in train_ds.batch(2).take(16):
+    for data in train_ds.batch(2).take(4):
         source = TestLoader.un_normalise(data["source"])
         target = TestLoader.un_normalise(data["target"])
-
+        print(source.shape, target.shape)
         plt.subplot(3, 2, 1)
         plt.imshow(source[0, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
@@ -154,7 +161,7 @@ if __name__ == "__main__":
         plt.axis("off")
 
         plt.subplot(3, 2, 5)
-        plt.imshow(target[0, 11, :, :, 0].numpy() - source[1, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
+        plt.imshow(target[0, 11, :, :, 0].numpy() - source[0, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         plt.subplot(3, 2, 6)

@@ -3,7 +3,7 @@ import numpy as np
 from pathlib import Path
 import tensorflow as tf
 
-from vq_sce import RANDOM_SEED
+from vq_sce import RANDOM_SEED, LQ_DEPTH, LQ_SLICE_THICK
 from vq_sce.utils.dataloaders.base_dataloader import BaseDataloader
 from vq_sce.utils.patch_utils import generate_indices
 
@@ -45,6 +45,21 @@ class SuperResDataloader(BaseDataloader):
         np.random.seed()
 
         self._source_ids = list(self._sources.keys())
+
+    def _calc_coords(
+        self,
+        source_id: str,
+        target_id: str
+    ) -> tuple[list[int], list[int]]:
+
+        source_coords = list(self._source_coords[source_id].values())[0]
+        target_coords = list(self._source_coords[target_id].values())[0]
+        target_coords = [
+            source_coords[0] - target_coords[0],
+            source_coords[0] - target_coords[0] + (LQ_SLICE_THICK * LQ_DEPTH)
+        ]
+    
+        return source_coords, target_coords
 
     def _generate_example_images(self) -> None:
         """ Generate example images for saving each epoch """
