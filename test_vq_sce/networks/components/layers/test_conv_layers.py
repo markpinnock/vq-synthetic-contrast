@@ -2,9 +2,11 @@ import pytest
 import tensorflow as tf
 
 from vq_sce.networks.components.layers.conv_layers import (
+    BottomBlock,
     DownBlock,
     UpBlock
 )
+from vq_sce.networks.components.layers.vq_layers import VQBlock
 
 
 #-------------------------------------------------------------------------
@@ -35,6 +37,35 @@ def test_DownBlock(strides: list[int], out_dims: list[int]) -> None:
     x, skip = down(img)
     assert x.shape == out_dims
     assert skip.shape == in_dims
+
+
+#-------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "strides,out_dims",
+    [
+        ([2, 2, 2], [4, 3, 16, 16, 4]),
+        ([1, 2, 2], [4, 12, 16, 16, 4])
+    ]
+)
+def test_BottomBlock(strides: list[int], out_dims: list[int]) -> None:
+    init = tf.keras.initializers.HeNormal()
+
+    bottom = BottomBlock(
+        nc=4,
+        weights=[4, 4, 4],
+        strides=strides,
+        initialiser=init,
+        use_vq=False,
+        vq_config=None,
+        shared_vq=None,
+        name=None
+    )
+
+    in_dims = [out_dims[0], 12, 64, 64, 4]
+    img = tf.zeros(in_dims)
+    x = bottom(img)
+    assert x.shape == out_dims
 
 
 #-------------------------------------------------------------------------
