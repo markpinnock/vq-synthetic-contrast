@@ -8,7 +8,7 @@ from pathlib import Path
 import tensorflow as tf
 import time
 
-from vq_sce import ABDO_WINDOW
+from vq_sce import ABDO_WINDOW, LQ_DEPTH
 
 np.set_printoptions(precision=4, suppress=True)
 
@@ -23,7 +23,7 @@ class TrainingLoop:
                  config: dict):
         self.Model = Model
         self.config = config
-        self.EPOCHS = config["expt"]["epochs"]
+        self.epochs = config["expt"]["epochs"]
 
         expt_path = Path(config["paths"]["expt_path"])
         self.image_save_path = expt_path / "images"
@@ -31,7 +31,7 @@ class TrainingLoop:
         self.image_save_path / "train"
         self.model_save_path = expt_path / "models"
         self.log_save_path = expt_path / "logs"
-        self.SAVE_EVERY = config["expt"]["save_every"]
+        self.save_every = config["expt"]["save_every"]
 
         if "scales" not in config["hyperparameters"].keys():
             self.multi_scale = False
@@ -103,7 +103,7 @@ class TrainingLoop:
 
         start_time = time.time()
 
-        for epoch in range(self.EPOCHS):
+        for epoch in range(self.epochs):
             self.Model.reset_metrics()
 
             # Run training step for each batch in training data
@@ -127,7 +127,7 @@ class TrainingLoop:
                     print(f"Val epoch {epoch + 1}, L1, VQ, Total: {[metric.result().numpy() for metric in self.Model.metrics]}")
 
             # Save example images
-            if (epoch + 1) % self.SAVE_EVERY == 0:
+            if (epoch + 1) % self.save_every == 0:
                 if self.multi_scale:
                     self._save_multiscale_images(epoch + 1, phase="train")
                     self._save_multiscale_images(epoch + 1, phase="validation")
@@ -136,7 +136,7 @@ class TrainingLoop:
                     self._save_images(epoch + 1, phase="validation")
 
             # Save model if necessary
-            if (epoch + 1) % self.SAVE_EVERY == 0 and self.config["expt"]["save_model"]:
+            if (epoch + 1) % self.save_every == 0 and self.config["expt"]["save_model"]:
                 self._save_model()
 
         self.results["time"] = (time.time() - start_time) / 3600
@@ -146,7 +146,7 @@ class TrainingLoop:
 
         json.dump(self.results, open(f"{self.log_save_path}/results.json", 'w'), indent=4)
 
-    def _save_images(self, epoch, phase="validation", tuning_path=None):
+    def _save_images(self, epoch, phase="validation"):
 
         """ Saves sample of images """
 
@@ -163,30 +163,28 @@ class TrainingLoop:
         target = data_generator.un_normalise(target)
         pred = data_generator.un_normalise(pred)
 
+        source_mid = 1 if source.shape[1] == LQ_DEPTH else 5
+        target_mid = 5
+
         _, axs = plt.subplots(target.shape[0], 5)
 
         for i in range(target.shape[0]):
-            axs[i, 0].imshow(source[i, -1, :, :, 0], cmap="bone", **ABDO_WINDOW)
+            axs[i, 0].imshow(source[i, source_mid, :, :, 0], cmap="bone", **ABDO_WINDOW)
             axs[i, 0].axis("off")
-            axs[i, 1].imshow(target[i, -1, :, :, 0], cmap="bone", **ABDO_WINDOW)
+            axs[i, 1].imshow(target[i, target_mid, :, :, 0], cmap="bone", **ABDO_WINDOW)
             axs[i, 1].axis("off")
-            axs[i, 3].imshow(target[i, -1, :, :, 0] - source[i, -1, :, :, 0], norm=mpl.colors.CenteredNorm(), cmap="bwr")
+            axs[i, 3].imshow(target[i, target_mid, :, :, 0] - source[i, source_mid, :, :, 0], norm=mpl.colors.CenteredNorm(), cmap="bwr")
             axs[i, 3].axis("off")
-            axs[i, 2].imshow(pred[i, -1, :, :, 0], cmap="bone", **ABDO_WINDOW)
+            axs[i, 2].imshow(pred[i, target_mid, :, :, 0], cmap="bone", **ABDO_WINDOW)
             axs[i, 2].axis("off")
-            axs[i, 4].imshow(np.abs(target[i, -1, :, :, 0] - pred[i, -1, :, :, 0]), norm=mpl.colors.CenteredNorm(), cmap="bwr")
+            axs[i, 4].imshow(target[i, target_mid, :, :, 0] - pred[i, target_mid, :, :, 0], norm=mpl.colors.CenteredNorm(), cmap="bwr")
             axs[i, 4].axis("off")
 
         plt.tight_layout()
-
-        if tuning_path:
-            plt.savefig(f"{tuning_path}.png", dpi=250)
-        else:
-            plt.savefig(self.image_save_path / phase / f"{epoch}.png", dpi=250)
-
+        plt.savefig(self.image_save_path / phase / f"{epoch}.png", dpi=250)
         plt.close()
 
-    def _save_multiscale_images(self, epoch, phase="validation", tuning_path=None):
+    def _save_multiscale_images(self, epoch, phase="validation"):
 
         """ Saves sample of images from multi-scale U-Net """
 
@@ -216,14 +214,9 @@ class TrainingLoop:
             axs[i, 2 + j].axis("off")
             axs[i, 3 + j].imshow(target[i, :, :, 11, 0] - source[i, :, :, 11, 0], norm=mpl.colors.CenteredNorm(), cmap="bwr")
             axs[i, 3 + j].axis("off")
-            axs[i, 4 + j].imshow(np.abs(target[i, :, :, 11, 0] - list(pred.values())[-1][i, :, :, 11, 0]), norm=mpl.colors.CenteredNorm(), cmap="bwr")
+            axs[i, 4 + j].imshow(target[i, :, :, 11, 0] - list(pred.values())[-1][i, :, :, 11, 0], norm=mpl.colors.CenteredNorm(), cmap="bwr")
             axs[i, 4 + j].axis("off")
 
         plt.tight_layout()
-
-        if tuning_path:
-            plt.savefig(f"{tuning_path}.png", dpi=250)
-        else:
-            plt.savefig(self.image_save_path / phase / f"{epoch}.png", dpi=250)
-
+        plt.savefig(self.image_save_path / phase / f"{epoch}.png", dpi=250)
         plt.close()
