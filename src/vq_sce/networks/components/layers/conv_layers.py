@@ -106,6 +106,7 @@ class BottomBlock(tf.keras.layers.Layer):
         initialiser: tf.keras.initializers.Initializer,
         use_vq: bool,
         vq_config: dict,
+        shared_vq: VQBlock,
         name: str | None = None
     ) -> None:
 
@@ -123,12 +124,16 @@ class BottomBlock(tf.keras.layers.Layer):
             name="conv2"
         )
         self.use_vq = use_vq
-        if use_vq:
+        if use_vq and shared_vq is None:
             self.vq = VQBlock(
                 vq_config["embeddings"], nc,
                 vq_config["vq_beta"],
                 name=f"{name}_vq"
             )
+        elif use_vq and shared_vq is not None:
+            self.vq = shared_vq
+        else:
+            pass
 
         # Normalisation
         self.inst_norm_1 = InstanceNorm(name="instancenorm1")

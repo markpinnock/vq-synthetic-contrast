@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-from .layers.conv_layers import DownBlock, UpBlock, VQBlock
+from .layers.conv_layers import BottomBlock, DownBlock, UpBlock, VQBlock
 
 MAX_CHANNELS = 512
 
@@ -10,18 +10,11 @@ MAX_CHANNELS = 512
 
 class UNet(tf.keras.Model):
 
-    """ Input:
-        - initialiser e.g. keras.initializers.RandomNormal
-        - nc: number of channels in first layer
-        - num_layers: number of layers
-        - img_dims: input image size
-        Returns:
-        - keras.Model """
-
     def __init__(
         self,
         initialiser: tf.keras.initializers.Initializer,
         config: dict,
+        shared_vq: VQBlock | None = None,
         name: str | None = None
     ) -> None:
 
@@ -48,6 +41,7 @@ class UNet(tf.keras.Model):
             f"Maximum number of generator layers: {max_num_layers}"
         )
 
+        self.shared_vq = shared_vq
         self.encoder, self.decoder = [], []
         cache = self.get_encoder()
         self.get_decoder(cache)
@@ -121,13 +115,14 @@ class UNet(tf.keras.Model):
         if use_vq:
             self._vq_config["embeddings"] = self._config["vq_layers"]["bottom"]
 
-        self.bottom_layer = DownBlock(
+        self.bottom_layer = BottomBlock(
             channels,
             kernel,
             (1, 1, 1),
             initialiser=self._initialiser,
             use_vq=use_vq,
             vq_config=self._vq_config,
+            shared_vq=self.shared_vq,
             name="bottom"
         )
 
@@ -188,7 +183,7 @@ class UNet(tf.keras.Model):
             x, skip = layer(x, training=True)
             skip_layers.append(skip)
 
-        x, _ = self.bottom_layer(x, training=True)
+        x = self.bottom_layer(x, training=True)
         skip_layers.reverse()
 
         for skip, tconv in zip(skip_layers, self.decoder):
