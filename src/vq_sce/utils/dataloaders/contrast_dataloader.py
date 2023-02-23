@@ -3,7 +3,7 @@ import numpy as np
 from pathlib import Path
 import tensorflow as tf
 
-from vq_sce import RANDOM_SEED
+from vq_sce import RANDOM_SEED, MIN_HQ_DEPTH
 from vq_sce.utils.dataloaders.base_dataloader import BaseDataloader
 
 
@@ -22,7 +22,7 @@ class ContrastDataloader(BaseDataloader):
         self._dataset_type = dataset_type
         self._config = config
         self._down_sample = config["down_sample"]
-        self._patch_size = [12, 512, 512] # TODO
+
         with open(self._img_path / "source_coords.json", 'r') as fp:
             self._source_coords = json.load(fp)
 
@@ -75,10 +75,10 @@ class ContrastDataloader(BaseDataloader):
             source = self._preprocess_image(source, ce_coords[0], ce_coords[1])
 
             lower = target.shape[0] // 3
-            upper = target.shape[0] // 3 + self._patch_size[0]
+            upper = target.shape[0] // 3 + MIN_HQ_DEPTH
             if upper > target.shape[0]:
                 lower = None
-                upper = -self._patch_size[0]
+                upper = -MIN_HQ_DEPTH
 
             ex_targets.append(target[lower:upper, :, :])
             ex_sources.append(source[lower:upper, :, :])
@@ -101,12 +101,12 @@ class ContrastDataloader(BaseDataloader):
                 source = np.load(self._source_path / f"{source_id}.npy")
                 source = self._preprocess_image(source, ce_coords[0], ce_coords[1])
                 total_depth = target.shape[0]
-                num_iter = total_depth // self._patch_size[0]
+                num_iter = total_depth // MIN_HQ_DEPTH
 
                 for _ in range(num_iter):
-                    z = np.random.randint(0, total_depth - self._patch_size[0] + 1)
-                    sub_target = target[z:(z + self._patch_size[0]), :, :, np.newaxis]
-                    sub_source = source[z:(z + self._patch_size[0]), :, :, np.newaxis]
+                    z = np.random.randint(0, total_depth - MIN_HQ_DEPTH + 1)
+                    sub_target = target[z:(z + MIN_HQ_DEPTH), :, :, np.newaxis]
+                    sub_source = source[z:(z + MIN_HQ_DEPTH), :, :, np.newaxis]
 
                     data_dict = {
                         "source": sub_source,

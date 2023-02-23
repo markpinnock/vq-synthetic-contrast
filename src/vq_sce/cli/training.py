@@ -23,6 +23,8 @@ def train(config: dict, dev: bool):
         dims = config["data"]["target_dims"]
         config["data"]["target_dims"] = [dims[0], dims[1] // 4, dims[2] // 4]
         config["data"]["down_sample"] = 4
+    else:
+        config["data"]["down_sample"] = 1
 
     # Get model
     model = build_model(config)
