@@ -188,8 +188,14 @@ class MultiscaleModel(tf.keras.Model):
                 target_x = np.random.randint(0, self._scales[0])
                 target_y = np.random.randint(0, self._scales[0])
             else:
-                target_x = np.random.randint(self._scales[0] / 4, self._scales[0] - self._scales[0] / 4)
-                target_y = np.random.randint(self._scales[0] / 4, self._scales[0] - self._scales[0] / 4)
+                target_x = np.random.randint(
+                    self._scales[0] / 4,
+                    self._scales[0] - self._scales[0] / 4
+                )
+                target_y = np.random.randint(
+                    self._scales[0] / 4,
+                    self._scales[0] - self._scales[0] / 4
+                )
 
         binary_rep = bin(target_x)[2:]
         source_x = [0 for _ in range(len(self._scales) - len(binary_rep))]

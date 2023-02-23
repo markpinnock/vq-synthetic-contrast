@@ -17,7 +17,6 @@ def get_train_dataloader(config: dict, dev: bool):
 
     # Specify output types and scale
     output_types = ["source", "target"]
-    config["data"]["scales"] = config["hyperparameters"]["scales"]
 
     # Initialise datasets and set normalisation parameters
     Dataloader = DATALOADER_DICT[config["data"]["type"]]

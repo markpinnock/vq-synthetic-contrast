@@ -20,12 +20,23 @@ class Model(tf.keras.Model):
 
         self._source_dims = config["data"]["source_dims"]
         self._target_dims = config["data"]["target_dims"]
-        config["hyperparameters"]["source_dims"] = self._source_dims
-        config["hyperparameters"]["target_dims"] = self._target_dims
         config["augmentation"]["source_dims"] = self._source_dims
         config["augmentation"]["target_dims"] = self._target_dims
 
-        self._scales = None # TODO: implement - NB augmentation dims
+        self._scales = config["hyperparameters"]["scales"]
+        assert len(self._scales) == 1, self._scales
+        self._source_dims = [
+            self._source_dims[0],
+            self._source_dims[1] // self._scales[0],
+            self._source_dims[2] // self._scales[0]
+        ]
+        self._target_dims = [
+            self._target_dims[0],
+            self._target_dims[1] // self._scales[0],
+            self._target_dims[2] // self._scales[0]
+        ]
+        config["hyperparameters"]["source_dims"] = self._source_dims
+        config["hyperparameters"]["target_dims"] = self._target_dims
 
         if config["hyperparameters"]["vq_layers"] is None:
             self._use_vq = False
@@ -81,6 +92,11 @@ class Model(tf.keras.Model):
         if self.Aug:
             (source,), (target,) = self.Aug(source=[source], target=[target])
 
+        # Sample patch if needed
+        if self._scales[0] > 1:
+            x, y = self._get_scale_indices()
+            source, target = self._sample_patches(x, y, source, target)
+
         with tf.GradientTape(persistent=True) as tape:
             pred, _ = self(source)
 
@@ -104,6 +120,12 @@ class Model(tf.keras.Model):
 
     @tf.function
     def test_step(self, source, target):
+
+        # Sample patch if needed
+        if self._scales[0] > 1:
+            x, y = self._get_scale_indices()
+            source, target = self._sample_patches(x, y, source, target)
+
         pred, _ = self(source)
 
         # Calculate L1
@@ -138,7 +160,7 @@ class Model(tf.keras.Model):
 
         return x, y
 
-    def _sample_patches(self, x, y, source, target, seg=None):
+    def _sample_patches(self, x, y, source, target):
         x_src = x * self._source_dims[1]
         y_src = y * self._source_dims[2]
         x_tar = x * self._target_dims[1]
@@ -158,19 +180,15 @@ class Model(tf.keras.Model):
             :
         ]
 
-        if seg is not None:
-            seg = seg[
-                :,
-                :,
-                x_tar:(x_tar + self._target_dims[1]),
-                y_tar:(y_tar + self._target_dims[2]),
-                :
-            ]
-
-        return source, target, seg
+        return source, target
 
     def example_inference(self, source, target):
-        pred, _ = self(source)
+        if self._scales[0] == 1:
+            pred, _ = self(source)
+
+        else:
+            source, target = self._sample_patches(2, 2, source, target)
+            pred, _ = self(source)
 
         return source, target, pred
 
