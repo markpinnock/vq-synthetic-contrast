@@ -13,8 +13,9 @@ from vq_sce.utils.dataloaders.base_dataloader import BaseDataloader
 """
 
 class ContrastDataloader(BaseDataloader):
-    def __init__(self, config: dict, dataset_type: str) -> None:
+    def __init__(self, config: dict, dataset_type: str, dev: bool) -> None:
 
+        self.N = 10 if dev else None
         self._img_path = Path(config["data_path"])
         self._target_path = self._img_path / "CE"
         self._source_path = self._img_path / "HQ"
@@ -91,7 +92,7 @@ class ContrastDataloader(BaseDataloader):
         if self._dataset_type == "training":
             np.random.shuffle(self._target_ids)
 
-        for target_id in self._target_ids:
+        for target_id in self._target_ids[0:self.N]:
             target = np.load(self._target_path / f"{target_id}.npy")
             target = self._preprocess_image(target, None, None)
 

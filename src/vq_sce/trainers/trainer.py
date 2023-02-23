@@ -94,13 +94,14 @@ class TrainingLoop:
 
         """ Main training loop for U-Net """
 
+        prefix = "ce" if self.config["data"]["type"] == "contrast" else "sr"
         self.results = {}
-        self.results["train_L1"] = []
-        self.results["train_vq"] = []
-        self.results["train_total"] = []
-        self.results["val_L1"] = []
-        self.results["val_vq"] = []
-        self.results["val_total"] = []
+        self.results[f"train_{prefix}_L1"] = []
+        self.results[f"train_{prefix}_vq"] = []
+        self.results[f"train_{prefix}_total"] = []
+        self.results[f"val_{prefix}_L1"] = []
+        self.results[f"val_{prefix}_vq"] = []
+        self.results[f"val_{prefix}_total"] = []
         self.results["epochs"] = []
         self.results["time"] = 0
 

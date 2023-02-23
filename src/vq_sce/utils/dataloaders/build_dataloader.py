@@ -13,17 +13,16 @@ DATALOADER_DICT = {
 INFERENCE_MB_SIZE = 1
 
 
-def get_train_dataloader(config: dict):
+def get_train_dataloader(config: dict, dev: bool):
 
     # Specify output types and scale
     output_types = ["source", "target"]
     config["data"]["scales"] = config["hyperparameters"]["scales"]
 
-
     # Initialise datasets and set normalisation parameters
     Dataloader = DATALOADER_DICT[config["data"]["type"]]
-    TrainGenerator = Dataloader(config=config["data"], dataset_type="training")
-    ValGenerator = Dataloader(config=config["data"], dataset_type="validation")
+    TrainGenerator = Dataloader(config=config["data"], dataset_type="training", dev=dev)
+    ValGenerator = Dataloader(config=config["data"], dataset_type="validation", dev=dev)
 
     # Create dataloader
     train_ds = tf.data.Dataset.from_generator(

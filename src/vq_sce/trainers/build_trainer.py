@@ -11,12 +11,12 @@ TRAINER_DICT = {
 }
 
 
-def build_training_loop(config: dict, model: tf.keras.Model):
+def build_training_loop(config: dict, model: tf.keras.Model, dev: bool):
     expt_type = config["expt"]["expt_type"]
 
     # Get datasets and data generator
-    if expt_type == "single_scale" or expt_type == "multi_scale":
-        train_ds, val_ds, train_gen, val_gen = get_train_dataloader(config)
+    if expt_type == "single":
+        train_ds, val_ds, train_gen, val_gen = get_train_dataloader(config, dev)
         datasets = {
             "train_dataset": train_ds,
             "val_dataset": val_ds,
@@ -26,9 +26,9 @@ def build_training_loop(config: dict, model: tf.keras.Model):
 
     elif expt_type == "joint":
         config["data"]["type"] = "contrast"
-        ce_train_ds, ce_val_ds, _, _ = get_train_dataloader(config)
+        ce_train_ds, ce_val_ds, _, _ = get_train_dataloader(config, dev)
         config["data"]["type"] = "super_res"
-        sr_train_ds, sr_val_ds, _, _ = get_train_dataloader(config)
+        sr_train_ds, sr_val_ds, _, _ = get_train_dataloader(config, dev)
 
         train_gen = JointDataset(config=config["data"], dataset_type="training")
         val_gen = JointDataset(config=config["data"], dataset_type="validation")

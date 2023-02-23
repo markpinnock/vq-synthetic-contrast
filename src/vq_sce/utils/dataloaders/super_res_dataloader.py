@@ -13,8 +13,9 @@ from vq_sce.utils.patch_utils import generate_indices
 """
 
 class SuperResDataloader(BaseDataloader):
-    def __init__(self, config: dict, dataset_type: str) -> None:
+    def __init__(self, config: dict, dataset_type: str, dev: bool) -> None:
 
+        self.N = 10 if dev else None
         self._img_path = Path(config["data_path"])
         self._source_path = self._img_path / "LQ"
         self._target_path = self._img_path / "HQ"
@@ -92,7 +93,7 @@ class SuperResDataloader(BaseDataloader):
         if self._dataset_type == "training":
             np.random.shuffle(self._source_ids)
 
-        for source_id in self._source_ids:
+        for source_id in self._source_ids[0:self.N]:
             source = np.load(self._source_path / f"{source_id}.npy")
             source = self._preprocess_image(source, None, None)
 

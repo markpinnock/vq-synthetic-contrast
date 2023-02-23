@@ -12,11 +12,17 @@ from vq_sce.trainers.build_trainer import build_training_loop
 
 #-------------------------------------------------------------------------
 
-def train(config: dict):
+def train(config: dict, dev: bool):
     tf.random.set_seed(RANDOM_SEED)
     tf.get_logger().setLevel("ERROR")
 
-
+    # Development mode if necessary
+    if dev:
+        dims = config["data"]["source_dims"]
+        config["data"]["source_dims"] = [dims[0], dims[1] // 4, dims[2] // 4]
+        dims = config["data"]["target_dims"]
+        config["data"]["target_dims"] = [dims[0], dims[1] // 4, dims[2] // 4]
+        config["data"]["down_sample"] = 4
 
     # Get model
     model = build_model(config)
@@ -40,7 +46,7 @@ def train(config: dict):
         with writer.as_default():
             tf.summary.trace_export("graph", step=0)
 
-    training_loop = build_training_loop(config, model)
+    training_loop = build_training_loop(config, model, dev)
 
     # Run training loop
     training_loop.train()
@@ -54,6 +60,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", "-p", help="Expt path", type=str)
     parser.add_argument("--gpu", "-g", help="GPU number", type=int)
+    parser.add_argument("--dev", "-d", help="Development mode", action="store_true")
     arguments = parser.parse_args()
 
     expt_path = Path(arguments.path)
@@ -81,7 +88,7 @@ def main():
         tf.config.set_visible_devices(gpus[gpu_number], "GPU")
         tf.config.experimental.set_memory_growth(gpus[gpu_number], True)
     
-    train(config)
+    train(config, arguments.dev)
 
 
 #-------------------------------------------------------------------------
