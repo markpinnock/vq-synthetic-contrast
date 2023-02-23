@@ -17,7 +17,8 @@ class TrainingLoop:
 
     def __init__(self,
                  Model: object,
-                 dataset: object,
+                 train_dataset: object,
+                 val_dataset: object,
                  train_generator: object,
                  val_generator: object,
                  config: dict):
@@ -48,7 +49,7 @@ class TrainingLoop:
 
         self.train_generator = train_generator
         self.val_generator = val_generator
-        self.ds_train, self.ds_val = dataset
+        self.ds_train, self.ds_val = train_dataset, val_dataset
 
         log_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.train_writer = tf.summary.create_file_writer(str(self.log_save_path / log_time / "train"))
@@ -56,15 +57,16 @@ class TrainingLoop:
 
     def _save_train_results(self, epoch):
         # Log losses
-        self.results["train_L1"].append(float(self.Model.L1_metric.result()))
-        self.results["train_vq"].append(float(self.Model.vq_metric.result()))
-        self.results["train_total"].append(float(self.Model.total_metric.result()))
+        prefix = "ce" if self.config["data"]["type"] == "contrast" else "sr"
+        self.results[f"train_{prefix}_L1"].append(float(self.Model.L1_metric.result()))
+        self.results[f"train_{prefix}_vq"].append(float(self.Model.vq_metric.result()))
+        self.results[f"train_{prefix}_total"].append(float(self.Model.total_metric.result()))
 
         if self.config["expt"]["log_scalars"]:
             with self.train_writer.as_default():
-                tf.summary.scalar("train_L1", self.Model.L1_metric.result(), step=epoch)
-                tf.summary.scalar("train_vq", self.Model.vq_metric.result(), step=epoch)
-                tf.summary.scalar("train_total", self.Model.total_metric.result(), step=epoch)
+                tf.summary.scalar(f"train_{prefix}_L1", self.Model.L1_metric.result(), step=epoch)
+                tf.summary.scalar(f"train_{prefix}_vq", self.Model.vq_metric.result(), step=epoch)
+                tf.summary.scalar(f"train_{prefix}_total", self.Model.total_metric.result(), step=epoch)
         
         # Log parameter values
         if self.config["expt"]["log_histograms"]:
@@ -74,15 +76,16 @@ class TrainingLoop:
 
     def _save_val_results(self, epoch):
         # Log losses
-        self.results["val_L1"].append(float(self.Model.L1_metric.result()))
-        self.results["val_vq"].append(float(self.Model.vq_metric.result()))
-        self.results["val_total"].append(float(self.Model.total_metric.result()))
+        prefix = "ce" if self.config["data"]["type"] == "contrast" else "sr"
+        self.results[f"val_{prefix}_L1"].append(float(self.Model.L1_metric.result()))
+        self.results[f"val_{prefix}_vq"].append(float(self.Model.vq_metric.result()))
+        self.results[f"val_{prefix}_total"].append(float(self.Model.total_metric.result()))
 
         if self.config["expt"]["log_scalars"]:
             with self.test_writer.as_default():
-                tf.summary.scalar("val_L1", self.Model.L1_metric.result(), step=epoch)
-                tf.summary.scalar("val_vq", self.Model.vq_metric.result(), step=epoch)
-                tf.summary.scalar("val_total", self.Model.total_metric.result(), step=epoch)
+                tf.summary.scalar(f"val_{prefix}_L1", self.Model.L1_metric.result(), step=epoch)
+                tf.summary.scalar(f"val_{prefix}_vq", self.Model.vq_metric.result(), step=epoch)
+                tf.summary.scalar(f"val_{prefix}_total", self.Model.total_metric.result(), step=epoch)
 
     def _save_model(self):
         self.Model.UNet.save_weights(self.model_save_path / "model.ckpt")
@@ -135,6 +138,9 @@ class TrainingLoop:
                     self._save_images(epoch + 1, phase="train")
                     self._save_images(epoch + 1, phase="validation")
 
+            # Save results
+            json.dump(self.results, open(f"{self.log_save_path}/results.json", 'w'), indent=4)
+
             # Save model if necessary
             if (epoch + 1) % self.save_every == 0 and self.config["expt"]["save_model"]:
                 self._save_model()
@@ -143,8 +149,6 @@ class TrainingLoop:
         
         if verbose:
             print(f"Time taken: {(time.time() - start_time) / 3600}")
-
-        json.dump(self.results, open(f"{self.log_save_path}/results.json", 'w'), indent=4)
 
     def _save_images(self, epoch, phase="validation"):
 
