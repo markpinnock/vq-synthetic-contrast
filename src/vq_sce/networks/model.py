@@ -215,17 +215,38 @@ class JointModel(tf.keras.Model):
         self._sr_target_dims = config["data"]["target_dims"]
         self._ce_source_dims = config["data"]["target_dims"]
         self._ce_target_dims = config["data"]["target_dims"]
+        self._sr_config["augmentation"]["source_dims"] = self._sr_source_dims
+        self._sr_config["augmentation"]["target_dims"] = self._sr_target_dims
+        self._ce_config["augmentation"]["source_dims"] = self._ce_source_dims
+        self._ce_config["augmentation"]["target_dims"] = self._ce_target_dims
+
+        self._scales = config["hyperparameters"]["scales"]
+        assert len(self._scales) == 1, self._scales
+        self._sr_source_dims = [
+            self._sr_source_dims[0],
+            self._sr_source_dims[1] // self._scales[0],
+            self._sr_source_dims[2] // self._scales[0]
+        ]
+        self._sr_target_dims = [
+            self._sr_target_dims[0],
+            self._sr_target_dims[1] // self._scales[0],
+            self._sr_target_dims[2] // self._scales[0]
+        ]
+        self._ce_source_dims = [
+            self._ce_source_dims[0],
+            self._ce_source_dims[1] // self._scales[0],
+            self._ce_source_dims[2] // self._scales[0]
+        ]
+        self._ce_target_dims = [
+            self._ce_target_dims[0],
+            self._ce_target_dims[1] // self._scales[0],
+            self._ce_target_dims[2] // self._scales[0]
+        ]
 
         self._sr_config["hyperparameters"]["source_dims"] = self._sr_source_dims
         self._sr_config["hyperparameters"]["target_dims"] = self._sr_target_dims
         self._ce_config["hyperparameters"]["source_dims"] = self._ce_source_dims
         self._ce_config["hyperparameters"]["target_dims"] = self._ce_target_dims
-        self._sr_config["augmentation"]["source_dims"] = self._sr_source_dims
-        self._sr_config["augmentation"]["target_dims"] = self._sr_target_dims
-        self._ce_config["augmentation"]["source_dims"] = self._ce_source_dims
-        self._ce_config["augmentation"]["target_dims"] = self._ce_target_dims
-        self._sr_config["hyperparameters"]["multiscale"] = False
-        self._ce_config["hyperparameters"]["multiscale"] = False
 
         assert config["hyperparameters"]["vq_layers"]["bottom"] is not None, (
             config["hyperparameters"]["vq_layers"]
@@ -315,6 +336,11 @@ class JointModel(tf.keras.Model):
         if self.sr_Aug:
             (source,), (target,) = self.sr_Aug(source=[source], target=[target])
 
+        # Sample patch if needed
+        if self._scales[0] > 1:
+            x, y = self._get_scale_indices()
+            source, target = self._sample_patches(x, y, source, target)
+
         with tf.GradientTape(persistent=True) as tape:
             pred, _ = self.sr_UNet(source)
 
@@ -346,6 +372,11 @@ class JointModel(tf.keras.Model):
         if self.ce_Aug:
             (source,), (target,) = self.ce_Aug(source=[source], target=[target])
 
+        # Sample patch if needed
+        if self._scales[0] > 1:
+            x, y = self._get_scale_indices()
+            source, target = self._sample_patches(x, y, source, target)
+
         with tf.GradientTape(persistent=True) as tape:
             pred, _ = self.ce_UNet(source)
 
@@ -373,6 +404,12 @@ class JointModel(tf.keras.Model):
 
     @tf.function
     def sr_test_step(self, source, target):
+
+        # Sample patch if needed
+        if self._scales[0] > 1:
+            x, y = self._get_scale_indices()
+            source, target = self._sample_patches(x, y, source, target)
+
         pred, _ = self.sr_UNet(source)
 
         # Calculate L1
@@ -391,6 +428,12 @@ class JointModel(tf.keras.Model):
 
     @tf.function
     def ce_test_step(self, source, target):
+
+        # Sample patch if needed
+        if self._scales[0] > 1:
+            x, y = self._get_scale_indices()
+            source, target = self._sample_patches(x, y, source, target)
+
         pred, _ = self.ce_UNet(source)
 
         # Calculate L1
@@ -411,8 +454,53 @@ class JointModel(tf.keras.Model):
         self.sr_test_step(**sr_data)
         self.ce_test_step(**ce_data)
 
+    def _get_scale_indices(self):
+
+        # Want higher probability of training on more central regions
+        if np.random.randn() > 0.5:
+            x = np.random.randint(0, self._scales[0])
+            y = np.random.randint(0, self._scales[0])
+        else:
+            x = np.random.randint(
+                self._scales[0] / 4,
+                self._scales[0] - self._scales[0] / 4
+            )
+            y = np.random.randint(
+                self._scales[0] / 4,
+                self._scales[0] - self._scales[0] / 4
+            )
+
+        return x, y
+
+    def _sample_patches(self, x, y, source, target):
+        x_src = x * self._sr_source_dims[1]
+        y_src = y * self._sr_source_dims[2]
+        x_tar = x * self._sr_target_dims[1]
+        y_tar = y * self._sr_target_dims[2]
+        source = source[
+            :,
+            :,
+            x_src:(x_src + self._sr_source_dims[1]),
+            y_src:(y_src + self._sr_source_dims[2]),
+            :
+        ]
+        target = target[
+            :,
+            :,
+            x_tar:(x_tar + self._sr_target_dims[1]),
+            y_tar:(y_tar + self._sr_target_dims[2]),
+            :
+        ]
+
+        return source, target
+
     def example_inference(self, source, target):
-        pred, _ = self(source)
+        if self._scales[0] == 1:
+            pred, _ = self(source)
+
+        else:
+            source, target = self._sample_patches(2, 2, source, target)
+            pred, _ = self(source)
 
         return source, target, pred
 
