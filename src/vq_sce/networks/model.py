@@ -17,7 +17,7 @@ class Model(tf.keras.Model):
         super().__init__(name=name)
         self._initialiser = tf.keras.initializers.HeNormal()
         self._config = config
-        self._mb_size = config["expt"]["mb_size"]
+
         self._source_dims = config["data"]["source_dims"]
         self._target_dims = config["data"]["target_dims"]
         config["hyperparameters"]["source_dims"] = self._source_dims
@@ -25,7 +25,7 @@ class Model(tf.keras.Model):
         config["augmentation"]["source_dims"] = self._source_dims
         config["augmentation"]["target_dims"] = self._target_dims
 
-        self._scales = None # TODO: implement
+        self._scales = None # TODO: implement - NB augmentation dims
 
         if config["hyperparameters"]["vq_layers"] is None:
             self._use_vq = False
@@ -192,7 +192,7 @@ class JointModel(tf.keras.Model):
         self._initialiser = tf.keras.initializers.HeNormal()
         self._sr_config = copy.deepcopy(config)
         self._ce_config = copy.deepcopy(config)
-        self._mb_size = config["expt"]["mb_size"]
+
         self._sr_source_dims = config["data"]["source_dims"]
         self._sr_target_dims = config["data"]["target_dims"]
         self._ce_source_dims = config["data"]["target_dims"]

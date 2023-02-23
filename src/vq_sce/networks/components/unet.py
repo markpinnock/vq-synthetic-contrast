@@ -221,10 +221,14 @@ class MultiscaleUNet(UNet):
     def get_encoder(self) -> dict[str, int | tuple[int]]:
         """" Create multi-scale U-Net encoder """
 
-        # Upsample in z-direction for residual if needed
-        self.upsample = tf.keras.layers.UpSampling3D(size=(self._z_upsamp_factor, 2, 2))
+        cache = super().get_encoder()
 
-        return super().get_encoder()
+        # Upsample in z-direction for residual if needed
+        self.upsample = tf.keras.layers.UpSampling3D(
+            size=(self._z_upsamp_factor, 2, 2)
+        )
+
+        return cache
 
 
     def get_decoder(self, cache: dict[str, int | tuple[int]]) -> None:
@@ -256,7 +260,7 @@ class MultiscaleUNet(UNet):
             x, skip = layer(x, training=True)
             skip_layers.append(skip)
 
-        x, _ = self.bottom_layer(x, training=True)
+        x = self.bottom_layer(x, training=True)
         skip_layers.reverse()
 
         for skip, tconv in zip(skip_layers, self.decoder):
