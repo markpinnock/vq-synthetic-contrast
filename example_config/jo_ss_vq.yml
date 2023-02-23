@@ -1,0 +1,49 @@
+paths:
+    cuda_path: /usr/local/cuda/lib64
+data:
+    data_path: /path/to/data/train
+    type: contrast
+    source_dims:
+        - 3
+        - 512
+        - 512
+    target_dims:
+        - 12
+        - 512
+        - 512
+    num_examples: 4
+    cv_folds: 5
+    fold: 4
+expt:
+    expt_type: joint
+    mb_size: 2
+    save_every: 20
+    epochs: 500
+    verbose: true
+    graph: false
+    log_scalars: true
+    log_histograms: false
+    save_model: true
+hyperparameters:
+    scales:
+        - 1
+    opt:
+        - 1.0e-4
+        - 0.5
+        - 0.999
+    nc: 16
+    layers: 6
+    vq_layers:
+        bottom: 512
+    vq_beta: 0.25
+augmentation:
+    use: true
+    flip_prob: 0.5
+    rotation: 45.0
+    scale:
+        - 0.8
+        - 1.6
+    shear: 15.0
+    translate:
+        - 0.25
+        - 0.25
