@@ -7,8 +7,7 @@ import yaml
 
 from vq_sce import RANDOM_SEED
 from vq_sce.networks.build_model import build_model
-from vq_sce.trainer import TrainingLoop
-from vq_sce.utils.dataloaders.build_dataloader import get_train_dataloader
+from vq_sce.trainers.build_trainer import build_training_loop
 
 
 #-------------------------------------------------------------------------
@@ -17,8 +16,7 @@ def train(config: dict):
     tf.random.set_seed(RANDOM_SEED)
     tf.get_logger().setLevel("ERROR")
 
-    # Get datasets and data generator
-    train_ds, val_ds, train_gen, val_gen = get_train_dataloader(config)
+
 
     # Get model
     model = build_model(config)
@@ -34,19 +32,15 @@ def train(config: dict):
 
         @tf.function
         def trace(x):
-            model.UNet(x)
+            model(x)
 
         tf.summary.trace_on(graph=True)
-        trace(tf.zeros([1] + config["data"]["source_patch"] + [1]))
+        trace(tf.zeros([1] + config["data"]["source_dims"] + [1]))
 
         with writer.as_default():
             tf.summary.trace_export("graph", step=0)
 
-    training_loop = TrainingLoop(Model=model,
-                                 dataset=(train_ds, val_ds),
-                                 train_generator=train_gen,
-                                 val_generator=val_gen,
-                                 config=config)
+    training_loop = build_training_loop(config, model)
 
     # Run training loop
     training_loop.train()
