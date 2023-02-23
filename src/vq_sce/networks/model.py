@@ -237,14 +237,12 @@ class JointModel(tf.keras.Model):
 
         # Get shared VQ layer
         embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
-        shared_vq = {
-            "bottom": VQBlock(
-                num_embeddings=embeddings,
-                embedding_dim=MAX_CHANNELS,
-                beta=config["hyperparameters"]["vq_beta"],
-                name="shared_vq"
-            )
-        }
+        shared_vq = VQBlock(
+            num_embeddings=embeddings,
+            embedding_dim=MAX_CHANNELS,
+            beta=config["hyperparameters"]["vq_beta"],
+            name="shared_vq"
+        )
 
         self.sr_UNet = UNet(
             self._initialiser,

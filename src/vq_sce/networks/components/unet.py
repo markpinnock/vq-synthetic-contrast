@@ -25,7 +25,6 @@ class UNet(tf.keras.Model):
         self._target_dims = tuple(config["target_dims"])
         assert len(self._source_dims) == 3, "3D input only"
         self._config = config
-        self._residual = config["residual"]
         self._z_upsamp_factor = self._target_dims[0] // self._source_dims[0]
 
         if config["vq_layers"] is not None:
@@ -59,8 +58,8 @@ class UNet(tf.keras.Model):
             "upsamp_factor": []
         }
 
-        if self._residual:
-            self.upsample_z = tf.keras.layers.UpSampling3D(size=(self._z_upsamp_factor, 1, 1))
+        # Upsample in z-direction for residual if needed
+        self.upsample_z = tf.keras.layers.UpSampling3D(size=(self._z_upsamp_factor, 1, 1))
 
         # Determine number of up-scaling layers needed
         source_z = self._source_dims[0]
@@ -122,7 +121,7 @@ class UNet(tf.keras.Model):
             initialiser=self._initialiser,
             use_vq=use_vq,
             vq_config=self._vq_config,
-            shared_vq=self.shared_vq["bottom"],
+            shared_vq=self.shared_vq,
             name="bottom"
         )
 
@@ -174,7 +173,7 @@ class UNet(tf.keras.Model):
     def call(self, x: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor | None]:
         skip_layers = []
 
-        if self._z_upsamp_factor > 1 and self._residual:
+        if self._z_upsamp_factor > 1:
             residual_x = self.upsample_z(x)
         else:
             residual_x = x
@@ -191,14 +190,8 @@ class UNet(tf.keras.Model):
 
         x = self.final_layer(x, training=True)
 
-        if self.output_vq is None and not self._residual:
-            return x, None
-
-        elif self.output_vq is None and self._residual:
+        if self.output_vq is None:
             return x + residual_x, None
-
-        elif self.output_vq is not None and not self._residual:
-            return x, self.output_vq(x) + residual_x
 
         else:
             return x + residual_x, self.output_vq(x) + residual_x
