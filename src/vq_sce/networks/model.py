@@ -24,13 +24,6 @@ class Model(tf.keras.Model):
         config["hyperparameters"]["target_dims"] = self._target_dims
         config["augmentation"]["source_dims"] = self._source_dims
         config["augmentation"]["target_dims"] = self._target_dims
-        config["hyperparameters"]["multiscale"] = False
-
-        if config["hyperparameters"]["vq_layers"] is not None:
-            self._intermediate_vq = "output" in \
-                config["hyperparameters"]["vq_layers"]
-        else:
-            self._intermediate_vq = False
 
         self._scales = None # TODO: implement
 
@@ -40,9 +33,8 @@ class Model(tf.keras.Model):
             self._use_vq = True
 
         # Set up augmentation
-        aug_config = config["augmentation"]
         if config["augmentation"]["use"]:
-            self.Aug = StdAug(config=aug_config)
+            self.Aug = StdAug(config=config["augmentation"])
         else:
             self.Aug = None
 
@@ -221,8 +213,6 @@ class JointModel(tf.keras.Model):
             config["hyperparameters"]["vq_layers"]
         )
         self._use_vq = True
-        self._intermediate_vq = "output" in \
-            config["hyperparameters"]["vq_layers"]   
 
         # Set up augmentation
         if config["augmentation"]["use"]:
