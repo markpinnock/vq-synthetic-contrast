@@ -1,21 +1,28 @@
 import tensorflow as tf
 
-from .model import Model
+from .model import Model, JointModel
 from .multiscale_model import MultiscaleModel
 
 MODEL_DICT = {
     "single_scale": Model,
-    "multi_scale": MultiscaleModel
+    "multi_scale": MultiscaleModel,
+    "single_joint": JointModel
 }
 
 
 def build_model(config: dict, purpose: str = "training"):
-    if "scales" not in config["hyperparameters"].keys():
+    scales = config["hyperparameters"]["scales"]
+    expt_type = config["expt"]["expt_type"]
+    if len(scales) == 1 and expt_type == "single":
         model_type = "single_scale"
-    elif len(config["hyperparameters"]["scales"]) == 1:
-        model_type = "single_scale"
-    else:
+    elif len(scales) > 1 and expt_type == "single":
         model_type = "multi_scale"
+    elif len(scales) == 1 and expt_type == "joint":
+        model_type = "single_joint"
+    elif len(scales) > 1 and expt_type == "joint":
+        model_type = "multi_joint"
+    else:
+        raise ValueError(scales, expt_type)
 
     model = MODEL_DICT[model_type](config)
 

@@ -1,7 +1,9 @@
+import copy
 import numpy as np
 import tensorflow as tf
 
-from .components.unet import UNet
+from .components.unet import UNet, MAX_CHANNELS
+from .components.layers.vq_layers import VQBlock
 from vq_sce.utils.augmentation.augmentation import StdAug
 from vq_sce.utils.losses import L1
 
@@ -54,9 +56,10 @@ class Model(tf.keras.Model):
         self.optimiser = optimiser
 
         # Set up metrics
-        self.L1_metric = tf.keras.metrics.Mean(name="L1")
-        self.vq_metric = tf.keras.metrics.Mean(name="vq")
-        self.total_metric = tf.keras.metrics.Mean(name="total")
+        prefix = "ce" if self._config["data"]["type"] == "contrast" else "sr"
+        self.L1_metric = tf.keras.metrics.Mean(name=f"{prefix}_L1")
+        self.vq_metric = tf.keras.metrics.Mean(name=f"{prefix}_vq")
+        self.total_metric = tf.keras.metrics.Mean(name=f"{prefix}_total")
 
     @property
     def metrics(self):
@@ -185,3 +188,232 @@ class Model(tf.keras.Model):
 
     def call(self, x):
         return self.UNet(x)
+
+
+#-------------------------------------------------------------------------
+""" Wrapper for joint super-res/contrast enhancement model """
+
+class JointModel(tf.keras.Model):
+
+    def __init__(self, config, name="Model"):
+        super().__init__(name=name)
+        self._initialiser = tf.keras.initializers.HeNormal()
+        self._sr_config = copy.deepcopy(config)
+        self._ce_config = copy.deepcopy(config)
+        self._mb_size = config["expt"]["mb_size"]
+        self._sr_source_dims = config["data"]["source_dims"]
+        self._sr_target_dims = config["data"]["target_dims"]
+        self._ce_source_dims = config["data"]["target_dims"]
+        self._ce_target_dims = config["data"]["target_dims"]
+
+        self._sr_config["hyperparameters"]["source_dims"] = self._sr_source_dims
+        self._sr_config["hyperparameters"]["target_dims"] = self._sr_target_dims
+        self._ce_config["hyperparameters"]["source_dims"] = self._ce_source_dims
+        self._ce_config["hyperparameters"]["target_dims"] = self._ce_target_dims
+        self._sr_config["augmentation"]["source_dims"] = self._sr_source_dims
+        self._sr_config["augmentation"]["target_dims"] = self._sr_target_dims
+        self._ce_config["augmentation"]["source_dims"] = self._ce_source_dims
+        self._ce_config["augmentation"]["target_dims"] = self._ce_target_dims
+        self._sr_config["hyperparameters"]["multiscale"] = False
+        self._ce_config["hyperparameters"]["multiscale"] = False
+
+        assert config["hyperparameters"]["vq_layers"]["bottom"] is not None, (
+            config["hyperparameters"]["vq_layers"]
+        )
+        self._use_vq = True
+        self._intermediate_vq = "output" in \
+            config["hyperparameters"]["vq_layers"]   
+
+        # Set up augmentation
+        if config["augmentation"]["use"]:
+            self.sr_Aug = StdAug(config=self._sr_config["augmentation"])
+        else:
+            self.sr_Aug = None
+
+        if config["augmentation"]["use"]:
+            self.ce_Aug = StdAug(config=self._ce_config["augmentation"])
+        else:
+            self.ce_Aug = None
+
+        # Get shared VQ layer
+        embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
+        shared_vq = {
+            "bottom": VQBlock(
+                num_embeddings=embeddings,
+                embedding_dim=MAX_CHANNELS,
+                beta=config["hyperparameters"]["vq_beta"],
+                name="shared_vq"
+            )
+        }
+
+        self.sr_UNet = UNet(
+            self._initialiser,
+            self._sr_config["hyperparameters"],
+            shared_vq=shared_vq,
+            name="sr_unet"
+        )
+
+        self.ce_UNet = UNet(
+            self._initialiser,
+            self._ce_config["hyperparameters"],
+            shared_vq=shared_vq,
+            name="ce_unet"
+        )
+
+    def compile(self, optimiser):
+        self.optimiser = optimiser
+
+        # Set up metrics
+        self.sr_L1_metric = tf.keras.metrics.Mean(name="sr_L1")
+        self.sr_vq_metric = tf.keras.metrics.Mean(name="sr_vq")
+        self.sr_total_metric = tf.keras.metrics.Mean(name="sr_total")
+        self.ce_L1_metric = tf.keras.metrics.Mean(name="ce_L1")
+        self.ce_vq_metric = tf.keras.metrics.Mean(name="ce_vq")
+        self.ce_total_metric = tf.keras.metrics.Mean(name="ce_total")
+
+    @property
+    def metrics(self):
+        return [
+            self.sr_L1_metric,
+            self.sr_vq_metric,
+            self.sr_total_metric,
+            self.ce_L1_metric,
+            self.ce_vq_metric,
+            self.ce_total_metric
+        ]
+
+    def summary(self):
+        source = tf.keras.Input(shape=self._sr_source_dims + [1])
+        pred, vq = self.sr_UNet.call(source)
+
+        if vq is None:
+            tf.keras.Model(inputs=source, outputs=pred).summary()
+        else:
+            tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
+
+        source = tf.keras.Input(shape=self._ce_source_dims + [1])
+        pred, vq = self.ce_UNet.call(source)
+
+        if vq is None:
+            tf.keras.Model(inputs=source, outputs=pred).summary()
+        else:
+            tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
+
+    @tf.function
+    def sr_train_step(self, source, target):
+
+        """ Expects data in order 'source, target'
+        """
+
+        # Augmentation if required
+        if self.sr_Aug:
+            (source,), (target,) = self.sr_Aug(source=[source], target=[target])
+
+        with tf.GradientTape(persistent=True) as tape:
+            pred, _ = self.sr_UNet(source)
+
+            # Calculate L1
+            L1_loss = L1(target, pred)
+
+            # Calculate VQ loss
+            if self._use_vq:
+                vq_loss = sum(self.sr_UNet.losses)
+            else:
+                vq_loss = 0
+
+            total_loss = L1_loss + vq_loss
+            self.sr_L1_metric.update_state(L1_loss)
+            self.sr_vq_metric.update_state(vq_loss)
+            self.sr_total_metric.update_state(total_loss)
+
+        # Get gradients and update weights
+        grads = tape.gradient(total_loss, self.sr_UNet.trainable_variables)
+        self.optimiser.apply_gradients(zip(grads, self.sr_UNet.trainable_variables))
+
+    @tf.function
+    def ce_train_step(self, source, target):
+
+        """ Expects data in order 'source, target'
+        """
+
+        # Augmentation if required
+        if self.ce_Aug:
+            (source,), (target,) = self.ce_Aug(source=[source], target=[target])
+
+        with tf.GradientTape(persistent=True) as tape:
+            pred, _ = self.ce_UNet(source)
+
+            # Calculate L1
+            L1_loss = L1(target, pred)
+
+            # Calculate VQ loss
+            if self._use_vq:
+                vq_loss = sum(self.ce_UNet.losses)
+            else:
+                vq_loss = 0
+
+            total_loss = L1_loss + vq_loss
+            self.ce_L1_metric.update_state(L1_loss)
+            self.ce_vq_metric.update_state(vq_loss)
+            self.ce_total_metric.update_state(total_loss)
+
+        # Get gradients and update weights
+        grads = tape.gradient(total_loss, self.ce_UNet.trainable_variables)
+        self.optimiser.apply_gradients(zip(grads, self.ce_UNet.trainable_variables))
+
+    def train_step(self, sr_data, ce_data):
+        self.sr_train_step(**sr_data)
+        self.ce_train_step(**ce_data)
+
+    @tf.function
+    def sr_test_step(self, source, target):
+        pred, _ = self.sr_UNet(source)
+
+        # Calculate L1
+        L1_loss = L1(target, pred)
+
+        # Calculate VQ loss
+        if self._use_vq:
+            vq_loss = sum(self.sr_UNet.losses)
+        else:
+            vq_loss = 0
+
+        total_loss = L1_loss + vq_loss
+        self.sr_L1_metric.update_state(L1_loss)
+        self.sr_vq_metric.update_state(vq_loss)
+        self.sr_total_metric.update_state(total_loss)
+
+    @tf.function
+    def ce_test_step(self, source, target):
+        pred, _ = self.ce_UNet(source)
+
+        # Calculate L1
+        L1_loss = L1(target, pred)
+
+        # Calculate VQ loss
+        if self._use_vq:
+            vq_loss = sum(self.ce_UNet.losses)
+        else:
+            vq_loss = 0
+
+        total_loss = L1_loss + vq_loss
+        self.ce_L1_metric.update_state(L1_loss)
+        self.ce_vq_metric.update_state(vq_loss)
+        self.ce_total_metric.update_state(total_loss)
+
+    def test_step(self, sr_data, ce_data):
+        self.sr_test_step(**sr_data)
+        self.ce_test_step(**ce_data)
+
+    def example_inference(self, source, target):
+        pred, _ = self(source)
+
+        return source, target, pred
+
+    def reset_train_metrics(self):
+        for metric in self.metrics:
+            metric.reset_states()
+
+    def call(self, x):
+        x, _ = self.sr_UNet(x)
+        return self.ce_UNet(x)

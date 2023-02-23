@@ -122,7 +122,7 @@ class UNet(tf.keras.Model):
             initialiser=self._initialiser,
             use_vq=use_vq,
             vq_config=self._vq_config,
-            shared_vq=self.shared_vq,
+            shared_vq=self.shared_vq["bottom"],
             name="bottom"
         )
 
