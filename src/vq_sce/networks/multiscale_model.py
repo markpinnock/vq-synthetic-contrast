@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
+from vq_sce import LQ_SLICE_THICK
 from .components.unet import MultiscaleUNet
 from vq_sce.utils.augmentation.augmentation import StdAug
 from vq_sce.utils.losses import L1
@@ -115,6 +116,10 @@ class MultiscaleModel(tf.keras.Model):
 
                     for i in range(1, len(self._scales) - 1):
                         pred, vq = self._sample_patches(x[i], y[i], pred, vq)
+
+                        if self._config["data"]["type"] == "super_res":
+                            pred = self._down_sample_super_res(pred) # TODO: handle VQ if necessary
+
                         if self.intermediate_vq:
                             pred, vq = self(vq)
                         else:
@@ -149,6 +154,7 @@ class MultiscaleModel(tf.keras.Model):
         # Iterate over image patches, get patch indices for each scale
         xs = list(range(self._scales[0]))
         ys = list(range(self._scales[0]))
+
         for target_x in xs:
             for target_y in ys:
                 x, y, target_x, target_y = self._get_scale_indices(target_x, target_y)
@@ -160,6 +166,10 @@ class MultiscaleModel(tf.keras.Model):
 
                 for i in range(1, len(self._scales) - 1):
                     pred, vq = self._sample_patches(x[i], y[i], pred, vq)
+
+                    if self._config["data"]["type"] == "super_res":
+                        pred = self._down_sample_super_res(pred) # TODO: handle VQ if necessary
+
                     if self.intermediate_vq:
                         pred, vq = self(vq)
                     else:
@@ -213,6 +223,10 @@ class MultiscaleModel(tf.keras.Model):
         img = img[:, :, ::self._scales[0], ::self._scales[0], :]
         return img
 
+    def _down_sample_super_res(self, img):
+        img = img[:, 1::LQ_SLICE_THICK, :, :, :]
+        return img
+
     def _sample_patches(self, x, y, img1, img2=None):
         x_img = x * self._source_dims[1]
         y_img = y * self._source_dims[2]
@@ -237,6 +251,10 @@ class MultiscaleModel(tf.keras.Model):
 
         for i in range(1, len(self._scales) - 1):
             pred, vq = self._sample_patches(x[i], y[i], pred, vq)
+
+            if self._config["data"]["type"] == "super_res":
+                pred = self._down_sample_super_res(pred) # TODO: handle VQ if necessary
+
             if self.intermediate_vq:
                 pred, vq = self(vq)
                 preds[str(self._scales[i])] = vq
