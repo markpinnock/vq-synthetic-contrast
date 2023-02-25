@@ -1,12 +1,13 @@
 import tensorflow as tf
 
 from .model import Model, JointModel
-from .multiscale_model import MultiscaleModel
+from .multiscale_model import MultiscaleModel, JointMultiscaleModel
 
 MODEL_DICT = {
     "single_scale": Model,
     "multi_scale": MultiscaleModel,
-    "single_joint": JointModel
+    "single_joint": JointModel,
+    "multi_joint": JointMultiscaleModel
 }
 
 

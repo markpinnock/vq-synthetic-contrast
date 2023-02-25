@@ -223,27 +223,31 @@ class JointTrainingLoop:
         elif phase == "validation":
             data_generator = self.val_generator
 
-        data = data_generator.example_images()
+        data = data_generator.example_images
         source, target, pred = self.Model.example_inference(**data)
 
         source = data_generator.un_normalise(source)
         target = data_generator.un_normalise(target)
+
+        source_mid = 1 if source.shape[1] == LQ_DEPTH else 5
+        target_mid = 5
+
         for scale in pred.keys():
             pred[scale] = data_generator.un_normalise(pred[scale])
 
         _, axs = plt.subplots(target.shape[0], 4 + len(pred.keys()))
 
         for i in range(target.shape[0]):
-            axs[i, 0].imshow(source[i, :, :, 11, 0], cmap="gray", vmin=-150, vmax=250)
+            axs[i, 0].imshow(source[i, source_mid, :, :, 0], cmap="bone", **ABDO_WINDOW)
             axs[i, 0].axis("off")
             for j, img in enumerate(pred.values()):
-                axs[i, 1 + j].imshow(img[i, :, :, 11, 0], cmap="gray", vmin=-150, vmax=250)
+                axs[i, 1 + j].imshow(img[i, target_mid, :, :, 0], cmap="bone", **ABDO_WINDOW)
                 axs[i, 1 + j].axis("off")
-            axs[i, 2 + j].imshow(target[i, :, :, 11, 0], cmap="gray", vmin=-150, vmax=250)
+            axs[i, 2 + j].imshow(target[i, target_mid, :, :, 0], cmap="bone", **ABDO_WINDOW)
             axs[i, 2 + j].axis("off")
-            axs[i, 3 + j].imshow(target[i, :, :, 11, 0] - source[i, :, :, 11, 0], norm=mpl.colors.CenteredNorm(), cmap="bwr")
+            axs[i, 3 + j].imshow(target[i, target_mid, :, :, 0] - source[i, source_mid, :, :, 0], norm=mpl.colors.CenteredNorm(), cmap="bwr")
             axs[i, 3 + j].axis("off")
-            axs[i, 4 + j].imshow(target[i, :, :, 11, 0] - list(pred.values())[-1][i, :, :, 11, 0], norm=mpl.colors.CenteredNorm(), cmap="bwr")
+            axs[i, 4 + j].imshow(target[i, target_mid, :, :, 0] - list(pred.values())[-1][i, target_mid, :, :, 0], norm=mpl.colors.CenteredNorm(), cmap="bwr")
             axs[i, 4 + j].axis("off")
 
         plt.tight_layout()

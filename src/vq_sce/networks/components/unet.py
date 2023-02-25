@@ -213,10 +213,11 @@ class MultiscaleUNet(UNet):
         self,
         initialiser: tf.keras.initializers.Initializer,
         config: dict,
+        shared_vq: VQBlock | None = None,
         name: str | None = None
     ) -> None:
 
-        super().__init__(initialiser, config, name=name)
+        super().__init__(initialiser, config, shared_vq, name=name)
 
     def get_encoder(self) -> dict[str, int | tuple[int]]:
         """" Create multi-scale U-Net encoder """

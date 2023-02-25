@@ -147,6 +147,7 @@ class TrainingLoop:
                 self._save_model()
 
         self.results["time"] = (time.time() - start_time) / 3600
+        json.dump(self.results, open(f"{self.log_save_path}/results.json", 'w'), indent=4)
         
         if verbose:
             print(f"Time taken: {(time.time() - start_time) / 3600}")
