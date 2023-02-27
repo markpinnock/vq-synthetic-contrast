@@ -29,12 +29,14 @@ class ImgConv:
         include: list = None,
         ignore: list = None,
         start_at: list = None,
-        stop_before: list = None
+        stop_before: list = None,
+        allow_all_ce: bool = False
     ) -> None:
 
         self.image_path = Path(file_path) / "Images"
         self.trans_path = Path(file_path) / "Transforms"
         self.save_path = Path(save_path)
+        self.allow_all_ce = allow_all_ce
 
         self.CE_save_path = self.save_path / "CE"
         self.CE_save_path.mkdir(parents=True, exist_ok=True)
@@ -120,15 +122,18 @@ class ImgConv:
                 p for p in LQ_paths if p.stem not in self.ignore["image_ignore"]
             ]
 
-        if len(CE_paths) > 1:
-            print(f"{subject_path.stem} CE: {len(CE_paths)}")
-            return None
-
         NCE_path = HQ_paths[0]
         HQ_paths = HQ_paths[1:-1]
 
-        # Ensure non-CE scan is before CE
-        if len(CE_paths) == 1:
+        # Ignore CE if multiple
+        if len(CE_paths) > 1 and not self.allow_all_ce:
+            assert int(CE_paths[0].stem[-3:]) > int(NCE_path.stem[-3:]), (
+                        f"{CE_paths[0].stem} vs {NCE_path.stem}")
+            print(f"{subject_path.stem} CE: {len(CE_paths)}")
+            return None
+
+        # Ignore CE if comes after needle insertion
+        elif len(CE_paths) == 1 and not self.allow_all_ce:
             assert int(CE_paths[0].stem[-3:]) > int(NCE_path.stem[-3:]), (
                         f"{CE_paths[0].stem} vs {NCE_path.stem}")
 
@@ -138,7 +143,7 @@ class ImgConv:
             else:
                 if (len(LQ_paths) > 0 and 
                     int(CE_paths[0].stem[-3:]) > int(LQ_paths[0].stem[-3:])):
-                    print(f"{subject_path.stem} CE: {CE_paths[0].stem}, HQ: {HQ_paths[0].stem}")
+                    print(f"{subject_path.stem} CE: {CE_paths[0].stem}, LQ: {LQ_paths[0].stem}")
                     return None
 
         # Read images and transform if required
@@ -187,12 +192,11 @@ class ImgConv:
 
     def _save_ce_nce(self, ace: itk.Image, nce: itk.Image, subject_path: Path):
 
-            # Process initial non-CE and CE images
-            nce_name = list(nce.keys())[0]
-            ace_name = list(ace.keys())[0]
-            nce = nce[nce_name]
-            ace = ace[ace_name]
+        # Process initial non-CE and CE images
+        nce_name = list(nce.keys())[0]
+        nce = nce[nce_name]
 
+        for ace_name, ace in ace.items():
             ace = self._transform_if_required(
                 source_name=ace_name,
                 target_name=nce_name,
@@ -203,15 +207,16 @@ class ImgConv:
             ace, ace_lower, ace_upper = self._trim_source(ace, False)
             self.source_coords[ace_name] = {nce_name: [ace_lower, ace_upper]}
 
-            # Clamp HU values
-            nce = self.HU_filter.Execute(nce)
             ace = self.HU_filter.Execute(ace)
-
             nce_npy = itk.GetArrayFromImage(nce).astype("float16")
             ace_npy = itk.GetArrayFromImage(ace).astype("float16")
 
-            np.save(self.HQ_save_path / f"{nce_name}.npy", nce_npy)
             np.save(self.CE_save_path / f"{ace_name}.npy", ace_npy)
+
+        # Clamp HU values
+        nce = self.HU_filter.Execute(nce)
+        nce_npy = itk.GetArrayFromImage(nce).astype("float16")
+        np.save(self.HQ_save_path / f"{nce_name}.npy", nce_npy)
 
     def _save_lq_hq(
         self,
@@ -296,10 +301,8 @@ class ImgConv:
             else:
                 nce, ace, HQs, LQs = imgs
 
-            if len(ace) == 1:
+            if len(ace) > 1:
                 self._save_ce_nce(ace, nce, subject_path)
-
-            # TODO elif
 
             if len(LQs) > 0:
                 self._save_lq_hq(HQs, LQs, nce, subject_path, num_LQ)
@@ -345,6 +348,7 @@ def main() -> None:
     parser.add_argument("--to_include", '-t', type=str, help="Include IDs")
     parser.add_argument("--start_at", '-sa', type=str, help="Start ID")
     parser.add_argument("--stop_before", '-sb', type=str, help="End ID")
+    parser.add_argument("--allow_all_ce", '-a', help="Allow all CE", action="store_true")
     arguments = parser.parse_args()
 
     if arguments.to_include is not None:
@@ -362,12 +366,13 @@ def main() -> None:
         include=to_include,
         ignore=ignore,
         start_at=arguments.start_at,
-        stop_before=arguments.stop_before
+        stop_before=arguments.stop_before,
+        allow_all_ce=arguments.allow_all_ce
     )
     img_conv.process_images()
     img_conv.check_saved()
 
-    # Check T070A0, T083A0
+    # Check T083A0
     # T005A0, T065A1, T066A0, T069A0, T086A0, T088A0, T105A0, T107A0, T109A0, T115A0, T126A0, T136A0, T140A0
 
 #-------------------------------------------------------------------------
