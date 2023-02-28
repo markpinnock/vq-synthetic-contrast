@@ -60,6 +60,7 @@ class ImgConv:
         else:
             self.subjects = [name for name in os.listdir(self.image_path) if name in include]
 
+        self.subjects = sorted(self.subjects)
         idx_start = None if start_at is None else self.subjects.index(start_at)
         idx_end = None if stop_before is None else self.subjects.index(stop_before)
         self.subjects = self.subjects[idx_start:idx_end]
@@ -301,7 +302,7 @@ class ImgConv:
             else:
                 nce, ace, HQs, LQs = imgs
 
-            if len(ace) > 1:
+            if len(ace) > 0:
                 self._save_ce_nce(ace, nce, subject_path)
 
             if len(LQs) > 0:
