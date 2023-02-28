@@ -168,8 +168,6 @@ class TrainingLoop:
             # Save model if necessary
             if (epoch + 1) % self.save_every == 0 and self.config["expt"]["save_model"]:
                 self._save_model()
-
-        #json.dump(self.results, open(f"{self.log_save_path}/results.json", 'w'), indent=4)
         
         if verbose:
             print(f"Time taken: {(time.time() - start_time) / 3600}")

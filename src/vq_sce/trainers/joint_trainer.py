@@ -58,6 +58,11 @@ class JointTrainingLoop:
         self.train_writer = tf.summary.create_file_writer(str(self.log_save_path / log_time / "train"))
         self.test_writer = tf.summary.create_file_writer(str(self.log_save_path / log_time / "test"))
 
+        # Restart model training if necessary
+        if len(list(self.model_save_path.glob("sr_model.ckpt*"))) > 0:
+            assert len(list(self.model_save_path.glob("ce_model.ckpt*"))) > 0
+            self._load_model()
+
     def _save_train_results(self, epoch):
         # Log losses
         self.results["train_sr_L1"].append(float(self.Model.sr_L1_metric.result()))
@@ -102,6 +107,10 @@ class JointTrainingLoop:
                 tf.summary.scalar("val_ce_vq", self.Model.ce_vq_metric.result(), step=epoch)
                 tf.summary.scalar("val_ce_total", self.Model.ce_total_metric.result(), step=epoch)
 
+    def _load_model(self):
+        self.Model.sr_UNet.load_weights(self.model_save_path / "sr_model.ckpt")
+        self.Model.ce_UNet.load_weights(self.model_save_path / "ce_model.ckpt")
+
     def _save_model(self):
         self.Model.sr_UNet.save_weights(self.model_save_path / "sr_model.ckpt")
         self.Model.ce_UNet.save_weights(self.model_save_path / "ce_model.ckpt")
@@ -110,25 +119,45 @@ class JointTrainingLoop:
 
         """ Main training loop for joint U-Nets """
 
-        self.results = {}
-        self.results["train_sr_L1"] = []
-        self.results["train_sr_vq"] = []
-        self.results["train_sr_total"] = []
-        self.results["val_sr_L1"] = []
-        self.results["val_sr_vq"] = []
-        self.results["val_sr_total"] = []
-        self.results["train_ce_L1"] = []
-        self.results["train_ce_vq"] = []
-        self.results["train_ce_total"] = []
-        self.results["val_ce_L1"] = []
-        self.results["val_ce_vq"] = []
-        self.results["val_ce_total"] = []
-        self.results["epochs"] = []
-        self.results["time"] = 0
+        if len(list(self.model_save_path.glob("sr_model.ckpt*"))) > 0:
+            with open(self.log_save_path / "results.json", 'r') as fp:
+                self.results = json.load(fp)
+            num_epochs_trained = int(list((self.image_save_path / "validation").glob('*'))[-1].stem)
+            assert num_epochs_trained % self.save_every == 0, num_epochs_trained
+
+            self.results["train_sr_L1"] = self.results["train_sr_L1"][0:num_epochs_trained]
+            self.results["train_sr_vq"] = self.results["train_sr_vq"][0:num_epochs_trained]
+            self.results["train_sr_total"] = self.results["train_sr_total"][0:num_epochs_trained]
+            self.results["val_sr_L1"] = self.results["val_sr_L1"][0:num_epochs_trained]
+            self.results["val_sr_vq"] = self.results["val_sr_vq"][0:num_epochs_trained]
+            self.results["val_sr_total"] = self.results["val_sr_total"][0:num_epochs_trained]
+            self.results["train_ce_L1"] = self.results["train_ce_L1"][0:num_epochs_trained]
+            self.results["train_ce_vq"] = self.results["train_ce_vq"][0:num_epochs_trained]
+            self.results["train_ce_total"] = self.results["train_ce_total"][0:num_epochs_trained]
+            self.results["val_ce_L1"] = self.results["val_ce_L1"][0:num_epochs_trained]
+            self.results["val_ce_vq"] = self.results["val_ce_vq"][0:num_epochs_trained]
+            self.results["val_ce_total"] = self.results["val_ce_total"][0:num_epochs_trained]
+
+        else:
+            num_epochs_trained = 0
+            self.results = {}
+            self.results["train_sr_L1"] = []
+            self.results["train_sr_vq"] = []
+            self.results["train_sr_total"] = []
+            self.results["val_sr_L1"] = []
+            self.results["val_sr_vq"] = []
+            self.results["val_sr_total"] = []
+            self.results["train_ce_L1"] = []
+            self.results["train_ce_vq"] = []
+            self.results["train_ce_total"] = []
+            self.results["val_ce_L1"] = []
+            self.results["val_ce_vq"] = []
+            self.results["val_ce_total"] = []
+            self.results["time"] = 0
 
         start_time = time.time()
 
-        for epoch in range(self.epochs):
+        for epoch in range(num_epochs_trained, self.epochs):
             self.Model.reset_metrics()
 
             # Run training step for each batch in training data
@@ -163,15 +192,13 @@ class JointTrainingLoop:
                     self._save_images(epoch + 1, phase="validation")
 
             # Save results
+            self.results["time"] = (time.time() - start_time) / 3600
             json.dump(self.results, open(f"{self.log_save_path}/results.json", 'w'), indent=4)
 
             # Save model if necessary
             if (epoch + 1) % self.save_every == 0 and self.config["expt"]["save_model"]:
                 self._save_model()
 
-        self.results["time"] = (time.time() - start_time) / 3600
-        json.dump(self.results, open(f"{self.log_save_path}/results.json", 'w'), indent=4)
-        
         if verbose:
             print(f"Time taken: {(time.time() - start_time) / 3600}")
 
