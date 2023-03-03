@@ -6,8 +6,8 @@ channels:
 dependencies:
   - pip=22.2.2
   - python=3.10
-  - cudatoolkit=11.2
-  - cudnn=8.1.0
+  - cudatoolkit=11.2.2
+  - cudnn=8.1.0.77
   - matplotlib>=3.4
   - pandas>=1.3
   - pytest>=7.1.2
