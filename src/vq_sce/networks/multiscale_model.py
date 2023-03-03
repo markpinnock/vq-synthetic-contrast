@@ -79,6 +79,9 @@ class MultiscaleModel(tf.keras.Model):
             self.total_metric
         ]
 
+    def build_model(self):
+        _, _ = self(tf.keras.Input(shape=self._source_dims + [1]))
+
     def summary(self):
         source = tf.keras.Input(shape=self._source_dims + [1])
         pred, vq = self.UNet.call(source)
@@ -389,6 +392,9 @@ class JointMultiscaleModel(tf.keras.Model):
             self.ce_vq_metric,
             self.ce_total_metric
         ]
+
+    def build_model(self):
+        _, _ = self(tf.keras.Input(shape=self._sr_source_dims + [1]))
 
     def summary(self):
         source = tf.keras.Input(shape=self._sr_source_dims + [1])

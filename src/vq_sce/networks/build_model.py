@@ -32,7 +32,7 @@ def build_model(config: dict, purpose: str = "training"):
         model.compile(optimiser)
         return model
     elif purpose == "inference":
-        _ = model(tf.zeros([1] + config["data"]["patch_size"] + [1]))
+        model.build_model()
         model.UNet.load_weights(config["paths"]["expt_path"] / "models" / "model.ckpt")
         return model
     else:
