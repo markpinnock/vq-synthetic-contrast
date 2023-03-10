@@ -1,6 +1,14 @@
 import tensorflow as tf
+from typing import TypedDict
 
 from .vq_layers import VQBlock
+
+
+#-------------------------------------------------------------------------
+
+class VQConfig(TypedDict):
+    vq_beta: float
+    embeddings: int
 
 
 #-------------------------------------------------------------------------
@@ -26,7 +34,7 @@ class InstanceNorm(tf.keras.layers.Layer):
             trainable=True
         )
 
-    def call(self, x: tf.Tensor, training: bool):
+    def call(self, x: tf.Tensor, training: bool) -> tf.Tensor:
         mu = tf.math.reduce_mean(x, axis=[1, 2, 3], keepdims=True)
         sigma = tf.math.reduce_std(x, axis=[1, 2, 3], keepdims=True)
 
@@ -45,7 +53,7 @@ class DownBlock(tf.keras.layers.Layer):
         strides: tuple[int],
         initialiser: tf.keras.initializers.Initializer,
         use_vq: bool,
-        vq_config: dict,
+        vq_config: VQConfig,
         name: str | None = None
     ) -> None:
 
@@ -74,7 +82,7 @@ class DownBlock(tf.keras.layers.Layer):
         self.inst_norm_1 = InstanceNorm(name="instancenorm1")
         self.inst_norm_2 = InstanceNorm(name="instancenorm2")
 
-    def call(self, x: tf.Tensor, training: bool) -> tuple[tf.Tensor]:
+    def call(self, x: tf.Tensor, training: bool) -> tuple[tf.Tensor, tf.Tensor]:
 
         # 1st convolution - output to skip layer
         x = self.conv1(x)
@@ -105,8 +113,8 @@ class BottomBlock(tf.keras.layers.Layer):
         strides: tuple[int],
         initialiser: tf.keras.initializers.Initializer,
         use_vq: bool,
-        vq_config: dict,
-        shared_vq: VQBlock,
+        vq_config: VQConfig,
+        shared_vq: VQBlock | None,
         name: str | None = None
     ) -> None:
 
@@ -170,7 +178,7 @@ class UpBlock(tf.keras.layers.Layer):
         upsamp_factor: int,
         initialiser: tf.keras.initializers.Initializer,
         use_vq: bool,
-        vq_config: dict,
+        vq_config: VQConfig,
         name: str | None = None
     ) -> None:
 
@@ -198,7 +206,7 @@ class UpBlock(tf.keras.layers.Layer):
         self.use_vq = use_vq
         if use_vq:
             self.vq = VQBlock(
-                vq_config["vq_embeddings"],
+                vq_config["embeddings"],
                 nc, vq_config["vq_beta"],
                 name=f"{name}_vq"
             )
@@ -258,8 +266,8 @@ class UpsampleSkip(tf.keras.layers.Layer):
     def __init__(
         self,
         nc: int,
-        weights: tuple[int],
-        strides: tuple[int],
+        weights: tuple[int, int, int],
+        strides: tuple[int, int, int],
         initialiser: tf.keras.initializers.Initializer,
         name: str | None = None
     ) -> None:
@@ -274,7 +282,7 @@ class UpsampleSkip(tf.keras.layers.Layer):
 
         self.inst_norm = InstanceNorm(name="instancenorm")
     
-    def call(self, x: tf.Tensor, training: bool):
+    def call(self, x: tf.Tensor, training: bool) -> tf.Tensor:
 
         x = self.tconv(x)
         x = self.inst_norm(x, training)

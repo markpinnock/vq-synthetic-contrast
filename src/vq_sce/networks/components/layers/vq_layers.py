@@ -33,7 +33,7 @@ class VQBlock(tf.keras.layers.Layer):
             initializer=self.initialiser, trainable=True
         )
 
-    def call(self, x):
+    def call(self, x: tf.Tensor) -> tf.Tensor:
         img_dims = tf.shape(x)
 
         # Flatten img batch into matrix
@@ -62,7 +62,7 @@ class VQBlock(tf.keras.layers.Layer):
 
         return q
 
-    def get_code_indices(self, flattened):
+    def get_code_indices(self, flattened: tf.Tensor) -> tf.Tensor:
         similarity = tf.matmul(flattened, self.dictionary)
         distances = (
             tf.reduce_sum(flattened ** 2, axis=1, keepdims=True)
