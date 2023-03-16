@@ -12,8 +12,10 @@ import tensorflow as tf
 """ Abstract base class """
 
 class AffineTransform(tf.keras.layers.Layer, abc.ABC):
+    _flat_coords: tf.Tensor
+    _mb_size: int
 
-    def __init__(self, img_dims: list | tuple, name: str):
+    def __init__(self, img_dims: list[int], name: str):
         super().__init__(name=name)
 
         if len(img_dims) == 2:
@@ -29,29 +31,43 @@ class AffineTransform(tf.keras.layers.Layer, abc.ABC):
         else:
             raise ValueError(f"Invalid image dimensions: {img_dims}")
 
-        self._flat_coords = None
-
     @abc.abstractmethod
-    def coord_gen(self):
+    def coord_gen(self) -> None:
         raise NotImplementedError
     
     @abc.abstractmethod
-    def transform_coords(self):
+    def transform_coords(self, mb_size: int, thetas: tf.Tensor) -> None:
         raise NotImplementedError
     
     @abc.abstractmethod
-    def get_img_indices(self):
+    def get_img_indices(self) -> tuple[tf.Tensor, tuple[tf.Tensor, ...]]:
         raise NotImplementedError
     
     @abc.abstractmethod
-    def get_weights(self):
+    def get_weights(
+        self,
+        x0: tf.Tensor,
+        x1: tf.Tensor,
+        y0: tf.Tensor,
+        y1: tf.Tensor
+    ) -> list[tf.Tensor]:
         raise NotImplementedError
     
-    def interpolate(self):
+    def interpolate(
+        self,
+        im: tf.Tensor,
+        base: tf.Tensor,
+        weights: list[tf.Tensor],
+        n_ch: int,
+        x0: tf.Tensor,
+        x1: tf.Tensor,
+        y0: tf.Tensor,
+        y1: tf.Tensor
+    ) -> tf.Tensor:
         raise NotImplementedError
 
     @property
-    def flat_coords(self):
+    def flat_coords(self) -> tf.Tensor:
         return self._flat_coords
 
     def call(self, im: tf.Tensor, thetas: tf.Tensor) -> tf.Tensor:
@@ -86,11 +102,11 @@ class AffineTransform(tf.keras.layers.Layer, abc.ABC):
     depth-wise on 3D volumes """
 
 class AffineTransform2D(AffineTransform):
+    _X: tf.Tensor
+    _Y: tf.Tensor
 
-    def __init__(self, img_dims: list | tuple, name: str = "affine2D") -> None:
+    def __init__(self, img_dims: list[int], name: str = "affine2D") -> None:
         super().__init__(img_dims, name=name)
-        self._mb_size = None
-        self._X, self._Y = None, None
         self.coord_gen()
 
     def coord_gen(self) -> None:
@@ -126,7 +142,7 @@ class AffineTransform2D(AffineTransform):
         self._X = tf.reshape(new_flat_coords[:, 0, :], [-1])
         self._Y = tf.reshape(new_flat_coords[:, 1, :], [-1])
     
-    def get_img_indices(self) -> tuple[tf.Tensor, tuple[tf.Tensor]]:
+    def get_img_indices(self) -> tuple[tf.Tensor, tuple[tf.Tensor, ...]]:
         """ Generates base indices corresponding to each image in mb
             e.g. [0   0   0
                   hw  hw  hw
@@ -224,7 +240,7 @@ class AffineTransform2D(AffineTransform):
         return weighted_img
 
     @property
-    def mesh_coords(self):
+    def mesh_coords(self) -> tuple[tf.Tensor, tf.Tensor]:
         return self._Y, self._X
 
 
@@ -232,13 +248,14 @@ class AffineTransform2D(AffineTransform):
 """ 3D affine transform class, not yet functional """
 
 class AffineTransform3D(AffineTransform):
+    _X: tf.Tensor
+    _Y: tf.Tensor
+    _Z: tf.Tensor
 
-    def __init__(self, img_dims: list, name: str = "affine3D") -> None:
+    def __init__(self, img_dims: list[int], name: str = "affine3D") -> None:
         super().__init__(img_dims, name=name)
         assert len(img_dims) == 3, f"Invalid image dimensions: {img_dims}"
         self.depth_f = tf.cast(self.depth_i, tf.float32)
-        self._mb_size = None
-        self._X, self._Y, self._Z = None, None, None
         self.coord_gen()
         raise NotImplementedError
     
@@ -253,7 +270,7 @@ class AffineTransform3D(AffineTransform):
         # Rows are X, Y, Z and row of ones (row length is height * width * depth)
         self._flat_coords = tf.concat([flat_X, flat_Y, flat_Z, tf.ones((1, self._height * self._width * self._depth))], axis=0)
     
-    def transform_coords(self, mb_size: int, thetas: object) -> None:
+    def transform_coords(self, mb_size: int, thetas: tf.Tensor) -> None:
         """ Transform flattened coordinates with transformation matrix
             thetas: 12 params for transform [mb, 12] """
 
@@ -269,7 +286,7 @@ class AffineTransform3D(AffineTransform):
         self._Y = tf.reshape(new_flat_coords[:, 1, :], [-1])
         self._Z = tf.reshape(new_flat_coords[:, 2, :], [-1])
 
-    def get_img_indices(self) -> tuple:
+    def get_img_indices(self) -> tuple[tf.Tensor, tuple[tf.Tensor, ...]]:
         """ Generates base indices corresponding to each image in mb
             e.g. [0    0    0
                   hwd  hwd  hwd
@@ -307,15 +324,31 @@ class AffineTransform3D(AffineTransform):
 
         return img_indices, (x0, x1, y0, y1, z0, z1)
     
-    def get_weights(self):
+    def get_weights(
+        self,
+        x0: tf.Tensor,
+        x1: tf.Tensor,
+        y0: tf.Tensor,
+        y1: tf.Tensor
+    ) -> list[tf.Tensor]:
         """ Generate weights representing how close bracketing indices are to transformed coords """
-        return super().get_weights()
+        raise NotImplementedError
     
-    def interpolate(self, im, base, weights, x0, x1, y0, y1, z0, z1):
-        return super().interpolate()
+    def interpolate(
+        self,
+        im: tf.Tensor,
+        base: tf.Tensor,
+        weights: list[tf.Tensor],
+        n_ch: int,
+        x0: tf.Tensor,
+        x1: tf.Tensor,
+        y0: tf.Tensor,
+        y1: tf.Tensor
+    ) -> tf.Tensor:
+        raise NotImplementedError
 
     @property
-    def mesh_coords(self):
+    def mesh_coords(self) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
         return self._Z, self._Y, self._X
 
 
