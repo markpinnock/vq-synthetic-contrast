@@ -2,9 +2,10 @@ import json
 import numpy as np
 from pathlib import Path
 import tensorflow as tf
+from typing import Any, Iterator
 
 from vq_sce import RANDOM_SEED, MIN_HQ_DEPTH
-from vq_sce.utils.dataloaders.base_dataloader import BaseDataloader
+from vq_sce.utils.dataloaders.base_dataloader import BaseDataloader, DataDictType
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -13,7 +14,9 @@ from vq_sce.utils.dataloaders.base_dataloader import BaseDataloader
 """
 
 class ContrastDataloader(BaseDataloader):
-    def __init__(self, config: dict, dataset_type: str, dev: bool) -> None:
+    _target_source_map: dict[str, list[str]]
+
+    def __init__(self, config: dict[str, Any], dataset_type: str, dev: bool) -> None:
 
         self.N = 10 if dev else None
         self._img_path = Path(config["data_path"])
@@ -49,10 +52,9 @@ class ContrastDataloader(BaseDataloader):
     def _calc_coords(
         self,
         target_id: str
-    ) -> tuple[list[int], list[int]]:
+    ) -> list[int]:
 
-        target_coords = list(self._source_coords[target_id].values())[0]
-    
+        target_coords: list[int] = list(self._source_coords[target_id].values())[0]
         return target_coords
 
     def _generate_example_images(self) -> None:
@@ -88,7 +90,7 @@ class ContrastDataloader(BaseDataloader):
         self._ex_targets = np.stack(ex_targets, axis=0) \
             [:, :, :, :, np.newaxis].astype("float32")
 
-    def data_generator(self) -> dict[str, np.ndarray]:
+    def data_generator(self) -> Iterator[DataDictType]:
         if self._dataset_type == "training":
             np.random.shuffle(self._target_ids)
 
@@ -108,14 +110,14 @@ class ContrastDataloader(BaseDataloader):
                     sub_target = target[z:(z + MIN_HQ_DEPTH), :, :, np.newaxis]
                     sub_source = source[z:(z + MIN_HQ_DEPTH), :, :, np.newaxis]
 
-                    data_dict = {
+                    data_dict: DataDictType = {
                         "source": sub_source,
                         "target": sub_target
                     }
     
                     yield data_dict
 
-    def inference_generator(self):
+    def inference_generator(self) -> Iterator[dict[str, Any]]:
         for target_id in self._target_ids:
             for source_id in self._target_source_map[target_id]:
                 lower, upper = self._source_coords[target_id][source_id]
@@ -123,6 +125,9 @@ class ContrastDataloader(BaseDataloader):
                 source = self._preprocess_image(source, lower, upper)
 
                 yield {"source": source, "subject_id": source_id}
+
+    def subject_generator(self, source_name: Any) -> Iterator[dict[str, Any]]:
+        raise NotImplementedError
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -135,7 +140,7 @@ if __name__ == "__main__":
 
     test_config = yaml.load(open(Path("src/vq_sce/utils/test_config.yml"), 'r'), Loader=yaml.FullLoader)
 
-    TestLoader = ContrastDataloader(config=test_config["data"], dataset_type="training")
+    TestLoader = ContrastDataloader(config=test_config["data"], dataset_type="training", dev=False)
 
     output_types = ["source", "target"]
 
@@ -144,29 +149,29 @@ if __name__ == "__main__":
     for data in train_ds.batch(2).take(4):
         source = TestLoader.un_normalise(data["source"])
         target = TestLoader.un_normalise(data["target"])
-        print(source.shape, target.shape)
+
         plt.subplot(3, 2, 1)
-        plt.imshow(source[0, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
+        plt.imshow(source[0, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
         plt.axis("off")
 
         plt.subplot(3, 2, 2)
-        plt.imshow(source[1, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
+        plt.imshow(source[1, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
         plt.axis("off")
 
         plt.subplot(3, 2, 3)
-        plt.imshow(target[0, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
+        plt.imshow(target[0, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
         plt.axis("off")
 
         plt.subplot(3, 2, 4)
-        plt.imshow(target[1, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
+        plt.imshow(target[1, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
         plt.axis("off")
 
         plt.subplot(3, 2, 5)
-        plt.imshow(target[0, 11, :, :, 0].numpy() - source[0, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
+        plt.imshow(target[0, 11, :, :, 0].numpy() - source[0, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
         plt.axis("off")
 
         plt.subplot(3, 2, 6)
-        plt.imshow(target[1, 11, :, :, 0].numpy() - source[1, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
+        plt.imshow(target[1, 11, :, :, 0].numpy() - source[1, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
         plt.axis("off")
 
         plt.show()

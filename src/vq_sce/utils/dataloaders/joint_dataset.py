@@ -1,13 +1,14 @@
 import json
 import numpy as np
 from pathlib import Path
+from typing import Any, Iterator
 
 from vq_sce import LQ_DEPTH, LQ_SLICE_THICK, RANDOM_SEED
-from vq_sce.utils.dataloaders.base_dataloader import BaseDataloader
+from vq_sce.utils.dataloaders.base_dataloader import BaseDataloader, DataDictType
 
 
 class JointDataset(BaseDataloader):
-    def __init__(self, config: dict, dataset_type: str) -> None:
+    def __init__(self, config: dict[str, Any], dataset_type: str) -> None:
 
         self._img_path = Path(config["data_path"])
         self._target_path = self._img_path / "CE"
@@ -80,10 +81,13 @@ class JointDataset(BaseDataloader):
         self._ex_targets = np.stack(ex_targets, axis=0) \
             [:, :, :, :, np.newaxis].astype("float32")
 
-    def data_generator(self):
+    def data_generator(self) -> Iterator[DataDictType]:
         raise NotImplementedError
 
-    def inference_generator(self):
+    def inference_generator(self) -> Iterator[dict[str, Any]]:
+        raise NotImplementedError
+
+    def subject_generator(self, source_name: Any) -> Iterator[dict[str, Any]]:
         raise NotImplementedError
 
 
