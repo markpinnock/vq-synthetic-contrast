@@ -16,7 +16,7 @@ from vq_sce.utils.dataloaders.base_dataloader import BaseDataloader, DataDictTyp
 class ContrastDataloader(BaseDataloader):
     _target_source_map: dict[str, list[str]]
 
-    def __init__(self, config: dict[str, Any], dataset_type: str, dev: bool) -> None:
+    def __init__(self, config: dict[str, Any], dataset_type: str, dev: bool = False) -> None:
 
         self.N = 10 if dev else None
         self._img_path = Path(config["data_path"])

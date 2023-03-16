@@ -17,7 +17,7 @@ from vq_sce.utils.patch_utils import generate_indices
 class SuperResDataloader(BaseDataloader):
     _source_target_map: dict[str, str]
 
-    def __init__(self, config: dict[str, Any], dataset_type: str, dev: bool) -> None:
+    def __init__(self, config: dict[str, Any], dataset_type: str, dev: bool = False) -> None:
 
         self.N = 10 if dev else None
         self._img_path = Path(config["data_path"])
