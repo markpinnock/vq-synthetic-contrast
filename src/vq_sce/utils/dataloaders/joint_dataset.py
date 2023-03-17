@@ -87,9 +87,6 @@ class JointDataset(BaseDataloader):
     def inference_generator(self) -> Iterator[dict[str, Any]]:
         raise NotImplementedError
 
-    def subject_generator(self, source_name: Any) -> Iterator[dict[str, Any]]:
-        raise NotImplementedError
-
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------
  

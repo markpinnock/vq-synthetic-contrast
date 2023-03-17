@@ -121,24 +121,6 @@ class SuperResDataloader(BaseDataloader):
 
             yield {"source": source, "subject_id": source_id}
 
-    def subject_generator(self, source_name: Any) -> Iterator[dict[str, Any]]:
-        source_name = source_name.decode("utf-8")
-        source = np.load(Path(self._img_path) / source_name)
-
-        # Linear coords are what we'll use to do our patch updates in 1D
-        # E.g. [1, 2, 3
-        #       4, 5, 6
-        #       7, 8, 9]
-        linear_coords = generate_indices(source.shape, self._config["stride_length"], self._config["target_dims"])
-
-        source = self._normalise(source)
-        linear_source = tf.reshape(source, -1)
-
-        for coords in linear_coords:
-            patch = tf.reshape(tf.gather(linear_source, coords), self._config["target_dims"] + [1])
-
-            yield {"source": patch, "subject_ID": source_name, "coords": coords}
-
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------
  

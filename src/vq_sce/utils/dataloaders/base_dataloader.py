@@ -99,10 +99,6 @@ class BaseDataloader(ABC):
     def inference_generator(self) -> Iterator[dict[str, Any]]:
         pass
 
-    @abstractmethod
-    def subject_generator(self, source_name: Any) -> Iterator[dict[str, Any]]:
-        pass
-
     @property
     def example_images(self) -> DataDictType:
         """ Return example images """

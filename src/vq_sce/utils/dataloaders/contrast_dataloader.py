@@ -126,9 +126,6 @@ class ContrastDataloader(BaseDataloader):
 
                 yield {"source": source, "subject_id": source_id}
 
-    def subject_generator(self, source_name: Any) -> Iterator[dict[str, Any]]:
-        raise NotImplementedError
-
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------
  
