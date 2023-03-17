@@ -1,14 +1,33 @@
 from abc import ABC, abstractmethod
 import numpy as np
+import numpy.typing as npt
 from pathlib import Path
+from typing import Any, Iterator, TypedDict
 
 from vq_sce import HU_MIN, HU_MAX
 
 
+#-------------------------------------------------------------------------
+
+class DataDictType(TypedDict):
+    source: npt.NDArray[np.float32]
+    target: npt.NDArray[np.float32]
+
+
+#-------------------------------------------------------------------------
+
+
 class BaseDataloader(ABC):
+    _config: dict[str, Any]
+    _dataset_type: str
+    _down_sample: int
+    _sources: dict[str, Path]
+    _targets: dict[str, Path]
+    _ex_sources: npt.NDArray[np.float32]
+    _ex_targets: npt.NDArray[np.float32]
 
     @abstractmethod
-    def __init__(self):
+    def __init__(self) -> None:
         pass
 
     def _train_val_split(self) -> None:
@@ -47,45 +66,45 @@ class BaseDataloader(ABC):
             self._targets = {k: v for k, v in self._targets.items() if k[0:4] in fold_ids}
 
     @abstractmethod
-    def _generate_example_images(self):
-        pass
-
-    @abstractmethod
-    def _calc_coords(self):
+    def _generate_example_images(self) -> None:
         pass
 
     def _preprocess_image(
         self,
-        img: np.ndarray,
+        img: npt.NDArray[np.float16],
         lower: int | None,
         upper: int | None 
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.float32]:
 
         img = img[lower:upper, ::self._down_sample, ::self._down_sample]
-        img = self._normalise(img)
+        proc_img = self._normalise(img)
 
-        return img
+        return proc_img
 
-    def _normalise(self, img: np.ndarray) -> np.ndarray:
-        img = (img - HU_MIN) / (HU_MAX - HU_MIN)
-        img = 2 * img - 1
-        return img
+    def _normalise(self, img: npt.NDArray[np.float16]) -> npt.NDArray[np.float32]:
+        norm_img = (img - HU_MIN) / (HU_MAX - HU_MIN)
+        norm_img = 2 * norm_img - 1
+        return norm_img
     
-    def un_normalise(self, img: np.ndarray) -> np.ndarray:
+    def un_normalise(self, img: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
         img = (img + 1) / 2
         img = img * (HU_MAX - HU_MIN) + HU_MIN
         return img
 
     @abstractmethod
-    def data_generator(self):
+    def data_generator(self) -> Iterator[DataDictType]:
         pass
 
     @abstractmethod
-    def inference_generator(self):
+    def inference_generator(self) -> Iterator[dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    def subject_generator(self, source_name: Any) -> Iterator[dict[str, Any]]:
         pass
 
     @property
-    def example_images(self) -> dict[str, np.ndarray]:
+    def example_images(self) -> DataDictType:
         """ Return example images """
 
         return {"target": self._ex_targets, "source": self._ex_sources}

@@ -1,6 +1,7 @@
 import copy
 import numpy as np
 import tensorflow as tf
+from typing import Any
 
 from vq_sce import LQ_SLICE_THICK
 from .components.unet import MultiscaleUNet, MAX_CHANNELS
@@ -14,7 +15,7 @@ from vq_sce.utils.losses import L1
 
 class MultiscaleModel(tf.keras.Model):
 
-    def __init__(self, config, name="Model"):
+    def __init__(self, config: dict[str, Any], name: str = "Model") -> None:
         super().__init__(name=name)
         self._initialiser = tf.keras.initializers.HeNormal()
         self._config = config
@@ -62,7 +63,7 @@ class MultiscaleModel(tf.keras.Model):
             name="unet"
         )
 
-    def compile(self, optimiser):
+    def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:
         self.optimiser = optimiser
 
         # Set up metrics
@@ -72,17 +73,17 @@ class MultiscaleModel(tf.keras.Model):
         self.total_metric = tf.keras.metrics.Mean(name=f"{prefix}_total")
 
     @property
-    def metrics(self):
+    def metrics(self) -> list[tf.keras.metrics.Metric]:
         return [
             self.L1_metric,
             self.vq_metric,
             self.total_metric
         ]
 
-    def build_model(self):
+    def build_model(self) -> None:
         _, _ = self(tf.keras.Input(shape=self._source_dims + [1]))
 
-    def summary(self):
+    def summary(self) -> None:
         source = tf.keras.Input(shape=self._source_dims + [1])
         pred, vq = self.UNet.call(source)
 
@@ -92,7 +93,7 @@ class MultiscaleModel(tf.keras.Model):
             tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
 
     @tf.function
-    def train_step(self, source, target):
+    def train_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
 
         """ Expects data in order 'source, target'
             or 'source, target, segmentations'
@@ -151,7 +152,7 @@ class MultiscaleModel(tf.keras.Model):
                 self.optimiser.apply_gradients(zip(grads, self.UNet.trainable_variables))
 
     @tf.function
-    def test_step(self, source, target):
+    def test_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
 
         # Down-sample source image
         source = self._downsample_images(source)
@@ -196,7 +197,7 @@ class MultiscaleModel(tf.keras.Model):
                 self.vq_metric.update_state(vq_loss)
                 self.total_metric.update_state(total_loss)
 
-    def _get_scale_indices(self, target_x=None, target_y=None):
+    def _get_scale_indices(self, target_x: int | None = None, target_y: int | None = None) -> tuple[list[int], list[int], int, int]:
         if target_x is None or target_y is None:
             # Want higher probability of training on more central regions
             if np.random.randn() > 0.5:
@@ -224,15 +225,15 @@ class MultiscaleModel(tf.keras.Model):
 
         return source_x, source_y, target_x, target_y
 
-    def _downsample_images(self, img):
+    def _downsample_images(self, img: tf.Tensor) -> tf.Tensor:
         img = img[:, :, ::self._scales[0], ::self._scales[0], :]
         return img
 
-    def _down_sample_super_res(self, img):
+    def _down_sample_super_res(self, img: tf.Tensor) -> tf.Tensor:
         img = img[:, 1::LQ_SLICE_THICK, :, :, :]
         return img
 
-    def _sample_patches(self, x, y, img1, img2=None):
+    def _sample_patches(self, x: int, y: int, img1: tf.Tensor, img2: tf.Tensor | None = None) -> tuple[tf.Tensor, tf.Tensor]:
         x_img = x * self._source_dims[1]
         y_img = y * self._source_dims[2]
         img1 = img1[:, :, x_img:(x_img + self._source_dims[1]), y_img:(y_img + self._source_dims[2]), :]
@@ -242,7 +243,7 @@ class MultiscaleModel(tf.keras.Model):
 
         return img1, img2
 
-    def example_inference(self, source, target):
+    def example_inference(self, source: tf.Tensor, target: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
         x, y, target_x, target_y = self._get_scale_indices(
             self._scales[0] // 2,
             self._scales[0] // 2
@@ -272,11 +273,11 @@ class MultiscaleModel(tf.keras.Model):
 
         return source_patch, target, preds
 
-    def reset_train_metrics(self):
+    def reset_train_metrics(self) -> None:
         for metric in self.metrics:
             metric.reset_states()
 
-    def call(self, x):
+    def call(self, x: tf.Tensor) -> tf.Tensor:
         return self.UNet(x)
 
 
@@ -285,7 +286,7 @@ class MultiscaleModel(tf.keras.Model):
 
 class JointMultiscaleModel(tf.keras.Model):
 
-    def __init__(self, config, name="Model"):
+    def __init__(self, config: dict[str, Any], name: str = "Model"):
         super().__init__(name=name)
         self._initialiser = tf.keras.initializers.HeNormal()
         self._sr_config = copy.deepcopy(config)
@@ -371,7 +372,7 @@ class JointMultiscaleModel(tf.keras.Model):
             name="ce_unet"
         )
 
-    def compile(self, optimiser):
+    def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:
         self.optimiser = optimiser
 
         # Set up metrics
@@ -383,7 +384,7 @@ class JointMultiscaleModel(tf.keras.Model):
         self.ce_total_metric = tf.keras.metrics.Mean(name="ce_total")
 
     @property
-    def metrics(self):
+    def metrics(self) -> list[tf.keras.metrics.Metric]:
         return [
             self.sr_L1_metric,
             self.sr_vq_metric,
@@ -393,10 +394,10 @@ class JointMultiscaleModel(tf.keras.Model):
             self.ce_total_metric
         ]
 
-    def build_model(self):
+    def build_model(self) -> None:
         _, _ = self(tf.keras.Input(shape=self._sr_source_dims + [1]))
 
-    def summary(self):
+    def summary(self) -> None:
         source = tf.keras.Input(shape=self._sr_source_dims + [1])
         pred, vq = self.sr_UNet.call(source)
 
@@ -414,7 +415,7 @@ class JointMultiscaleModel(tf.keras.Model):
             tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
 
     @tf.function
-    def sr_train_step(self, source, target):
+    def sr_train_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
 
         """ Expects data in order 'source, target'
         """
@@ -467,7 +468,7 @@ class JointMultiscaleModel(tf.keras.Model):
                 self.optimiser.apply_gradients(zip(grads, self.sr_UNet.trainable_variables))
 
     @tf.function
-    def ce_train_step(self, source, target):
+    def ce_train_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
 
         """ Expects data in order 'source, target'
         """
@@ -518,12 +519,12 @@ class JointMultiscaleModel(tf.keras.Model):
                 grads = tape.gradient(total_loss, self.ce_UNet.trainable_variables)
                 self.optimiser.apply_gradients(zip(grads, self.ce_UNet.trainable_variables))
 
-    def train_step(self, sr_data, ce_data):
+    def train_step(self, sr_data: tf.Tensor, ce_data: tf.Tensor) -> None:
         self.sr_train_step(**sr_data)
         self.ce_train_step(**ce_data)
 
     @tf.function
-    def sr_test_step(self, source, target):
+    def sr_test_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
 
         # Down-sample source image
         source = self._downsample_images(source)
@@ -564,7 +565,7 @@ class JointMultiscaleModel(tf.keras.Model):
                 self.sr_total_metric.update_state(total_loss)
 
     @tf.function
-    def ce_test_step(self, source, target):
+    def ce_test_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
 
         # Down-sample source image
         source = self._downsample_images(source)
@@ -603,11 +604,11 @@ class JointMultiscaleModel(tf.keras.Model):
                 self.ce_vq_metric.update_state(vq_loss)
                 self.ce_total_metric.update_state(total_loss)
 
-    def test_step(self, sr_data, ce_data):
+    def test_step(self, sr_data: tf.Tensor, ce_data: tf.Tensor) -> None:
         self.sr_test_step(**sr_data)
         self.ce_test_step(**ce_data)
 
-    def _get_scale_indices(self, target_x=None, target_y=None):
+    def _get_scale_indices(self, target_x: int | None = None, target_y: int | None = None) -> tuple[list[int], list[int], int, int]:
         if target_x is None or target_y is None:
             # Want higher probability of training on more central regions
             if np.random.randn() > 0.5:
@@ -635,15 +636,15 @@ class JointMultiscaleModel(tf.keras.Model):
 
         return source_x, source_y, target_x, target_y
 
-    def _downsample_images(self, img):
+    def _downsample_images(self, img: tf.Tensor) -> tf.Tensor:
         img = img[:, :, ::self._scales[0], ::self._scales[0], :]
         return img
 
-    def _down_sample_super_res(self, img):
+    def _down_sample_super_res(self, img: tf.Tensor) -> tf.Tensor:
         img = img[:, 1::LQ_SLICE_THICK, :, :, :]
         return img
 
-    def _sample_patches(self, x, y, img1, img2=None):
+    def _sample_patches(self, x: int, y: int, img1: tf.Tensor, img2: tf.Tensor | None = None) -> tuple[tf.Tensor, tf.Tensor]:
         x_img = x * self._sr_source_dims[1]
         y_img = y * self._sr_source_dims[2]
         img1 = img1[:, :, x_img:(x_img + self._sr_source_dims[1]), y_img:(y_img + self._sr_source_dims[2]), :]
@@ -653,7 +654,7 @@ class JointMultiscaleModel(tf.keras.Model):
 
         return img1, img2
 
-    def sr_example_inference(self, source, target):
+    def sr_example_inference(self, source: tf.Tensor, target: tf.Tensor) -> tuple[tf.Tensor, ...]:
         x, y, target_x, target_y = self._get_scale_indices(
             self._scales[0] // 2,
             self._scales[0] // 2
@@ -681,7 +682,7 @@ class JointMultiscaleModel(tf.keras.Model):
 
         return source_patch, target, preds
 
-    def ce_example_inference(self, source, preds):
+    def ce_example_inference(self, source: tf.Tensor, preds: tf.Tensor) -> tf.Tensor:
         x, y, _, _ = self._get_scale_indices(
             self._scales[0] // 2,
             self._scales[0] // 2
@@ -707,16 +708,16 @@ class JointMultiscaleModel(tf.keras.Model):
 
         return preds
 
-    def example_inference(self, source, target):
+    def example_inference(self, source: tf.Tensor, target: tf.Tensor) -> tuple[tf.Tensor, ...]:
         source_patch, target, preds = self.sr_example_inference(source, target)
         preds = self.ce_example_inference(source, preds)
 
         return source_patch, target, preds
 
-    def reset_train_metrics(self):
+    def reset_train_metrics(self) -> None:
         for metric in self.metrics:
             metric.reset_states()
 
-    def call(self, x):
+    def call(self, x: tf.Tensor) -> tf.Tensor:
         x, _ = self.sr_UNet(x)
         return self.ce_UNet(x)

@@ -2,6 +2,7 @@ import argparse
 import json
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.typing as npt
 from pathlib import Path
 
 from vq_sce import ABDO_WINDOW, IMAGE_HEIGHT, LQ_SLICE_THICK, MIN_HQ_DEPTH
@@ -10,12 +11,12 @@ from vq_sce import ABDO_WINDOW, IMAGE_HEIGHT, LQ_SLICE_THICK, MIN_HQ_DEPTH
 #-------------------------------------------------------------------------
 
 def display_images(
-    nce: np.ndarray,
-    ce: np.ndarray,
+    nce: npt.NDArray[np.float16],
+    ce: npt.NDArray[np.float16],
     ce_coords: list[int],
-    hq: np.ndarray,
+    hq: npt.NDArray[np.float16],
     hq_coords: list[int],
-    lq: np.ndarray,
+    lq: npt.NDArray[np.float16],
     lq_coords: list[int],
     lq_name: str
 ) -> None:
@@ -130,8 +131,8 @@ def main() -> None:
         ce_coords = source_coords[ce_name][nce_name.stem]
 
         lq_names = list(lq_path.glob(f"{subject_id}*.npy"))
-        hq_names = list(hq_path.glob(f"{subject_id}*.npy"))
-        hq_names = [n.stem for n in hq_names]
+        hq_paths = list(hq_path.glob(f"{subject_id}*.npy"))
+        hq_names = [n.stem for n in hq_paths]
 
         for lq_name in lq_names:
             lq_img = np.load(lq_name)

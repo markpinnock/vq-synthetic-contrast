@@ -1,5 +1,6 @@
 import numpy as np
 import tensorflow as tf
+from typing import Any
 
 from vq_sce.utils.augmentation.affine_transform import AffineTransform2D
 
@@ -11,7 +12,7 @@ DEG_TO_RAD = 180 * np.pi
 
 class StdAug(tf.keras.layers.Layer):
 
-    def __init__(self, config: dict, name: str = "std_aug") -> None:
+    def __init__(self, config: dict[str, Any], name: str = "std_aug") -> None:
         super().__init__(name=name)
 
         self.source_affine_transform = AffineTransform2D(config["source_dims"])
@@ -92,7 +93,7 @@ class StdAug(tf.keras.layers.Layer):
 
         return shear_mat
 
-    def _translation_matrix(self, matrix, mb_size: int) -> tf.Tensor:
+    def _translation_matrix(self, matrix: tf.Tensor, mb_size: int) -> tf.Tensor:
         """ Create translation matrix """
 
         xs = tf.random.uniform([mb_size], *self._x_shift)
@@ -123,26 +124,21 @@ class StdAug(tf.keras.layers.Layer):
     
     def call(
         self,
-        source: list[tf.Tensor | None],
-        target: list[tf.Tensor | None],
-    ) -> tuple[list[tf.Tensor, None]]:
+        source: list[tf.Tensor],
+        target: list[tf.Tensor],
+    ) -> tuple[list[tf.Tensor], list[tf.Tensor]]:
+        aug_source: list[tf.Tensor | None] = []
+        aug_target: list[tf.Tensor | None] = []
 
-        aug_source, aug_target = [], []
         mb_size = source[0].shape[0]
         self._create_matrix_indices(mb_size)
         thetas = tf.reshape(self._transformation(mb_size), [mb_size, -1])
 
         for s in source:
-            if s is None:
-                aug_source.append(None)
-            else:
-                aug_source.append(self.source_affine_transform(s, thetas))
+            aug_source.append(self.source_affine_transform(s, thetas))
 
         for t in target:
-            if t is None:
-                aug_target.append(None)
-            else:
-                aug_target.append(self.target_affine_transform(t, thetas))
+            aug_target.append(self.target_affine_transform(t, thetas))
 
         return aug_source, aug_target
 
@@ -183,8 +179,8 @@ if __name__ == "__main__":
     )
 
     aug_config = test_config["augmentation"]
-    aug_config["source_dims"] = [64, 512, 512]
-    aug_config["target_dims"] = [64, 512, 512]
+    aug_config["source_dims"] = [12, 512, 512]
+    aug_config["target_dims"] = [12, 512, 512]
     TestAug = StdAug(aug_config)
 
     for data in contrast_ds.batch(2).take(2):

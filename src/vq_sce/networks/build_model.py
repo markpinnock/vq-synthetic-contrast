@@ -1,4 +1,5 @@
 import tensorflow as tf
+from typing import Any
 
 from .model import Model, JointModel
 from .multiscale_model import MultiscaleModel, JointMultiscaleModel
@@ -11,7 +12,7 @@ MODEL_DICT = {
 }
 
 
-def build_model(config: dict, purpose: str = "training"):
+def build_model(config: dict[str, Any], purpose: str = "training") -> tf.keras.Model:
     scales = config["hyperparameters"]["scales"]
     expt_type = config["expt"]["expt_type"]
     if len(scales) == 1 and expt_type == "single":
@@ -25,7 +26,7 @@ def build_model(config: dict, purpose: str = "training"):
     else:
         raise ValueError(scales, expt_type)
 
-    model = MODEL_DICT[model_type](config)
+    model: tf.keras.Model = MODEL_DICT[model_type](config)
 
     if purpose == "training":
         optimiser = tf.keras.optimizers.Adam(*config["hyperparameters"]["opt"], name="opt")

@@ -1,10 +1,12 @@
 import json
 import numpy as np
+import numpy.typing as npt
 from pathlib import Path
 import tensorflow as tf
+from typing import Any, Iterator
 
 from vq_sce import RANDOM_SEED, LQ_DEPTH, LQ_SLICE_THICK
-from vq_sce.utils.dataloaders.base_dataloader import BaseDataloader
+from vq_sce.utils.dataloaders.base_dataloader import BaseDataloader, DataDictType
 from vq_sce.utils.patch_utils import generate_indices
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -13,7 +15,9 @@ from vq_sce.utils.patch_utils import generate_indices
 """
 
 class SuperResDataloader(BaseDataloader):
-    def __init__(self, config: dict, dataset_type: str, dev: bool) -> None:
+    _source_target_map: dict[str, str]
+
+    def __init__(self, config: dict[str, Any], dataset_type: str, dev: bool = False) -> None:
 
         self.N = 10 if dev else None
         self._img_path = Path(config["data_path"])
@@ -31,8 +35,8 @@ class SuperResDataloader(BaseDataloader):
         self._source_target_map = {}
 
         for s in self._sources.keys():
-            candidate_targets = list(self._target_path.glob(f"{s[0:6]}*.npy"))
-            candidate_targets = [c.stem for c in candidate_targets]
+            candidate_target_paths = list(self._target_path.glob(f"{s[0:6]}*.npy"))
+            candidate_targets = [c.stem for c in candidate_target_paths]
 
             sort_by_closest = sorted(
                 candidate_targets, key=lambda x: abs(int(x[-3:]) - int(s[-3:])))
@@ -69,8 +73,8 @@ class SuperResDataloader(BaseDataloader):
             list(self._sources.keys()),
             self._config["num_examples"])
 
-        ex_sources = []
-        ex_targets = []
+        ex_sources: list[npt.NDArray[np.float16]] = []
+        ex_targets: list[npt.NDArray[np.float16]] = []
 
         for source_id in ex_sources_ids:
             target_id = self._source_target_map[source_id]
@@ -89,7 +93,7 @@ class SuperResDataloader(BaseDataloader):
         self._ex_targets = np.stack(ex_targets, axis=0) \
             [:, :, :, :, np.newaxis].astype("float32")
 
-    def data_generator(self):
+    def data_generator(self) -> Iterator[DataDictType]:
         if self._dataset_type == "training":
             np.random.shuffle(self._source_ids)
 
@@ -103,39 +107,35 @@ class SuperResDataloader(BaseDataloader):
             target = np.load(self._target_path / f"{target_id}.npy")
             target = self._preprocess_image(target, hq_coords[0], hq_coords[1])
 
-            data_dict = {
+            data_dict: DataDictType = {
                 "source": source[:, :, :, np.newaxis],
                 "target": target[:, :, :, np.newaxis]
             }
 
             yield data_dict
 
-    def inference_generator(self):
+    def inference_generator(self) -> Iterator[dict[str, Any]]:
         for source_id in self._source_ids:
             source = np.load(self._source_path / f"{source_id}.npy")
             source = self._preprocess_image(source, None, None)
 
             yield {"source": source, "subject_id": source_id}
 
-    def subject_generator(self, source_name):
+    def subject_generator(self, source_name: Any) -> Iterator[dict[str, Any]]:
         source_name = source_name.decode("utf-8")
-
-        if len(self.sub_folders) == 0:
-            source = np.load(Path(self._img_paths) / source_name)
-        else:
-            source = np.load(Path(self._img_paths[source_name[6:8]]) / source_name)
+        source = np.load(Path(self._img_path) / source_name)
 
         # Linear coords are what we'll use to do our patch updates in 1D
         # E.g. [1, 2, 3
         #       4, 5, 6
         #       7, 8, 9]
-        linear_coords = generate_indices(source, self._config["stride_length"], self._patch_size, self.down_sample)
+        linear_coords = generate_indices(source.shape, self._config["stride_length"], self._config["target_dims"])
 
         source = self._normalise(source)
         linear_source = tf.reshape(source, -1)
 
         for coords in linear_coords:
-            patch = tf.reshape(tf.gather(linear_source, coords), self._patch_size + [1])
+            patch = tf.reshape(tf.gather(linear_source, coords), self._config["target_dims"] + [1])
 
             yield {"source": patch, "subject_ID": source_name, "coords": coords}
 
@@ -150,7 +150,7 @@ if __name__ == "__main__":
 
     test_config = yaml.load(open(Path("src/vq_sce/utils/test_config.yml"), 'r'), Loader=yaml.FullLoader)
 
-    TestLoader = SuperResDataloader(config=test_config["data"], dataset_type="training")
+    TestLoader = SuperResDataloader(config=test_config["data"], dataset_type="training", dev=False)
 
     output_types = ["source", "target"]
     
@@ -161,27 +161,27 @@ if __name__ == "__main__":
         target = TestLoader.un_normalise(data["target"])
 
         plt.subplot(3, 2, 1)
-        plt.imshow(source[0, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
+        plt.imshow(source[0, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
         plt.axis("off")
 
         plt.subplot(3, 2, 2)
-        plt.imshow(source[1, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
+        plt.imshow(source[1, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
         plt.axis("off")
 
         plt.subplot(3, 2, 3)
-        plt.imshow(target[0, 6, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
+        plt.imshow(target[0, 6, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
         plt.axis("off")
 
         plt.subplot(3, 2, 4)
-        plt.imshow(target[1, 6, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
+        plt.imshow(target[1, 6, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
         plt.axis("off")
 
         plt.subplot(3, 2, 5)
-        plt.imshow(target[0, 6, :, :, 0].numpy() - source[0, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
+        plt.imshow(target[0, 6, :, :, 0].numpy() - source[0, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
         plt.axis("off")
 
         plt.subplot(3, 2, 6)
-        plt.imshow(target[1, 6, :, :, 0].numpy() - source[1, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
+        plt.imshow(target[1, 6, :, :, 0].numpy() - source[1, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
         plt.axis("off")
 
         plt.show()
