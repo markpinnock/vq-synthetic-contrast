@@ -7,8 +7,10 @@ import os
 from pathlib import Path
 import tensorflow as tf
 import time
+from typing import Any
 
 from vq_sce import ABDO_WINDOW, LQ_DEPTH
+from vq_sce.utils.dataloaders.base_dataloader import BaseDataloader
 
 np.set_printoptions(precision=4, suppress=True)
 
@@ -16,14 +18,14 @@ np.set_printoptions(precision=4, suppress=True)
 class JointTrainingLoop:
 
     def __init__(self,
-                 Model: object,
-                 sr_train_dataset: object,
-                 sr_val_dataset: object,
-                 ce_train_dataset: object,
-                 ce_val_dataset: object,
-                 train_generator: object,
-                 val_generator: object,
-                 config: dict):
+                 Model: tf.keras.Model,
+                 sr_train_dataset: tf.data.Dataset,
+                 sr_val_dataset: tf.data.Dataset,
+                 ce_train_dataset: tf.data.Dataset,
+                 ce_val_dataset: tf.data.Dataset,
+                 train_generator: BaseDataloader,
+                 val_generator: BaseDataloader,
+                 config: dict[str, Any]):
         self.Model = Model
         self.config = config
         self.epochs = config["expt"]["epochs"]
@@ -63,7 +65,7 @@ class JointTrainingLoop:
             assert len(list(self.model_save_path.glob("ce_model.ckpt*"))) > 0
             self._load_model()
 
-    def _save_train_results(self, epoch):
+    def _save_train_results(self, epoch: int) -> None:
         # Log losses
         self.results["train_sr_L1"].append(float(self.Model.sr_L1_metric.result()))
         self.results["train_sr_vq"].append(float(self.Model.sr_vq_metric.result()))
@@ -89,7 +91,7 @@ class JointTrainingLoop:
                 for v in self.Model.ce_UNet.trainable_variables:
                     tf.summary.histogram(v.name, v, step=epoch)
 
-    def _save_val_results(self, epoch):
+    def _save_val_results(self, epoch: int) -> None:
         # Log losses
         self.results["val_sr_L1"].append(float(self.Model.sr_L1_metric.result()))
         self.results["val_sr_vq"].append(float(self.Model.sr_vq_metric.result()))
@@ -107,15 +109,15 @@ class JointTrainingLoop:
                 tf.summary.scalar("val_ce_vq", self.Model.ce_vq_metric.result(), step=epoch)
                 tf.summary.scalar("val_ce_total", self.Model.ce_total_metric.result(), step=epoch)
 
-    def _load_model(self):
+    def _load_model(self) -> None:
         self.Model.sr_UNet.load_weights(self.model_save_path / "sr_model.ckpt")
         self.Model.ce_UNet.load_weights(self.model_save_path / "ce_model.ckpt")
 
-    def _save_model(self):
+    def _save_model(self) -> None:
         self.Model.sr_UNet.save_weights(self.model_save_path / "sr_model.ckpt")
         self.Model.ce_UNet.save_weights(self.model_save_path / "ce_model.ckpt")
 
-    def train(self, verbose=1):
+    def train(self, verbose: int = 1) -> None:
 
         """ Main training loop for joint U-Nets """
 
@@ -202,7 +204,7 @@ class JointTrainingLoop:
         if verbose:
             print(f"Time taken: {(time.time() - start_time) / 3600}")
 
-    def _save_images(self, epoch, phase="validation"):
+    def _save_images(self, epoch: int, phase: str = "validation") -> None:
 
         """ Saves sample of images """
 
@@ -240,7 +242,7 @@ class JointTrainingLoop:
         plt.savefig(self.image_save_path / phase / f"{epoch}.png", dpi=250)
         plt.close()
 
-    def _save_multiscale_images(self, epoch, phase="validation"):
+    def _save_multiscale_images(self, epoch: int, phase: str = "validation") -> None:
 
         """ Saves sample of images from multi-scale U-Net """
 

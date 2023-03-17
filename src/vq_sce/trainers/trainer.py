@@ -7,8 +7,10 @@ import os
 from pathlib import Path
 import tensorflow as tf
 import time
+from typing import Any
 
 from vq_sce import ABDO_WINDOW, LQ_DEPTH
+from vq_sce.utils.dataloaders.base_dataloader import BaseDataloader
 
 np.set_printoptions(precision=4, suppress=True)
 
@@ -16,12 +18,12 @@ np.set_printoptions(precision=4, suppress=True)
 class TrainingLoop:
 
     def __init__(self,
-                 Model: object,
-                 train_dataset: object,
-                 val_dataset: object,
-                 train_generator: object,
-                 val_generator: object,
-                 config: dict):
+                 Model: tf.keras.Model,
+                 train_dataset: tf.data.Dataset,
+                 val_dataset: tf.data.Dataset,
+                 train_generator: BaseDataloader,
+                 val_generator: BaseDataloader,
+                 config: dict[str, Any]):
         self.Model = Model
         self.config = config
         self.epochs = config["expt"]["epochs"]
@@ -59,7 +61,7 @@ class TrainingLoop:
         if len(list(self.model_save_path.glob("model.ckpt*"))) > 0:
             self._load_model()
 
-    def _save_train_results(self, epoch):
+    def _save_train_results(self, epoch: int) -> None:
         # Log losses
         prefix = "ce" if self.config["data"]["type"] == "contrast" else "sr"
         self.results[f"train_{prefix}_L1"].append(float(self.Model.L1_metric.result()))
@@ -78,7 +80,7 @@ class TrainingLoop:
                 for v in self.Model.UNet.trainable_variables:
                     tf.summary.histogram(v.name, v, step=epoch)
 
-    def _save_val_results(self, epoch):
+    def _save_val_results(self, epoch: int) -> None:
         # Log losses
         prefix = "ce" if self.config["data"]["type"] == "contrast" else "sr"
         self.results[f"val_{prefix}_L1"].append(float(self.Model.L1_metric.result()))
@@ -91,13 +93,13 @@ class TrainingLoop:
                 tf.summary.scalar(f"val_{prefix}_vq", self.Model.vq_metric.result(), step=epoch)
                 tf.summary.scalar(f"val_{prefix}_total", self.Model.total_metric.result(), step=epoch)
 
-    def _load_model(self):
+    def _load_model(self) -> None:
         self.Model.UNet.load_weights(self.model_save_path / "model.ckpt")
 
-    def _save_model(self):
+    def _save_model(self) -> None:
         self.Model.UNet.save_weights(self.model_save_path / "model.ckpt")
 
-    def train(self, verbose=1):
+    def train(self, verbose: int = 1) -> None:
 
         """ Main training loop for U-Net """
 
@@ -172,7 +174,7 @@ class TrainingLoop:
         if verbose:
             print(f"Time taken: {(time.time() - start_time) / 3600}")
 
-    def _save_images(self, epoch, phase="validation"):
+    def _save_images(self, epoch: int, phase: str = "validation") -> None:
 
         """ Saves sample of images """
 
@@ -210,7 +212,7 @@ class TrainingLoop:
         plt.savefig(self.image_save_path / phase / f"{epoch}.png", dpi=250)
         plt.close()
 
-    def _save_multiscale_images(self, epoch, phase="validation"):
+    def _save_multiscale_images(self, epoch: int, phase: str = "validation") -> None:
 
         """ Saves sample of images from multi-scale U-Net """
 

@@ -1,4 +1,5 @@
 import tensorflow as tf
+from typing import Any
 
 from .trainer import TrainingLoop
 from .joint_trainer import JointTrainingLoop
@@ -11,7 +12,7 @@ TRAINER_DICT = {
 }
 
 
-def build_training_loop(config: dict, model: tf.keras.Model, dev: bool):
+def build_training_loop(config: dict[str, Any], model: tf.keras.Model, dev: bool) -> Any:
     expt_type = config["expt"]["expt_type"]
 
     # Get datasets and data generator
