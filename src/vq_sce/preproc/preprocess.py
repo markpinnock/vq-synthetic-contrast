@@ -5,6 +5,7 @@ import numpy as np
 import os
 from pathlib import Path
 import SimpleITK as itk
+from typing import TypedDict
 
 from vq_sce import (
     HU_MIN,
@@ -21,16 +22,23 @@ HU_THRESHOLD = -2000
 
 #-------------------------------------------------------------------------
 
+class IgnoreType(TypedDict):
+    subject_ignore: dict[str, str]
+    image_ignore: list[str]
+
+
+#-------------------------------------------------------------------------
+
 class ImgConv:
     def __init__(
         self,
         file_path: str,
         save_path: str,
-        include: list = None,
-        ignore: list = None,
-        start_at: list = None,
-        stop_before: list = None,
-        allow_all_ce: bool = False
+        include: list[str] | None = None,
+        ignore: IgnoreType | None = None,
+        start_at: str | None = None,
+        stop_before: str | None = None,
+        allow_all_ce: bool | None = False
     ) -> None:
 
         self.image_path = Path(file_path) / "Images"
@@ -105,7 +113,7 @@ class ImgConv:
     def _load_images(
         self,
         subject_path: Path
-    ) -> tuple[dict[str, itk.Image | Path]] | None:
+    ) -> tuple[dict[str, itk.Image | Path], ...] | None:
 
         # Get candidates for CE, HQ non-CE, HQ post-CE, LQ post-CE
         CE_paths = list(subject_path.glob("*AC*.nrrd"))
@@ -169,7 +177,7 @@ class ImgConv:
         self,
         source: itk.Image,
         lq: bool,
-    ) -> tuple[itk.Image, int, int]:
+    ) -> tuple[itk.Image, int | None, int | None]:
 
         source_slice_means = itk.GetArrayFromImage(source).mean(axis=(1, 2))
         source_slice_idx = np.argwhere(source_slice_means > HU_THRESHOLD)
@@ -191,7 +199,7 @@ class ImgConv:
 
         return source, source_lower, source_upper
 
-    def _save_ce_nce(self, ace: itk.Image, nce: itk.Image, subject_path: Path):
+    def _save_ce_nce(self, ace: itk.Image, nce: itk.Image, subject_path: Path) -> None:
 
         # Process initial non-CE and CE images
         nce_name = list(nce.keys())[0]
@@ -226,7 +234,7 @@ class ImgConv:
         nce: itk.Image,
         subject_path: Path,
         num_lq: int
-    ):
+    ) -> None:
         # Process initial non-CE and CE images
         nce_name = list(nce.keys())[0]
         nce = nce[nce_name]
@@ -244,6 +252,7 @@ class ImgConv:
             if hq_lower is None or hq_upper is None:
                 print((f"Skipping {hq_name} - no overlap "
                        f"or size wrong {hq.GetDepth()}"))
+                continue
             self.source_coords[hq_name] = {nce_name: [hq_lower, hq_upper]}
 
             series_no = int(hq_name[-3:])
@@ -292,7 +301,7 @@ class ImgConv:
             hq_npy = itk.GetArrayFromImage(hq).astype("float16")
             np.save(self.HQ_save_path / f"{hq_name}.npy", hq_npy)
 
-    def process_images(self, num_LQ: int = 2):
+    def process_images(self, num_LQ: int = 2) -> None:
 
         for subject in self.subjects:
             subject_path = self.image_path / subject
@@ -314,7 +323,7 @@ class ImgConv:
 
             print(f"{subject} saved")
 
-    def check_saved(self):
+    def check_saved(self) -> None:
 
         for subject in self.subjects:
             img_paths = list((self.save_path / "CE").glob(f"{subject}*"))
