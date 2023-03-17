@@ -1,19 +1,35 @@
 import numpy as np
 import tensorflow as tf
+from typing import Any, TypedDict
 
-from .layers.conv_layers import BottomBlock, DownBlock, UpBlock, VQBlock
+from .layers.conv_layers import BottomBlock, DownBlock, UpBlock, VQConfigType
+from .layers.vq_layers import VQBlock
 
 MAX_CHANNELS = 512
 
 
 #-------------------------------------------------------------------------
 
+
+class CacheType(TypedDict):
+    channels: list[int]
+    encode_strides: list[tuple[int, int, int]]
+    encode_kernels: list[tuple[int, int, int]]
+    decode_strides: list[tuple[int, int, int]]
+    decode_kernels: list[tuple[int, int, int]]
+    upsamp_factor: list[int]
+
+
+#-------------------------------------------------------------------------
+
 class UNet(tf.keras.Model):
+    _vq_config: VQConfigType | None
+    _vq_layers: list[str] | None
 
     def __init__(
         self,
         initialiser: tf.keras.initializers.Initializer,
-        config: dict,
+        config: dict[str, Any],
         shared_vq: VQBlock | None = None,
         name: str | None = None
     ) -> None:
@@ -29,7 +45,7 @@ class UNet(tf.keras.Model):
 
         if config["vq_layers"] is not None:
             self._vq_layers = config["vq_layers"].keys()
-            self._vq_config = {"vq_beta": config["vq_beta"]}
+            self._vq_config = {"vq_beta": config["vq_beta"]}  # type: ignore[assignment]
         else:
            self._vq_layers = []
            self._vq_config = None
@@ -41,15 +57,16 @@ class UNet(tf.keras.Model):
         )
 
         self.shared_vq = shared_vq
-        self.encoder, self.decoder = [], []
+        self.encoder: list[tf.keras.layers.Layer] = []
+        self.decoder: list[tf.keras.layers.Layer] = []
         cache = self.get_encoder()
         self.get_decoder(cache)
 
-    def get_encoder(self) -> dict[str, int | tuple[int]]:
+    def get_encoder(self) -> CacheType:
         """" Create U-Net encoder """
 
         # Cache channels, strides and weights
-        cache = {
+        cache: CacheType = {
             "channels": [],
             "encode_strides": [],
             "encode_kernels": [],
@@ -127,7 +144,7 @@ class UNet(tf.keras.Model):
 
         return cache
 
-    def get_decoder(self, cache: dict[str, int | tuple[int]]) -> None:
+    def get_decoder(self, cache: CacheType) -> None:
         """ Create U-Net decoder """
 
         for i in range(self._config["layers"] - 1, -1, -1):
@@ -212,14 +229,14 @@ class MultiscaleUNet(UNet):
     def __init__(
         self,
         initialiser: tf.keras.initializers.Initializer,
-        config: dict,
+        config: dict[str, Any],
         shared_vq: VQBlock | None = None,
         name: str | None = None
     ) -> None:
 
         super().__init__(initialiser, config, shared_vq, name=name)
 
-    def get_encoder(self) -> dict[str, int | tuple[int]]:
+    def get_encoder(self) -> CacheType:
         """" Create multi-scale U-Net encoder """
 
         cache = super().get_encoder()
@@ -232,7 +249,7 @@ class MultiscaleUNet(UNet):
         return cache
 
 
-    def get_decoder(self, cache: dict[str, int | tuple[int]]) -> None:
+    def get_decoder(self, cache: CacheType) -> None:
         """ Create multi-scale U-Net decoder """
 
         super().get_decoder(cache)

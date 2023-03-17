@@ -6,7 +6,7 @@ from .vq_layers import VQBlock
 
 #-------------------------------------------------------------------------
 
-class VQConfig(TypedDict):
+class VQConfigType(TypedDict):
     vq_beta: float
     embeddings: int
 
@@ -49,11 +49,11 @@ class DownBlock(tf.keras.layers.Layer):
     def __init__(
         self,
         nc: int,
-        weights: tuple[int],
-        strides: tuple[int],
+        weights: tuple[int, int, int],
+        strides: tuple[int, int, int],
         initialiser: tf.keras.initializers.Initializer,
         use_vq: bool,
-        vq_config: VQConfig,
+        vq_config: VQConfigType | None,
         name: str | None = None
     ) -> None:
 
@@ -71,7 +71,7 @@ class DownBlock(tf.keras.layers.Layer):
             name="conv2"
         )
         self.use_vq = use_vq
-        if use_vq:
+        if use_vq and vq_config is not None:
             self.vq = VQBlock(
                 vq_config["embeddings"],
                 nc, vq_config["vq_beta"],
@@ -109,11 +109,11 @@ class BottomBlock(tf.keras.layers.Layer):
     def __init__(
         self,
         nc: int,
-        weights: tuple[int],
-        strides: tuple[int],
+        weights: tuple[int, int, int],
+        strides: tuple[int, int, int],
         initialiser: tf.keras.initializers.Initializer,
         use_vq: bool,
-        vq_config: VQConfig,
+        vq_config: VQConfigType | None,
         shared_vq: VQBlock | None,
         name: str | None = None
     ) -> None:
@@ -132,13 +132,13 @@ class BottomBlock(tf.keras.layers.Layer):
             name="conv2"
         )
         self.use_vq = use_vq
-        if use_vq and shared_vq is None:
+        if use_vq and shared_vq is None and vq_config is not None:
             self.vq = VQBlock(
                 vq_config["embeddings"], nc,
                 vq_config["vq_beta"],
                 name=f"{name}_vq"
             )
-        elif use_vq and shared_vq is not None:
+        elif use_vq and shared_vq is not None and vq_config is not None:
             self.vq = shared_vq
         else:
             pass
@@ -173,12 +173,12 @@ class UpBlock(tf.keras.layers.Layer):
     def __init__(
         self,
         nc: int,
-        weights: tuple[int],
-        strides: tuple[int],
+        weights: tuple[int, int, int],
+        strides: tuple[int, int, int],
         upsamp_factor: int,
         initialiser: tf.keras.initializers.Initializer,
         use_vq: bool,
-        vq_config: VQConfig,
+        vq_config: VQConfigType | None,
         name: str | None = None
     ) -> None:
 
@@ -204,7 +204,7 @@ class UpBlock(tf.keras.layers.Layer):
         )
 
         self.use_vq = use_vq
-        if use_vq:
+        if use_vq and vq_config is not None:
             self.vq = VQBlock(
                 vq_config["embeddings"],
                 nc, vq_config["vq_beta"],
