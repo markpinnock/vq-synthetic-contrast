@@ -3,6 +3,7 @@ import datetime
 import os
 from pathlib import Path
 import tensorflow as tf
+from typing import Any
 import yaml
 
 from vq_sce import RANDOM_SEED
@@ -12,7 +13,7 @@ from vq_sce.trainers.build_trainer import build_training_loop
 
 #-------------------------------------------------------------------------
 
-def train(config: dict, dev: bool):
+def train(config: dict[str, Any], dev: bool) -> None:
     tf.random.set_seed(RANDOM_SEED)
     tf.get_logger().setLevel("ERROR")
 
@@ -39,7 +40,7 @@ def train(config: dict, dev: bool):
         writer = tf.summary.create_file_writer(log_dir)
 
         @tf.function
-        def trace(x):
+        def trace(x: tf.Tensor) -> None:
             model(x)
 
         tf.summary.trace_on(graph=True)
@@ -56,7 +57,7 @@ def train(config: dict, dev: bool):
 
 #-------------------------------------------------------------------------
 
-def main():
+def main() -> None:
 
     # Handle arguments
     parser = argparse.ArgumentParser()
