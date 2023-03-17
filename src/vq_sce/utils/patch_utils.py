@@ -8,14 +8,18 @@ SCALE_FACTOR = 2
 
 def extract_patches(
     img: tf.Tensor,
-    linear_coords: list[tf.Tensor],
-    patch_size: tuple[int]
+    linear_indices: list[tf.Tensor],
+    patch_size: list[int]
 ) -> tf.Tensor:
-
+    """Extract patches from images.
+    :param linear_indices: list of pixel indices of flattened image to extract
+    :param patch_size: size of patches to be extracted e.g. [D, H, W]
+    Returns: N patches in tensor of size [N, D, H, W]
+    """
     linear_img = tf.reshape(img, -1)
     patches = []
-    for coords in linear_coords:
-        patch = tf.reshape(tf.gather(linear_img, coords), patch_size + [1])
+    for idx in linear_indices:
+        patch = tf.reshape(tf.gather(linear_img, idx), patch_size + [1])
         patches.append(patch)          
 
     patches = tf.stack(patches, axis=0)
@@ -27,10 +31,15 @@ def extract_patches(
 
 def generate_indices(
     img_shape: tuple[int],
-    strides: tuple[int],
-    patch_size: tuple[int]
+    strides: list[int],
+    patch_size: list[int]
 ) -> list[tf.Tensor]:
-
+    """Generate indices of flattened image patches to extract.
+    :param img_shape: size of image to be processes
+    :param strides: strides of patches
+    :param patch_size: size of patches to be extracted e.g. [D, H, W]
+    Returns: list of flattened patch indices
+    """
     # Linear coords are what we'll use to do our patch updates in 1D
     # E.g. [1, 2, 3
     #       4, 5, 6
