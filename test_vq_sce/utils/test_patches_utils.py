@@ -3,7 +3,7 @@ import os
 import pytest
 import tensorflow as tf
 
-from vq_sce.utils.patch_utils import extract_patches, generate_indices
+from vq_sce.utils.patch_utils import extract_patches, generate_indices, CombinePatches
 
 
 #-------------------------------------------------------------------------
@@ -80,3 +80,35 @@ def test_extract_patches(
         ground_truth.numpy().squeeze(),
         pred_patches.numpy().squeeze()
     ).all()
+
+
+#-------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "img_size,patch_size,strides",
+    [
+        ((1, 4, 4), [1, 2, 2], [1, 1, 1]),
+        ((1, 4, 4), [1, 2, 2], [1, 2, 2]),
+        ((1, 32, 32), [1, 8, 8], [1, 4, 4]),
+        ((1, 32, 32), [1, 16, 16], [1, 8, 8]),
+        ((2, 64, 64), [2, 8, 8], [2, 4, 4]),
+        ((4, 64, 64), [4, 16, 16], [2, 8, 8]),
+    ]
+)
+def test_CombinePatches(
+    img_size: tuple[int, int, int],
+    patch_size: list[int],
+    strides: list[int]
+) -> None:
+    """Test recombining image patches."""
+    combine = CombinePatches()
+
+    test_img = tf.cast(tf.reshape(tf.range(tf.reduce_prod(img_size)), img_size), "float32")
+    indices = generate_indices(test_img.shape, strides, patch_size)
+    patches = extract_patches(test_img, indices, patch_size)
+
+    combine.new_subject(test_img.shape)
+    combine.apply_patches(patches, indices)
+    pred_img = combine.get_img()
+
+    assert np.allclose(pred_img.numpy(), test_img.numpy())
