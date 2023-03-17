@@ -1,6 +1,7 @@
 import copy
 import numpy as np
 import tensorflow as tf
+from typing import Any
 
 from .components.unet import UNet, MAX_CHANNELS
 from .components.layers.vq_layers import VQBlock
@@ -13,7 +14,7 @@ from vq_sce.utils.losses import L1
 
 class Model(tf.keras.Model):
 
-    def __init__(self, config, name="Model"):
+    def __init__(self, config: dict[str, Any], name: str = "Model") -> None:
         super().__init__(name=name)
         self._initialiser = tf.keras.initializers.HeNormal()
         self._config = config
@@ -55,7 +56,7 @@ class Model(tf.keras.Model):
             name="unet"
         )
 
-    def compile(self, optimiser):
+    def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:
         self.optimiser = optimiser
 
         # Set up metrics
@@ -65,17 +66,17 @@ class Model(tf.keras.Model):
         self.total_metric = tf.keras.metrics.Mean(name=f"{prefix}_total")
 
     @property
-    def metrics(self):
+    def metrics(self) -> list[tf.keras.metrics.Metric]:
         return [
             self.L1_metric,
             self.vq_metric,
             self.total_metric
         ]
 
-    def build_model(self):
+    def build_model(self) -> None:
         _, _ = self(tf.keras.Input(shape=self._source_dims + [1]))
 
-    def summary(self):
+    def summary(self) -> None:
         source = tf.keras.Input(shape=self._source_dims + [1])
         pred, vq = self.UNet.call(source)
 
@@ -85,7 +86,7 @@ class Model(tf.keras.Model):
             tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
 
     @tf.function
-    def train_step(self, source, target):
+    def train_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
 
         """ Expects data in order 'source, target'
             or 'source, target, segmentations'
@@ -122,7 +123,7 @@ class Model(tf.keras.Model):
         self.optimiser.apply_gradients(zip(grads, self.UNet.trainable_variables))
 
     @tf.function
-    def test_step(self, source, target):
+    def test_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
 
         # Sample patch if needed
         if self._scales[0] > 1:
@@ -145,7 +146,7 @@ class Model(tf.keras.Model):
         self.vq_metric.update_state(vq_loss)
         self.total_metric.update_state(total_loss)
 
-    def _get_scale_indices(self):
+    def _get_scale_indices(self) -> tuple[int, int]:
 
         # Want higher probability of training on more central regions
         if np.random.randn() > 0.5:
@@ -163,7 +164,7 @@ class Model(tf.keras.Model):
 
         return x, y
 
-    def _sample_patches(self, x, y, source, target):
+    def _sample_patches(self, x: int, y: int, source: tf.Tensor, target: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor]:
         x_src = x * self._source_dims[1]
         y_src = y * self._source_dims[2]
         x_tar = x * self._target_dims[1]
@@ -185,7 +186,7 @@ class Model(tf.keras.Model):
 
         return source, target
 
-    def example_inference(self, source, target):
+    def example_inference(self, source: tf.Tensor, target: tf.Tensor) -> tuple[tf.Tensor, ...]:
         if self._scales[0] == 1:
             pred, _ = self(source)
 
@@ -195,11 +196,11 @@ class Model(tf.keras.Model):
 
         return source, target, pred
 
-    def reset_train_metrics(self):
+    def reset_train_metrics(self) -> None:
         for metric in self.metrics:
             metric.reset_states()
 
-    def call(self, x):
+    def call(self, x: tf.Tensor) -> tf.Tensor:
         return self.UNet(x)
 
 
@@ -208,7 +209,7 @@ class Model(tf.keras.Model):
 
 class JointModel(tf.keras.Model):
 
-    def __init__(self, config, name="Model"):
+    def __init__(self, config: dict[str, Any], name: str = "Model") -> None:
         super().__init__(name=name)
         self._initialiser = tf.keras.initializers.HeNormal()
         self._sr_config = copy.deepcopy(config)
@@ -290,7 +291,7 @@ class JointModel(tf.keras.Model):
             name="ce_unet"
         )
 
-    def compile(self, optimiser):
+    def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:
         self.optimiser = optimiser
 
         # Set up metrics
@@ -302,7 +303,7 @@ class JointModel(tf.keras.Model):
         self.ce_total_metric = tf.keras.metrics.Mean(name="ce_total")
 
     @property
-    def metrics(self):
+    def metrics(self) -> list[tf.keras.metrics.Metric]:
         return [
             self.sr_L1_metric,
             self.sr_vq_metric,
@@ -312,10 +313,10 @@ class JointModel(tf.keras.Model):
             self.ce_total_metric
         ]
 
-    def build_model(self):
+    def build_model(self) -> None:
         _, _ = self(tf.keras.Input(shape=self._sr_source_dims + [1]))
 
-    def summary(self):
+    def summary(self) -> None:
         source = tf.keras.Input(shape=self._sr_source_dims + [1])
         pred, vq = self.sr_UNet.call(source)
 
@@ -333,7 +334,7 @@ class JointModel(tf.keras.Model):
             tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
 
     @tf.function
-    def sr_train_step(self, source, target):
+    def sr_train_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
 
         """ Expects data in order 'source, target'
         """
@@ -369,7 +370,7 @@ class JointModel(tf.keras.Model):
         self.optimiser.apply_gradients(zip(grads, self.sr_UNet.trainable_variables))
 
     @tf.function
-    def ce_train_step(self, source, target):
+    def ce_train_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
 
         """ Expects data in order 'source, target'
         """
@@ -404,12 +405,12 @@ class JointModel(tf.keras.Model):
         grads = tape.gradient(total_loss, self.ce_UNet.trainable_variables)
         self.optimiser.apply_gradients(zip(grads, self.ce_UNet.trainable_variables))
 
-    def train_step(self, sr_data, ce_data):
+    def train_step(self, sr_data: tf.Tensor, ce_data: tf.Tensor) -> None:
         self.sr_train_step(**sr_data)
         self.ce_train_step(**ce_data)
 
     @tf.function
-    def sr_test_step(self, source, target):
+    def sr_test_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
 
         # Sample patch if needed
         if self._scales[0] > 1:
@@ -433,7 +434,7 @@ class JointModel(tf.keras.Model):
         self.sr_total_metric.update_state(total_loss)
 
     @tf.function
-    def ce_test_step(self, source, target):
+    def ce_test_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
 
         # Sample patch if needed
         if self._scales[0] > 1:
@@ -456,11 +457,11 @@ class JointModel(tf.keras.Model):
         self.ce_vq_metric.update_state(vq_loss)
         self.ce_total_metric.update_state(total_loss)
 
-    def test_step(self, sr_data, ce_data):
+    def test_step(self, sr_data: tf.Tensor, ce_data: tf.Tensor) -> None:
         self.sr_test_step(**sr_data)
         self.ce_test_step(**ce_data)
 
-    def _get_scale_indices(self):
+    def _get_scale_indices(self) -> tuple[int, int]:
 
         # Want higher probability of training on more central regions
         if np.random.randn() > 0.5:
@@ -478,7 +479,7 @@ class JointModel(tf.keras.Model):
 
         return x, y
 
-    def _sample_patches(self, x, y, source, target):
+    def _sample_patches(self, x: int, y: int, source: tf.Tensor, target: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor]:
         x_src = x * self._sr_source_dims[1]
         y_src = y * self._sr_source_dims[2]
         x_tar = x * self._sr_target_dims[1]
@@ -500,7 +501,7 @@ class JointModel(tf.keras.Model):
 
         return source, target
 
-    def example_inference(self, source, target):
+    def example_inference(self, source: tf.Tensor, target: tf.Tensor) -> tuple[tf.Tensor, ...]:
         if self._scales[0] == 1:
             pred, _ = self(source)
 
@@ -510,10 +511,10 @@ class JointModel(tf.keras.Model):
 
         return source, target, pred
 
-    def reset_train_metrics(self):
+    def reset_train_metrics(self) -> None:
         for metric in self.metrics:
             metric.reset_states()
 
-    def call(self, x):
+    def call(self, x: tf.Tensor) -> tf.Tensor:
         x, _ = self.sr_UNet(x)
         return self.ce_UNet(x)
