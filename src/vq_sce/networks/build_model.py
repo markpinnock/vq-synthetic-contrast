@@ -32,9 +32,14 @@ def build_model(config: dict[str, Any], purpose: str = "training") -> tf.keras.M
         optimiser = tf.keras.optimizers.Adam(*config["hyperparameters"]["opt"], name="opt")
         model.compile(optimiser)
         return model
-    elif purpose == "inference":
+    elif purpose == "inference" and expt_type == "single":
         model.build_model()
         model.UNet.load_weights(config["paths"]["expt_path"] / "models" / "model.ckpt")
+        return model
+    elif purpose == "inference" and expt_type == "joint":
+        model.build_model()
+        model.ce_UNet.load_weights(config["paths"]["expt_path"] / "models" / "ce_model.ckpt")
+        model.sr_UNet.load_weights(config["paths"]["expt_path"] / "models" / "sr_model.ckpt")
         return model
     else:
         raise ValueError("Purpose must be 'training' or 'inference'")
