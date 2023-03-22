@@ -12,14 +12,14 @@ from vq_sce.networks.build_model import build_model
 from vq_sce.utils.dataloaders.build_dataloader import get_test_dataloader
 from vq_sce.utils.patch_utils import generate_indices, extract_patches, CombinePatches
 
-STRIDES = [16, 16, 16]
+STRIDES = [6, 6, 6]
 
 
 #-------------------------------------------------------------------------
 
 
 class Inference(ABC):
-    """Base class for performing inference on full size images."""
+    """Base class for performing inference."""
 
     def __init__(self, config: dict[str, Any]) -> None:
         self.save_path = config["paths"]["expt_path"] / "predictions"
@@ -38,11 +38,13 @@ class Inference(ABC):
 
     def display(self, pred: npt.NDArray[np.float32], subject_id: str) -> None:
         """Display predicted images."""
+        depth, height, _ = pred.shape
+
         plt.subplot(1, 2, 1)
-        plt.imshow(pred[:, :, 32], cmap="gray", **ABDO_WINDOW)
+        plt.imshow(pred[depth // 2, :], cmap="gray", **ABDO_WINDOW)
         plt.axis("off")
         plt.subplot(1, 2, 2)
-        plt.imshow(np.flipud(pred[256, :, :].T), cmap="gray", **ABDO_WINDOW)
+        plt.imshow(np.flipud(pred[:, height // 2, :]), cmap="gray", **ABDO_WINDOW)
         plt.axis("off")
         plt.title(subject_id)
         plt.show()
@@ -64,7 +66,7 @@ class SingleScaleInference(Inference):
         super().__init__(config)
 
         depth, height, width = config["data"]["target_dims"]
-        scale = config["hyper_params"]["scales"][0]
+        scale = config["hyperparameters"]["scales"][0]
         self.patch_size = [depth, height // scale, width // scale]
 
     def run(self, save: bool) -> None:
@@ -72,13 +74,11 @@ class SingleScaleInference(Inference):
 
         for data in self.test_ds:
             source = data["source"][0, ...]
-            #source = tf.transpose(source, [2, 0, 1])                   # TODO THIS NEEDS CHANGING
             subject_id = data["subject_id"][0].numpy().decode("utf-8")
             self.combine.new_subject(source.shape)
 
             linear_indices = generate_indices(source.shape, STRIDES, self.patch_size)
             patch_stack = extract_patches(source, linear_indices, self.patch_size)
-            # patch_stack = tf.transpose(patch_stack, [0, 2, 3, 1, 4])    # TODO CHANGE
             num_patches = patch_stack.shape[0]
             pred_stack = []
 
@@ -88,15 +88,13 @@ class SingleScaleInference(Inference):
                 pred_stack.extend(pred_mb[:, :, :, :, 0])
 
             pred_stack = tf.stack(pred_stack, axis=0)
-            # pred_stack = tf.transpose(pred_stack, [0, 3, 1, 2])    # TODO CHANGE
-            self.combine.apply_patches(pred_stack, linear_indices)#tf.stack(linear_indices, axis=0))
+            self.combine.apply_patches(pred_stack, linear_indices)
             pred = self.combine.get_img().numpy()
-            # pred = tf.transpose(pred, [1, 2, 0]).numpy()    # TODO CHANGE
 
-        if save:
-            self.save(pred, subject_id)
-        else:
-            self.display(pred, subject_id)
+            if save:
+                self.save(pred, subject_id)
+            else:
+                self.display(pred, subject_id)
 
 
 #-------------------------------------------------------------------------
@@ -109,7 +107,7 @@ class MultiScaleInference(Inference):
         super().__init__(config)
 
         depth, height, width = config["data"]["target_dims"]
-        scales = config["hyper_params"]["scales"]
+        scales = config["hyperparameters"]["scales"]
         self.patch_size = [depth, height // scales[0], width // scales[0]]
         self.upscale_patch_size = [self.patch_size[0], self.patch_size[1] * 2, self.patch_size[2] * 2]
         self.upscale_strides = [STRIDES[0], STRIDES[1] * 2, STRIDES[2] * 2]
