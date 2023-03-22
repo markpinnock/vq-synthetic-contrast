@@ -42,7 +42,7 @@ test = [
 
 [project.scripts]
 train = "vq_sce.cli.training:main"
-predict = "vq_sce.cli.inference:main"
+predict = "vq_sce.cli.predict:main"
 
 [tool.mypy]
 warn_unused_configs = true
