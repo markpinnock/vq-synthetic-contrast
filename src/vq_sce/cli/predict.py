@@ -1,21 +1,11 @@
 import argparse
-import matplotlib.pyplot as plt
-import numpy as np
 from pathlib import Path
-import SimpleITK as itk
-import tensorflow as tf
-from typing import Any
 import yaml
 
+from vq_sce.inference import Inference, SingleScaleInference, MultiScaleInference
 
 
-#-------------------------------------------------------------------------
-
-
-
-#-------------------------------------------------------------------------
-
-def main():
+def main() -> None:
     # Handle arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", "-p", help="Expt path", type=str)
@@ -34,17 +24,15 @@ def main():
     config["data"]["data_path"] = Path(arguments.data)
     config["expt"]["mb_size"] = arguments.minibatch
 
-    if config["hyperparameters"]["scales"] == [1]:
-        full_size_inference(config, arguments.save)
-    elif config["hyperparameters"]["scales"] == [4]:
-        patch_inference(config, arguments.save)
-    elif len(config["hyperparameters"]["scales"]) > 1:
-        multiscale_inference(config, arguments.save)
+    inference: Inference
+
+    if len(config["hyperparameters"]["scales"]) > 1:
+        inference = SingleScaleInference(config)
     else:
-        raise ValueError(f"Scales not recognised: {config['hyperparameters']['scales']}")
+        inference = MultiScaleInference(config)
 
+    inference.run(arguments.save)
 
-#-------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()
