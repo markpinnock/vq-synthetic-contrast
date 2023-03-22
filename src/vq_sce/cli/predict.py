@@ -10,8 +10,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", "-p", help="Expt path", type=str)
     parser.add_argument("--data", '-d', help="Data path", type=str)
-    parser.add_argument("--minibatch", '-m', help="Minibatch size", type=int, default=128)
+    parser.add_argument("--minibatch", '-m', help="Minibatch size", type=int, default=4)
     parser.add_argument("--save", '-s', help="Save images", action="store_true")
+    parser.add_argument("--dev", '-dv', help="Development mode", action="store_true")
     arguments = parser.parse_args()
 
     expt_path = Path(arguments.path)
@@ -24,9 +25,19 @@ def main() -> None:
     config["data"]["data_path"] = Path(arguments.data)
     config["expt"]["mb_size"] = arguments.minibatch
 
+    # Development mode if necessary
+    if arguments.dev:
+        dims = config["data"]["source_dims"]
+        config["data"]["source_dims"] = [dims[0], dims[1] // 4, dims[2] // 4]
+        dims = config["data"]["target_dims"]
+        config["data"]["target_dims"] = [dims[0], dims[1] // 4, dims[2] // 4]
+        config["data"]["down_sample"] = 4
+    else:
+        config["data"]["down_sample"] = 1
+
     inference: Inference
 
-    if len(config["hyperparameters"]["scales"]) > 1:
+    if len(config["hyperparameters"]["scales"]) == 1:
         inference = SingleScaleInference(config)
     else:
         inference = MultiScaleInference(config)
