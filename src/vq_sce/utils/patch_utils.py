@@ -76,7 +76,7 @@ class CombinePatches:
     linear_weights: tf.Tensor
     linear: tf.Tensor
 
-    def new_subject(self, subject_dims: tuple[int]) -> None:
+    def new_subject(self, subject_dims: tuple[int, int, int]) -> None:
         """Pass dims of image for new subject."""
         self.DHW_dims = subject_dims
         self.linear_img_size = tf.reduce_prod(self.DHW_dims)

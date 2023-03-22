@@ -21,7 +21,7 @@ STRIDES = [16, 16, 16]
 class Inference(ABC):
     """Base class for performing inference on full size images."""
 
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, config: dict[str, Any]) -> None:
         self.save_path = config["paths"]["expt_path"] / "predictions"
         self.save_path.mkdir(parents=True, exist_ok=True)
         self.mb_size = config["expt"]["mb_size"]
@@ -32,7 +32,7 @@ class Inference(ABC):
         self.combine = CombinePatches()
 
     @abstractmethod
-    def run(self, save: bool):
+    def run(self, save: bool) -> None:
         """Run inference on test data."""
         raise NotImplementedError
 
@@ -61,13 +61,13 @@ class SingleScaleInference(Inference):
     """Perform inference on images with single scale/patch-based models."""
 
     def __init__(self, config: dict[str, Any]):
-        super().__init__(self, config)
+        super().__init__(config)
 
         depth, height, width = config["data"]["target_dims"]
         scale = config["hyper_params"]["scales"][0]
         self.patch_size = [depth, height // scale, width // scale]
 
-    def run(self, save: bool):
+    def run(self, save: bool) -> None:
         """Run inference on test data."""
 
         for data in self.test_ds:
@@ -106,7 +106,7 @@ class MultiScaleInference(Inference):
     """Perform inference on images with multi-scale models."""
 
     def __init__(self, config: dict[str, Any]):
-        super().__init__(self, config)
+        super().__init__(config)
 
         depth, height, width = config["data"]["target_dims"]
         scales = config["hyper_params"]["scales"]
@@ -116,7 +116,7 @@ class MultiScaleInference(Inference):
         self.dn_samp = config["hyperparameters"]["scales"][0]
         self.num_scales = len(config["hyperparameters"]["scales"])
 
-    def run(self, save: bool):
+    def run(self, save: bool) -> None:
         """Run inference on test data."""
         for data in self.test_ds:
             source = data["source"][0, ...]
@@ -137,7 +137,7 @@ class MultiScaleInference(Inference):
             pred_stack = tf.stack(pred_stack, axis=0)
             # pred_stack = tf.transpose(pred_stack, [0, 3, 1, 2])    # TODO CHANGE
             depth, height, width = source.shape[1:-1]
-            upscale_dims = [depth, height * 2, width * 2]
+            upscale_dims = (depth, height * 2, width * 2)
             self.combine.new_subject(upscale_dims)
 
             upscale_linear_coords = generate_indices(upscale_dims, self.upscale_strides, upscale_patch_size)
@@ -147,7 +147,7 @@ class MultiScaleInference(Inference):
 
             for _ in range(1, self.num_scales - 1):
                 # pred = tf.transpose(pred, [2, 0, 1])                    # TODO CHANGE
-                upscale_dims = [upscale_dims[0], upscale_dims[1] * 2, upscale_dims[2] * 2]
+                upscale_dims = (upscale_dims[0], upscale_dims[1] * 2, upscale_dims[2] * 2)
                 self.combine.new_subject(upscale_dims)
 
                 linear_coords = generate_indices(pred.shape, self.strides, self.patch_size)
@@ -163,7 +163,7 @@ class MultiScaleInference(Inference):
                 pred_stack = tf.stack(pred_stack, axis=0)
                 # pred_stack = tf.transpose(pred_stack, [0, 3, 1, 2])    # TODO CHANGE
                 upscale_linear_coords = generate_indices(upscale_dims, self.upscale_strides, self.upscale_patch_size)
-                self.combine.apply_patches(pred_stack, upscale_linear_coords, axis=0)
+                self.combine.apply_patches(pred_stack, upscale_linear_coords)
                 pred = self.combine.get_img()
                 # pred = tf.transpose(pred, [1, 2, 0])    # TODO CHANGE
 
