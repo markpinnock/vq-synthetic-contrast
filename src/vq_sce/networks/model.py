@@ -1,4 +1,5 @@
 import copy
+import enum
 import numpy as np
 import tensorflow as tf
 from typing import Any
@@ -7,6 +8,16 @@ from .components.unet import UNet, MAX_CHANNELS
 from .components.layers.vq_layers import VQBlock
 from vq_sce.utils.augmentation.augmentation import StdAug
 from vq_sce.utils.losses import L1
+
+
+#-------------------------------------------------------------------------
+
+
+@enum.unique
+class Task(str, enum.Enum):
+    CONTRAST = "contrast"
+    SUPER_RES = "super_res"
+    JOINT = "joint"
 
 
 #-------------------------------------------------------------------------
@@ -515,6 +526,16 @@ class JointModel(tf.keras.Model):
         for metric in self.metrics:
             metric.reset_states()
 
-    def call(self, x: tf.Tensor) -> tf.Tensor:
-        x, _ = self.sr_UNet(x)
-        return self.ce_UNet(x)
+    def call(self, x: tf.Tensor, task: str = Task.JOINT) -> tuple[tf.Tensor, None]:
+        if task == Task.CONTRAST:
+            x, _ = self.ce_UNet(x)
+            return x, None
+
+        elif task == Task.SUPER_RES:
+            x, _ = self.sr_UNet(x)
+            return x, None
+
+        else:
+            x, _ = self.sr_UNet(x)
+            x, _ = self.ce_UNet(x)
+            return x, None
