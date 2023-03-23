@@ -70,7 +70,6 @@ def generate_indices(
 #-------------------------------------------------------------------------
 
 class CombinePatches:
-
     """Recombine extracted image patches into original image."""
 
     linear_weights: tf.Tensor
@@ -91,9 +90,9 @@ class CombinePatches:
 
     def _reset(self) -> None:
         self.linear = tf.zeros(self.linear_img_size)
-        self.linear_weights = np.zeros(self.linear_img_size)
+        self.linear_weights = tf.zeros(self.linear_img_size)
 
-    def apply_patches(self, patches: tf.Tensor, indices: tf.Tensor) -> None:
+    def apply_patches(self, patches: tf.Tensor, indices: list[tf.Tensor]) -> None:
         """Pass patches for reconstruction.
         :param patches: tensor of patches
         :param indices: tensor of flattened patch indices
