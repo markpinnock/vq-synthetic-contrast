@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import enum
 import numpy as np
 import numpy.typing as npt
 import tensorflow as tf
@@ -7,13 +8,24 @@ from typing import Any
 import matplotlib.pyplot as plt
 import SimpleITK as itk
 
-from vq_sce import ABDO_WINDOW
+from vq_sce import ABDO_WINDOW, LQ_DEPTH, LQ_SLICE_THICK
 from vq_sce.networks.build_model import build_model
 from vq_sce.networks.model import Task
 from vq_sce.utils.dataloaders.build_dataloader import get_test_dataloader
+from vq_sce.utils.losses import L1
 from vq_sce.utils.patch_utils import generate_indices, extract_patches, CombinePatches
 
 STRIDE_FACTOR = 4
+
+
+#-------------------------------------------------------------------------
+
+
+@enum.unique
+class Options(str, enum.Enum):
+    DISPLAY = "display"
+    SAVE = "save"
+    METRICS = "metrics"
 
 
 #-------------------------------------------------------------------------
@@ -30,6 +42,7 @@ class Inference(ABC):
     def __init__(self, config: dict[str, Any]) -> None:
         self.save_path = config["paths"]["expt_path"] / "predictions"
         self.save_path.mkdir(parents=True, exist_ok=True)
+        self.data_path = config["data"]["data_path"]
         self.original_data_path = config["paths"]["original_path"]
         self.mb_size = config["expt"]["mb_size"]
         self.task = config["data"]["type"]
@@ -40,7 +53,7 @@ class Inference(ABC):
         self.combine = CombinePatches()
 
     @abstractmethod
-    def run(self, save: bool) -> None:
+    def run(self, save: bool, return_metrics: bool = False) -> None:
         """Run inference on test data."""
         raise NotImplementedError
 
@@ -67,19 +80,19 @@ class Inference(ABC):
         plt.title(subject_id)
         plt.show()
 
-    def save(self, pred: npt.NDArray[np.float32], subject_id: str, target_id: str) -> None:
+    def save(self, pred: npt.NDArray[np.float32], subject_id: str, target_id: str) -> float:
         """Save predicted images."""
         img_nrrd = itk.GetImageFromArray(pred.astype("int16"))
 
         if self.original_data_path is not None:
             if self.task == Task.CONTRAST:
                 original = itk.ReadImage(str(self.original_data_path / subject_id[0:6] / f"{subject_id}.nrrd"))
-                z_offset = self.TestGenerator._source_coords[target_id][subject_id][0]
+                z_offset = self.TestGenerator.source_coords[target_id][subject_id][0]
 
             else:
-                base_hq_name = list(self.TestGenerator._source_coords[subject_id].keys())[0]
+                base_hq_name = list(self.TestGenerator.source_coords[subject_id].keys())[0]
                 original = itk.ReadImage(str(self.original_data_path / subject_id[0:6] / f"{base_hq_name}.nrrd"))
-                source_coords = list(self.TestGenerator._source_coords[subject_id].values())[0]
+                source_coords = list(self.TestGenerator.source_coords[subject_id].values())[0]
                 z_offset = source_coords[0]
 
             img_nrrd.SetDirection(original.GetDirection())
@@ -90,6 +103,24 @@ class Inference(ABC):
 
         itk.WriteImage(img_nrrd, str(self.save_path / f"{subject_id}.nrrd"))
         print(f"{subject_id} saved")
+
+    def calc_L1(self, pred: npt.NDArray[np.float32], subject_id: str, target_id: str) -> None:
+        """Calculate L1 between predicted and ground truth image."""
+
+        if self.task == Task.CONTRAST:
+            ground_truth = np.load(self.data_path / "CE" / f"{target_id}.npy")
+        else:
+            ground_truth = np.load(self.data_path / "HQ" / f"{target_id}.npy")
+            source_coords = list(self.TestGenerator.source_coords[subject_id].values())[0]
+            target_coords = list(self.TestGenerator.source_coords[target_id].values())[0]
+            coords = [
+                source_coords[0] - target_coords[0],
+                source_coords[0] - target_coords[0] + (LQ_SLICE_THICK * LQ_DEPTH)
+            ]
+            ground_truth = ground_truth[coords[0]:coords[1], :, :]
+
+        print(f"{subject_id} metrics processed")
+        return float(L1(ground_truth.astype("float32"), pred))
 
 
 #-------------------------------------------------------------------------
@@ -122,8 +153,9 @@ class SingleScaleInference(Inference):
 
         self.patches_per_slice = self.calc_patches_per_slice()
 
-    def run(self, save: bool) -> None:
+    def run(self, option) -> list[float]:
         """Run inference on test data."""
+        metrics = {"id": [], "L1": []}
 
         for data in self.test_ds:
             source = data["source"][0, ...]
@@ -167,10 +199,20 @@ class SingleScaleInference(Inference):
     
             pred = self.combine.get_img().numpy()
 
-            if save:
+            if option == Options.SAVE:
                 self.save(pred, subject_id, target_id)
-            else:
+            elif option == Options.DISPLAY:
                 self.display(pred, subject_id)
+            elif option == Options.METRICS:
+                metrics["id"].append(subject_id)
+                metrics["L1"].append(self.calc_L1(pred, subject_id, target_id))
+            else:
+                raise ValueError(f"Option not recognised: {option}")
+
+        if option == Options.METRICS:
+            return metrics
+        else:
+            return None
 
 
 #-------------------------------------------------------------------------

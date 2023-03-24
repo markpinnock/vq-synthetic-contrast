@@ -12,7 +12,7 @@ def main() -> None:
     parser.add_argument("--data", '-d', help="Data path", type=str)
     parser.add_argument("--original", '-o', help="Original data path", type=str)
     parser.add_argument("--minibatch", '-m', help="Minibatch size", type=int, default=4)
-    parser.add_argument("--save", '-s', help="Save images", action="store_true")
+    parser.add_argument("--option", '-op', help="`save`, `display` or `metrics`", type=str)
     parser.add_argument("--dev", '-dv', help="Development mode", action="store_true")
     arguments = parser.parse_args()
 
@@ -49,7 +49,7 @@ def main() -> None:
     else:
         inference = MultiScaleInference(config)
 
-    inference.run(arguments.save)
+    inference.run(arguments.option)
 
 
 if __name__ == "__main__":
