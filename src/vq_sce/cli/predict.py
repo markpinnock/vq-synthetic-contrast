@@ -10,6 +10,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", "-p", help="Expt path", type=str)
     parser.add_argument("--data", '-d', help="Data path", type=str)
+    parser.add_argument("--original", '-o', help="Original data path", type=str)
     parser.add_argument("--minibatch", '-m', help="Minibatch size", type=int, default=4)
     parser.add_argument("--save", '-s', help="Save images", action="store_true")
     parser.add_argument("--dev", '-dv', help="Development mode", action="store_true")
@@ -24,6 +25,12 @@ def main() -> None:
     config["paths"]["expt_path"] = Path(arguments.path)
     config["data"]["data_path"] = Path(arguments.data)
     config["expt"]["mb_size"] = arguments.minibatch
+
+    # Optional path to original NRRD data (for saving metadata with predictions)
+    if arguments.original is None:
+        config["paths"]["original_path"] = None
+    else:
+        config["paths"]["original_path"] = Path(arguments.original)
 
     # Development mode if necessary
     if arguments.dev:

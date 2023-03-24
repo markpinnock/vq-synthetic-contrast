@@ -30,6 +30,7 @@ class Inference(ABC):
     def __init__(self, config: dict[str, Any]) -> None:
         self.save_path = config["paths"]["expt_path"] / "predictions"
         self.save_path.mkdir(parents=True, exist_ok=True)
+        self.original_data_path = config["paths"]["original_path"]
         self.mb_size = config["expt"]["mb_size"]
         self.task = config["data"]["type"]
 
@@ -66,9 +67,27 @@ class Inference(ABC):
         plt.title(subject_id)
         plt.show()
 
-    def save(self, pred: npt.NDArray[np.float32], subject_id: str) -> None:
+    def save(self, pred: npt.NDArray[np.float32], subject_id: str, target_id: str) -> None:
         """Save predicted images."""
-        img_nrrd = itk.GetImageFromArray(pred.astype("int16").transpose([2, 0, 1]))
+        img_nrrd = itk.GetImageFromArray(pred.astype("int16"))
+
+        if self.original_data_path is not None:
+            if self.task == Task.CONTRAST:
+                original = itk.ReadImage(str(self.original_data_path / subject_id[0:6] / f"{subject_id}.nrrd"))
+                z_offset = self.TestGenerator._source_coords[target_id][subject_id][0]
+
+            else:
+                base_hq_name = list(self.TestGenerator._source_coords[subject_id].keys())[0]
+                original = itk.ReadImage(str(self.original_data_path / subject_id[0:6] / f"{base_hq_name}.nrrd"))
+                source_coords = list(self.TestGenerator._source_coords[subject_id].values())[0]
+                z_offset = source_coords[0]
+
+            img_nrrd.SetDirection(original.GetDirection())
+            img_nrrd.SetSpacing(original.GetSpacing())
+            origin = original.GetOrigin()
+            new_origin = (origin[0], origin[1], origin[2] + z_offset)
+            img_nrrd.SetOrigin(new_origin)
+
         itk.WriteImage(img_nrrd, str(self.save_path / f"{subject_id}.nrrd"))
         print(f"{subject_id} saved")
 
@@ -109,6 +128,7 @@ class SingleScaleInference(Inference):
         for data in self.test_ds:
             source = data["source"][0, ...]
             subject_id = data["subject_id"][0].numpy().decode("utf-8")
+            target_id = data["target_id"][0].numpy().decode("utf-8")
 
             if self.task == Task.CONTRAST:
                 self.combine.new_subject(source.shape)
@@ -148,7 +168,7 @@ class SingleScaleInference(Inference):
             pred = self.combine.get_img().numpy()
 
             if save:
-                self.save(pred, subject_id)
+                self.save(pred, subject_id, target_id)
             else:
                 self.display(pred, subject_id)
 

@@ -119,7 +119,7 @@ class SuperResDataloader(BaseDataloader):
             source = np.load(self._source_path / f"{source_id}.npy")
             source = self._preprocess_image(source, None, None)
 
-            yield {"source": source, "subject_id": source_id}
+            yield {"source": source, "subject_id": source_id, "target_id": self._source_target_map[source_id]}
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------

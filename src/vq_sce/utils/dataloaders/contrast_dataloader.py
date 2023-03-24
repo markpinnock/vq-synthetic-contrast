@@ -124,7 +124,7 @@ class ContrastDataloader(BaseDataloader):
                 source = np.load(self._source_path / f"{source_id}.npy")
                 source = self._preprocess_image(source, lower, upper)
 
-                yield {"source": source, "subject_id": source_id}
+                yield {"source": source, "subject_id": source_id, "target_id": target_id}
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------
