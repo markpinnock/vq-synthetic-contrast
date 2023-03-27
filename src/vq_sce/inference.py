@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import enum
+import fnmatch
 import numpy as np
 import numpy.typing as npt
 import tensorflow as tf
@@ -7,8 +8,9 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import SimpleITK as itk
+from skimage.metrics import mean_squared_error, peak_signal_noise_ratio, structural_similarity
 
-from vq_sce import ABDO_WINDOW, LQ_DEPTH, LQ_SLICE_THICK
+from vq_sce import ABDO_WINDOW, HU_MIN, HU_MAX, LQ_DEPTH, LQ_SLICE_THICK
 from vq_sce.networks.build_model import build_model
 from vq_sce.networks.model import Task
 from vq_sce.utils.dataloaders.build_dataloader import get_test_dataloader
@@ -39,14 +41,14 @@ class Inference(ABC):
     strides: list[int]
     patch_size: list[int]
 
-    def __init__(self, config: dict[str, Any], joint_stage: str | None = None):
-        self.joint_stage = joint_stage
+    def __init__(self, config: dict[str, Any], stage: str | None = None):
+        self.stage = stage
         self.save_path = config["paths"]["expt_path"] / "predictions"
         self.save_path.mkdir(parents=True, exist_ok=True)
         self.data_path = config["data"]["data_path"]
         self.original_data_path = config["paths"]["original_path"]
         self.mb_size = config["expt"]["mb_size"]
-        self.task = config["expt"]["expt_type"]
+        self.expt_type = config["expt"]["expt_type"]
 
         self.test_ds, self.TestGenerator = get_test_dataloader(config=config)
 
@@ -54,7 +56,7 @@ class Inference(ABC):
         self.combine = CombinePatches()
 
     @abstractmethod
-    def run(self, save: bool, return_metrics: bool = False, joint_stage: str | None = None) -> None:
+    def run(self, save: bool, return_metrics: bool = False) -> None:
         """Run inference on test data."""
         raise NotImplementedError
 
@@ -86,7 +88,7 @@ class Inference(ABC):
         img_nrrd = itk.GetImageFromArray(pred.astype("int16"))
 
         if self.original_data_path is not None:
-            if self.task == Task.CONTRAST or self.joint_stage == Task.CONTRAST:
+            if self.stage == Task.CONTRAST:
                 original = itk.ReadImage(str(self.original_data_path / subject_id[0:6] / f"{subject_id}.nrrd"))
                 z_offset = self.TestGenerator.source_coords[target_id][subject_id][0]
 
@@ -102,14 +104,27 @@ class Inference(ABC):
             new_origin = (origin[0], origin[1], origin[2] + z_offset)
             img_nrrd.SetOrigin(new_origin)
 
+        if self.stage == Task.CONTRAST:
+            target_candidates = fnmatch.filter(self.TestGenerator.source_coords.keys(), f"{subject_id[0:6]}AC*")
+            target_index = target_candidates.index[target_id]
+
+            if target_index > 0:
+                subject_id = f"{subject_id}_L"
+
         itk.WriteImage(img_nrrd, str(self.save_path / f"{subject_id}.nrrd"))
         print(f"{subject_id} saved")
 
     def calc_L1(self, pred: npt.NDArray[np.float32], subject_id: str, target_id: str) -> None:
         """Calculate L1 between predicted and ground truth image."""
 
-        if self.task == Task.CONTRAST or self.joint_stage == Task.CONTRAST:
+        if self.stage == Task.CONTRAST:
             ground_truth = np.load(self.data_path / "CE" / f"{target_id}.npy")
+            target_candidates = fnmatch.filter(self.TestGenerator.source_coords.keys(), f"{subject_id[0:6]}AC*")
+            target_index = target_candidates.index(target_id)
+
+            if target_index > 0:
+                subject_id = f"{subject_id}_L"
+
         else:
             ground_truth = np.load(self.data_path / "HQ" / f"{target_id}.npy")
             source_coords = list(self.TestGenerator.source_coords[subject_id].values())[0]
@@ -121,7 +136,31 @@ class Inference(ABC):
             ground_truth = ground_truth[coords[0]:coords[1], :, :]
 
         print(f"{subject_id} metrics processed")
-        return float(L1(ground_truth.astype("float32"), pred))
+        return float(L1(ground_truth.astype("float32"), pred)), subject_id
+
+    def calc_metrics(self, pred: npt.NDArray[np.float32], subject_id: str, target_id: str) -> None:
+        """Calculate MSE, pSNR, SSIM between predicted and ground truth image."""
+
+        if self.stage == Task.CONTRAST:
+            ground_truth = np.load(self.data_path / "CE" / f"{target_id}.npy")
+
+        else:
+            ground_truth = np.load(self.data_path / "HQ" / f"{target_id}.npy")
+            source_coords = list(self.TestGenerator.source_coords[subject_id].values())[0]
+            target_coords = list(self.TestGenerator.source_coords[target_id].values())[0]
+            coords = [
+                source_coords[0] - target_coords[0],
+                source_coords[0] - target_coords[0] + (LQ_SLICE_THICK * LQ_DEPTH)
+            ]
+            ground_truth = ground_truth[coords[0]:coords[1], :, :]
+
+        metrics = {
+            "MSE": mean_squared_error(ground_truth, pred),
+            "pSNR": peak_signal_noise_ratio(ground_truth, pred, data_range=HU_MAX - HU_MIN),
+            "SSIM": structural_similarity(ground_truth, pred, data_range=HU_MAX - HU_MIN),
+        }
+
+        return metrics
 
 
 #-------------------------------------------------------------------------
@@ -130,12 +169,12 @@ class Inference(ABC):
 class SingleScaleInference(Inference):
     """Perform inference on images with single scale/patch-based models."""
 
-    def __init__(self, config: dict[str, Any], joint_stage: str | None = None):
-        super().__init__(config, joint_stage)
+    def __init__(self, config: dict[str, Any], stage: str | None = None):
+        super().__init__(config, stage)
 
-        self.joint_stage = joint_stage
+        self.stage = stage
 
-        if (self.task == Task.CONTRAST or joint_stage == Task.CONTRAST):
+        if stage == Task.CONTRAST:
             depth, height, width = config["data"]["target_dims"]
         else:
             depth, height, width = config["data"]["source_dims"]
@@ -145,32 +184,30 @@ class SingleScaleInference(Inference):
         self.scale = config["hyperparameters"]["scales"][0]
         self.patch_size = [depth, height // self.scale, width // self.scale]
 
-        if (self.task == Task.CONTRAST or joint_stage == Task.CONTRAST) and self.scale == 1:
+        if stage == Task.CONTRAST and self.scale == 1:
             self.strides = [depth // STRIDE_FACTOR, 1, 1]
-        elif (self.task == Task.CONTRAST or joint_stage == Task.CONTRAST) and self.scale > 1:
+        elif stage == Task.CONTRAST and self.scale > 1:
             self.strides = [depth // STRIDE_FACTOR, self.patch_size[1] // STRIDE_FACTOR, self.patch_size[2] // STRIDE_FACTOR]
-        elif (self.task == Task.SUPER_RES or joint_stage == Task.SUPER_RES) and self.scale == 1:
+        elif stage == Task.SUPER_RES and self.scale == 1:
             self.strides = [1, 1, 1]
-        elif (self.task == Task.SUPER_RES or joint_stage == Task.SUPER_RES) and self.scale > 1:
+        elif stage == Task.SUPER_RES and self.scale > 1:
             self.strides = [1, self.patch_size[1] // STRIDE_FACTOR, self.patch_size[2] // STRIDE_FACTOR]
 
         self.patches_per_slice = self.calc_patches_per_slice()
 
     def run(self, option) -> list[float]:
         """Run inference on test data."""
-        metrics = {"id": [], "L1": []}
+        metrics = {"id": [], "L1": [], "MSE": [], "pSNR": [], "SSIM": []}
 
         for data in self.test_ds:
             source = data["source"][0, ...]
             subject_id = data["subject_id"][0].numpy().decode("utf-8")
             target_id = data["target_id"][0].numpy().decode("utf-8")
 
-            if self.task == Task.CONTRAST or (self.task == Task.JOINT and self.joint_stage == Task.CONTRAST):
+            if self.stage == Task.CONTRAST:
                 self.combine.new_subject(source.shape)
-            elif self.task == Task.SUPER_RES or (self.task == Task.JOINT and self.joint_stage == Task.SUPER_RES):
+            elif self.stage == Task.SUPER_RES:
                 self.combine.new_subject(self.target_dims)
-            elif self.task == Task.JOINT and self.joint_stage is None:
-                raise ValueError(self.task, self.joint_stage)
 
             # Generate indices of individual patches to sample
             linear_indices = generate_indices(source.shape, self.strides, self.patch_size)
@@ -185,8 +222,8 @@ class SingleScaleInference(Inference):
                 stack_depth = patch_stack.shape[0]
 
                 for j in range(0, stack_depth, self.mb_size):
-                    if self.joint_stage is not None:
-                        pred_mb, _ = self.model(patch_stack[j:j + self.mb_size, ...], self.joint_stage)
+                    if self.expt_type == "joint":
+                        pred_mb, _ = self.model(patch_stack[j:j + self.mb_size, ...], self.stage)
                     else:
                         pred_mb, _ = self.model(patch_stack[j:j + self.mb_size, ...])
 
@@ -197,7 +234,7 @@ class SingleScaleInference(Inference):
                         pred_stack.extend(pred_mb[:, :, :, :, 0])
 
             # Super-resolution requires updated indices for super-resolved image
-            if (self.task == Task.SUPER_RES or self.joint_stage == Task.SUPER_RES):
+            if self.stage == Task.SUPER_RES:
                 z_scaling = self.target_dims[0] // self.source_dims[0]
                 new_strides = [self.strides[0] * z_scaling] + self.strides[1:]
                 new_patch_size = [self.patch_size[0] * z_scaling] + self.patch_size[1:]
@@ -217,8 +254,13 @@ class SingleScaleInference(Inference):
             elif option == Options.DISPLAY:
                 self.display(pred, subject_id)
             elif option == Options.METRICS:
-                metrics["id"].append(subject_id)
-                metrics["L1"].append(self.calc_L1(pred, subject_id, target_id))
+                metrics_L1, return_id = self.calc_L1(pred, subject_id, target_id)
+                metrics["id"].append(return_id)
+                metrics["L1"].append(metrics_L1)
+                detailed_metrics = self.calc_metrics(pred, subject_id, target_id)
+
+                for k, v in detailed_metrics.items():
+                    metrics[k].append(v)
             else:
                 raise ValueError(f"Option not recognised: {option}")
 
