@@ -16,7 +16,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", "-p", help="Expt path", type=str)
     parser.add_argument("--data", '-d', help="Data path", type=str)
-    parser.add_argument("--stage", '-s', help="Joint stage", type=str)
+    parser.add_argument("--stage", '-st', help="Joint stage", type=str)
+    parser.add_argument("--subset", '-su', help="Data subset", type=str)
     parser.add_argument("--minibatch", '-m', help="Minibatch size", type=int, default=1)
     parser.add_argument("--dev", '-dv', help="Development mode", action="store_true")
     arguments = parser.parse_args()
@@ -50,7 +51,13 @@ def main() -> None:
     else:
         inference = MultiScaleInference(config_copy, stage=arguments.stage)
 
-    for subset in ["test"]:#Subsets:
+    if arguments.subset is None:
+        subsets = Subsets
+    else:
+        assert arguments.subset in list(Subsets)
+        subsets = [arguments.subset]
+
+    for subset in subsets:
         config_copy = copy.deepcopy(config)  # Avoid subset-specific params being overwritten
 
         if subset == Subsets.TEST:
