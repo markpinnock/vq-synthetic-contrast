@@ -44,6 +44,10 @@ def main() -> None:
     else:
         config["data"]["down_sample"] = 1
 
+    # Set data type
+    if config["expt"]["expt_type"] == Task.JOINT:
+        config["data"]["type"] = arguments.stage
+
     inference: Inference
 
     if len(config["hyperparameters"]["scales"]) == 1:
