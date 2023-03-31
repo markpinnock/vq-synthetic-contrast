@@ -83,19 +83,20 @@ class Inference(ABC):
         plt.title(subject_id)
         plt.show()
 
-    def save(self, pred: npt.NDArray[np.float32], subject_id: str, target_id: str) -> float:
+    def save(self, pred: npt.NDArray[np.float32], source_id: str, target_id: str) -> float:
         """Save predicted images."""
         img_nrrd = itk.GetImageFromArray(pred.astype("int16"))
 
         if self.original_data_path is not None:
-            if self.stage == Task.CONTRAST:
-                original = itk.ReadImage(str(self.original_data_path / subject_id[0:6] / f"{subject_id}.nrrd"))
-                z_offset = self.TestGenerator.source_coords[target_id][subject_id][0]
+
+            if self.stage == Task.CONTRAST and source_id in self.TestGenerator.source_coords[target_id].keys():
+                original = itk.ReadImage(str(self.original_data_path / source_id[0:6] / f"{source_id}.nrrd"))
+                z_offset = self.TestGenerator.source_coords[target_id][source_id][0]
 
             else:
-                base_hq_name = list(self.TestGenerator.source_coords[subject_id].keys())[0]
-                original = itk.ReadImage(str(self.original_data_path / subject_id[0:6] / f"{base_hq_name}.nrrd"))
-                source_coords = list(self.TestGenerator.source_coords[subject_id].values())[0]
+                base_hq_name = list(self.TestGenerator.source_coords[source_id].keys())[0]
+                original = itk.ReadImage(str(self.original_data_path / source_id[0:6] / f"{base_hq_name}.nrrd"))
+                source_coords = list(self.TestGenerator.source_coords[source_id].values())[0]
                 z_offset = source_coords[0]
 
             img_nrrd.SetDirection(original.GetDirection())
@@ -104,60 +105,19 @@ class Inference(ABC):
             new_origin = (origin[0], origin[1], origin[2] + z_offset)
             img_nrrd.SetOrigin(new_origin)
 
-        if self.stage == Task.CONTRAST:
-            target_candidates = fnmatch.filter(self.TestGenerator.source_coords.keys(), f"{subject_id[0:6]}AC*")
-            target_index = target_candidates.index[target_id]
+        itk.WriteImage(img_nrrd, str(self.save_path / f"{source_id}.nrrd"))
+        print(f"{source_id} saved")
 
-            if target_index > 0:
-                subject_id = f"{subject_id}_L"
-
-        itk.WriteImage(img_nrrd, str(self.save_path / f"{subject_id}.nrrd"))
-        print(f"{subject_id} saved")
-
-    def calc_L1(self, pred: npt.NDArray[np.float32], subject_id: str, target_id: str) -> None:
-        """Calculate L1 between predicted and ground truth image."""
-
-        if self.stage == Task.CONTRAST:
-            ground_truth = np.load(self.data_path / "CE" / f"{target_id}.npy")
-            target_candidates = fnmatch.filter(self.TestGenerator.source_coords.keys(), f"{subject_id[0:6]}AC*")
-            target_index = target_candidates.index(target_id)
-
-            if target_index > 0:
-                subject_id = f"{subject_id}_L"
-
-        else:
-            ground_truth = np.load(self.data_path / "HQ" / f"{target_id}.npy")
-            source_coords = list(self.TestGenerator.source_coords[subject_id].values())[0]
-            target_coords = list(self.TestGenerator.source_coords[target_id].values())[0]
-            coords = [
-                source_coords[0] - target_coords[0],
-                source_coords[0] - target_coords[0] + (LQ_SLICE_THICK * LQ_DEPTH)
-            ]
-            ground_truth = ground_truth[coords[0]:coords[1], :, :]
-
-        print(f"{subject_id} metrics processed")
-        return float(L1(ground_truth.astype("float32"), pred)), subject_id
-
-    def calc_metrics(self, pred: npt.NDArray[np.float32], subject_id: str, target_id: str) -> None:
+    def calc_metrics(
+            self,
+            pred: npt.NDArray[np.float32],
+            target: npt.NDArray[np.float32]
+        ) -> None:
         """Calculate MSE, pSNR, SSIM between predicted and ground truth image."""
-
-        if self.stage == Task.CONTRAST:
-            ground_truth = np.load(self.data_path / "CE" / f"{target_id}.npy")
-
-        else:
-            ground_truth = np.load(self.data_path / "HQ" / f"{target_id}.npy")
-            source_coords = list(self.TestGenerator.source_coords[subject_id].values())[0]
-            target_coords = list(self.TestGenerator.source_coords[target_id].values())[0]
-            coords = [
-                source_coords[0] - target_coords[0],
-                source_coords[0] - target_coords[0] + (LQ_SLICE_THICK * LQ_DEPTH)
-            ]
-            ground_truth = ground_truth[coords[0]:coords[1], :, :]
-
         metrics = {
-            "MSE": mean_squared_error(ground_truth, pred),
-            "pSNR": peak_signal_noise_ratio(ground_truth, pred, data_range=HU_MAX - HU_MIN),
-            "SSIM": structural_similarity(ground_truth, pred, data_range=HU_MAX - HU_MIN),
+            "MSE": mean_squared_error(target, pred),
+            "pSNR": peak_signal_noise_ratio(target, pred, data_range=HU_MAX - HU_MIN),
+            "SSIM": structural_similarity(target, pred, data_range=HU_MAX - HU_MIN),
         }
 
         return metrics
@@ -201,7 +161,7 @@ class SingleScaleInference(Inference):
 
         for data in self.test_ds:
             source = data["source"][0, ...]
-            subject_id = data["subject_id"][0].numpy().decode("utf-8")
+            subject_id = data["source_id"][0].numpy().decode("utf-8")
             target_id = data["target_id"][0].numpy().decode("utf-8")
 
             if self.stage == Task.CONTRAST:
@@ -222,7 +182,7 @@ class SingleScaleInference(Inference):
                 stack_depth = patch_stack.shape[0]
 
                 for j in range(0, stack_depth, self.mb_size):
-                    if self.expt_type == "joint":
+                    if self.expt_type == Task.JOINT:
                         pred_mb, _ = self.model(patch_stack[j:j + self.mb_size, ...], self.stage)
                     else:
                         pred_mb, _ = self.model(patch_stack[j:j + self.mb_size, ...])
@@ -251,16 +211,22 @@ class SingleScaleInference(Inference):
 
             if option == Options.SAVE:
                 self.save(pred, subject_id, target_id)
+
             elif option == Options.DISPLAY:
                 self.display(pred, subject_id)
-            elif option == Options.METRICS:
-                metrics_L1, return_id = self.calc_L1(pred, subject_id, target_id)
-                metrics["id"].append(return_id)
-                metrics["L1"].append(metrics_L1)
-                detailed_metrics = self.calc_metrics(pred, subject_id, target_id)
 
+            elif option == Options.METRICS:
+                target = self.TestGenerator.un_normalise(data["target"][0, ...]).numpy()
+
+                metrics["id"].append(subject_id)
+                metrics["L1"].append(float(L1(target.astype("float32"), pred)))
+
+                detailed_metrics = self.calc_metrics(pred, target)
                 for k, v in detailed_metrics.items():
                     metrics[k].append(v)
+
+                print(f"{subject_id} metrics processed")
+
             else:
                 raise ValueError(f"Option not recognised: {option}")
 
