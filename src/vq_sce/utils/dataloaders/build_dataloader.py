@@ -81,7 +81,12 @@ def get_test_dataloader(
         TestGenerator = Dataloader(config=config["data"], dataset_type=Subsets.VALID, dev=dev)
 
     # Create dataloader
-    output_types = {"source": "float32", "subject_id": tf.string, "target_id": tf.string}
+    output_types = {
+        "source": "float32",
+        "target": "float32",
+        "source_id": tf.string,
+        "target_id": tf.string,
+    }
 
     test_ds = tf.data.Dataset.from_generator(
         generator=TestGenerator.inference_generator,

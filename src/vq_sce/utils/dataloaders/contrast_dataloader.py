@@ -1,3 +1,4 @@
+import fnmatch
 import json
 import numpy as np
 from pathlib import Path
@@ -31,6 +32,7 @@ class ContrastDataloader(BaseDataloader):
 
         self._sources = {}
         self._targets = {t.stem: t for t in self._target_path.glob("*")}
+        self._target_source_map = {}
 
         for t in self._targets.keys():
             source_ids = list(self._source_coords[t].keys())
@@ -38,6 +40,7 @@ class ContrastDataloader(BaseDataloader):
                 candidate_sources = list(self._source_path.glob(f"{source_id}.npy"))
                 assert len(candidate_sources) == 1, f"Too many sources: {candidate_sources}"
                 self._sources[candidate_sources[0].stem] = candidate_sources[0]
+                self._target_source_map[t] = candidate_sources[0].stem
 
         np.random.seed(RANDOM_SEED)
         self._train_val_split()
@@ -45,9 +48,6 @@ class ContrastDataloader(BaseDataloader):
         np.random.seed()
 
         self._target_ids = list(self._targets.keys())
-        self._target_source_map = {
-            k: list(self._source_coords[k].keys()) for k in self._target_ids
-        }
 
     def _calc_coords(
         self,
@@ -98,33 +98,70 @@ class ContrastDataloader(BaseDataloader):
             target = np.load(self._target_path / f"{target_id}.npy")
             target = self._preprocess_image(target, None, None)
 
-            for source_id in self._target_source_map[target_id]:
-                ce_coords = self._calc_coords(target_id)
-                source = np.load(self._source_path / f"{source_id}.npy")
-                source = self._preprocess_image(source, ce_coords[0], ce_coords[1])
-                total_depth = target.shape[0]
-                num_iter = total_depth // MIN_HQ_DEPTH
+            source_id = self._target_source_map[target_id]
+            ce_coords = self._calc_coords(target_id)
+            source = np.load(self._source_path / f"{source_id}.npy")
+            source = self._preprocess_image(source, ce_coords[0], ce_coords[1])
+            total_depth = target.shape[0]
+            num_iter = total_depth // MIN_HQ_DEPTH
 
-                for _ in range(num_iter):
-                    z = np.random.randint(0, total_depth - MIN_HQ_DEPTH + 1)
-                    sub_target = target[z:(z + MIN_HQ_DEPTH), :, :, np.newaxis]
-                    sub_source = source[z:(z + MIN_HQ_DEPTH), :, :, np.newaxis]
+            for _ in range(num_iter):
+                z = np.random.randint(0, total_depth - MIN_HQ_DEPTH + 1)
+                sub_target = target[z:(z + MIN_HQ_DEPTH), :, :, np.newaxis]
+                sub_source = source[z:(z + MIN_HQ_DEPTH), :, :, np.newaxis]
 
-                    data_dict: DataDictType = {
-                        "source": sub_source,
-                        "target": sub_target
-                    }
-    
-                    yield data_dict
+                data_dict: DataDictType = {
+                    "source": sub_source,
+                    "target": sub_target
+                }
+
+                yield data_dict
 
     def inference_generator(self) -> Iterator[dict[str, Any]]:
         for target_id in self._target_ids:
-            for source_id in self._target_source_map[target_id]:
-                lower, upper = self._source_coords[target_id][source_id]
-                source = np.load(self._source_path / f"{source_id}.npy")
-                source = self._preprocess_image(source, lower, upper)
+            source_candidates = fnmatch.filter(self.source_coords.keys(), f"{target_id[0:6]}HQ*")
+            target_candidates = fnmatch.filter(self.source_coords.keys(), f"{target_id[0:6]}AC*")
 
-                yield {"source": source, "subject_id": source_id, "target_id": target_id}
+            source_candidates += [self._target_source_map[target_id]]
+            sort_by_closest = sorted(source_candidates, key=lambda x: abs(int(x[-3:]) - int(target_id[-3:])))
+
+            if int(target_id[-3:]) < int(sort_by_closest[0][-3:]) and len(target_candidates) == 1:
+                source_id = self._target_source_map[target_id]
+            else:
+                source_id = sort_by_closest[0]
+            source = np.load(self._source_path / f"{source_id}.npy")
+            target = np.load(self._target_path / f"{target_id}.npy")
+
+            # If target is initial CE image
+            if source_id == self._target_source_map[target_id]:
+                lower, upper = self._source_coords[target_id][self._target_source_map[target_id]]
+                source = self._preprocess_image(source, lower, upper)
+                target = self._preprocess_image(target, None, None)
+
+            # If target is late CE image
+            else:
+                lower_1, upper_1 = self._source_coords[source_id][self._target_source_map[target_id]]
+                lower_2, upper_2 = self._source_coords[target_id][self._target_source_map[target_id]]
+                # I.e. source - target
+                lower = lower_1 - lower_2
+                upper = upper_1 - upper_2
+
+                if lower >= 0 and upper <= 0:
+                    source = self._preprocess_image(source, None, None)
+                    target = self._preprocess_image(target, lower, lower + source.shape[0])
+                elif lower >= 0 and upper > 0:
+                    source = self._preprocess_image(source, None, target.shape[0] - lower)
+                    target = self._preprocess_image(target, lower, None)
+                elif lower < 0 and upper <= 0:
+                    source = self._preprocess_image(source, -lower, None)
+                    target = self._preprocess_image(target, None, source.shape[0] + lower)
+                elif lower < 0 and upper > 0:
+                    source = self._preprocess_image(source, -lower, -lower + target.shape[0])
+                    target = self._preprocess_image(target, None)
+                else:
+                    raise ValueError(f"Lower: {lower}, upper: {upper}")
+
+            yield {"source": source, "target": target, "source_id": source_id, "target_id": target_id}
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------
