@@ -15,7 +15,7 @@ from vq_sce.utils.dataloaders.base_dataloader import BaseDataloader, DataDictTyp
 """
 
 class ContrastDataloader(BaseDataloader):
-    _target_source_map: dict[str, list[str]]
+    _target_source_map: dict[str, str]
 
     def __init__(self, config: dict[str, Any], dataset_type: str, dev: bool = False) -> None:
 
@@ -157,7 +157,7 @@ class ContrastDataloader(BaseDataloader):
                     target = self._preprocess_image(target, None, source.shape[0] + lower)
                 elif lower < 0 and upper > 0:
                     source = self._preprocess_image(source, -lower, -lower + target.shape[0])
-                    target = self._preprocess_image(target, None)
+                    target = self._preprocess_image(target, None, None)
                 else:
                     raise ValueError(f"Lower: {lower}, upper: {upper}")
 
@@ -185,27 +185,27 @@ if __name__ == "__main__":
         target = TestLoader.un_normalise(data["target"])
 
         plt.subplot(3, 2, 1)
-        plt.imshow(source[0, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(source[0, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         plt.subplot(3, 2, 2)
-        plt.imshow(source[1, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(source[1, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         plt.subplot(3, 2, 3)
-        plt.imshow(target[0, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(target[0, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         plt.subplot(3, 2, 4)
-        plt.imshow(target[1, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(target[1, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         plt.subplot(3, 2, 5)
-        plt.imshow(target[0, 11, :, :, 0].numpy() - source[0, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(target[0, 11, :, :, 0].numpy() - source[0, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         plt.subplot(3, 2, 6)
-        plt.imshow(target[1, 11, :, :, 0].numpy() - source[1, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(target[1, 11, :, :, 0].numpy() - source[1, 11, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         plt.show()

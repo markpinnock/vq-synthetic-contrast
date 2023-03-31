@@ -55,7 +55,7 @@ def main() -> None:
         subsets = Subsets
     else:
         assert arguments.subset in list(Subsets)
-        subsets = [arguments.subset]
+        subsets = [arguments.subset]  # type: ignore
 
     for subset in subsets:
         config_copy = copy.deepcopy(config)  # Avoid subset-specific params being overwritten

@@ -149,27 +149,27 @@ if __name__ == "__main__":
         target = TestLoader.un_normalise(data["target"])
 
         plt.subplot(3, 2, 1)
-        plt.imshow(source[0, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(source[0, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         plt.subplot(3, 2, 2)
-        plt.imshow(source[1, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(source[1, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250) 
         plt.axis("off")
 
         plt.subplot(3, 2, 3)
-        plt.imshow(target[0, 6, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(target[0, 6, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         plt.subplot(3, 2, 4)
-        plt.imshow(target[1, 6, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(target[1, 6, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         plt.subplot(3, 2, 5)
-        plt.imshow(target[0, 6, :, :, 0].numpy() - source[0, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(target[0, 6, :, :, 0].numpy() - source[0, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         plt.subplot(3, 2, 6)
-        plt.imshow(target[1, 6, :, :, 0].numpy() - source[1, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(target[1, 6, :, :, 0].numpy() - source[1, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         plt.show()

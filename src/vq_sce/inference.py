@@ -56,7 +56,7 @@ class Inference(ABC):
         self.combine = CombinePatches()
 
     @abstractmethod
-    def run(self, save: bool, return_metrics: bool = False) -> None:
+    def run(self, option: str) -> dict[str, list[float]] | None:
         """Run inference on test data."""
         raise NotImplementedError
 
@@ -83,7 +83,7 @@ class Inference(ABC):
         plt.title(subject_id)
         plt.show()
 
-    def save(self, pred: npt.NDArray[np.float32], source_id: str, target_id: str) -> float:
+    def save(self, pred: npt.NDArray[np.float32], source_id: str, target_id: str) -> None:
         """Save predicted images."""
         img_nrrd = itk.GetImageFromArray(pred.astype("int16"))
 
@@ -112,7 +112,7 @@ class Inference(ABC):
             self,
             pred: npt.NDArray[np.float32],
             target: npt.NDArray[np.float32]
-        ) -> None:
+        ) -> dict[str, float]:
         """Calculate MSE, pSNR, SSIM between predicted and ground truth image."""
         metrics = {
             "MSE": mean_squared_error(target, pred),
@@ -155,9 +155,9 @@ class SingleScaleInference(Inference):
 
         self.patches_per_slice = self.calc_patches_per_slice()
 
-    def run(self, option) -> list[float]:
+    def run(self, option: str) -> dict[str, list[float]] | None:
         """Run inference on test data."""
-        metrics = {"id": [], "L1": [], "MSE": [], "pSNR": [], "SSIM": []}
+        metrics: dict[str, list[float]] = {"id": [], "L1": [], "MSE": [], "pSNR": [], "SSIM": []}
 
         for data in self.test_ds:
             source = data["source"][0, ...]
@@ -242,8 +242,8 @@ class SingleScaleInference(Inference):
 class MultiScaleInference(Inference):
     """Perform inference on images with multi-scale models."""
 
-    def __init__(self, config: dict[str, Any]):
-        super().__init__(config)
+    def __init__(self, config: dict[str, Any], stage: str | None = None):
+        super().__init__(config, stage)
 
         depth, height, width = config["data"]["target_dims"]
         scales = config["hyperparameters"]["scales"]
@@ -253,7 +253,7 @@ class MultiScaleInference(Inference):
         self.dn_samp = config["hyperparameters"]["scales"][0]
         self.num_scales = len(config["hyperparameters"]["scales"])
 
-    def run(self, save: bool) -> None:
+    def run(self, option: str) -> dict[str, list[float]] | None:
         """Run inference on test data."""
         for data in self.test_ds:
             source = data["source"][0, ...]
