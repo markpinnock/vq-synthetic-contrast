@@ -2,16 +2,17 @@ import argparse
 import datetime
 import os
 from pathlib import Path
-import tensorflow as tf
 from typing import Any
+
+import tensorflow as tf
 import yaml
 
 from vq_sce import RANDOM_SEED
 from vq_sce.networks.build_model import build_model
 from vq_sce.trainers.build_trainer import build_training_loop
 
+# -------------------------------------------------------------------------
 
-#-------------------------------------------------------------------------
 
 def train(config: dict[str, Any], dev: bool) -> None:
     tf.random.set_seed(RANDOM_SEED)
@@ -36,7 +37,7 @@ def train(config: dict[str, Any], dev: bool) -> None:
     # Write graph for visualising in Tensorboard
     if config["expt"]["graph"]:
         curr_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        log_dir = str(Path(config['paths']['expt_path']) / "logs" / curr_time)
+        log_dir = str(Path(config["paths"]["expt_path"]) / "logs" / curr_time)
         writer = tf.summary.create_file_writer(log_dir)
 
         @tf.function
@@ -55,10 +56,10 @@ def train(config: dict[str, Any], dev: bool) -> None:
     training_loop.train()
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
+
 
 def main() -> None:
-
     # Handle arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", "-p", help="Expt path", type=str)
@@ -78,9 +79,9 @@ def main() -> None:
         os.makedirs(expt_path / "models")
 
     # Parse config json
-    with open(expt_path / "config.yml", 'r') as infile:
+    with open(expt_path / "config.yml") as infile:
         config = yaml.load(infile, yaml.FullLoader)
-    
+
     config["paths"]["expt_path"] = arguments.path
 
     # Set GPU
@@ -90,11 +91,11 @@ def main() -> None:
         gpus = tf.config.experimental.list_physical_devices("GPU")
         tf.config.set_visible_devices(gpus[gpu_number], "GPU")
         tf.config.experimental.set_memory_growth(gpus[gpu_number], True)
-    
+
     train(config, arguments.dev)
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

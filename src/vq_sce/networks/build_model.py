@@ -1,16 +1,17 @@
-import tensorflow as tf
 from typing import Any
+
+import tensorflow as tf
 import yaml
 
-from .model import Model, JointModel, DualModel
-from .multiscale_model import MultiscaleModel, JointMultiscaleModel
+from .model import DualModel, JointModel, Model
+from .multiscale_model import JointMultiscaleModel, MultiscaleModel
 
 MODEL_DICT = {
     "single_scale": Model,
     "multi_scale": MultiscaleModel,
     "single_joint": JointModel,
     "multi_joint": JointMultiscaleModel,
-    "single_dual": DualModel
+    "single_dual": DualModel,
 }
 
 
@@ -26,9 +27,9 @@ def build_model(config: dict[str, Any], purpose: str = "training") -> tf.keras.M
     elif len(scales) > 1 and expt_type == "joint":
         model = JointMultiscaleModel(config)
     elif len(scales) == 1 and expt_type == "dual":
-        with open(config["paths"]["ce_path"] / "config.yml", 'r') as fp:
+        with open(config["paths"]["ce_path"] / "config.yml") as fp:
             ce_config = yaml.load(fp, yaml.FullLoader)
-        with open(config["paths"]["sr_path"] / "config.yml", 'r') as fp:
+        with open(config["paths"]["sr_path"] / "config.yml") as fp:
             sr_config = yaml.load(fp, yaml.FullLoader)
 
         model = DualModel(sr_config, ce_config)
@@ -37,7 +38,9 @@ def build_model(config: dict[str, Any], purpose: str = "training") -> tf.keras.M
         raise ValueError(scales, expt_type)
 
     if purpose == "training":
-        optimiser = tf.keras.optimizers.Adam(*config["hyperparameters"]["opt"], name="opt")
+        optimiser = tf.keras.optimizers.Adam(
+            *config["hyperparameters"]["opt"], name="opt"
+        )
         model.compile(optimiser)
         return model
     elif purpose == "inference" and expt_type == "single":
@@ -46,8 +49,12 @@ def build_model(config: dict[str, Any], purpose: str = "training") -> tf.keras.M
         return model
     elif purpose == "inference" and expt_type == "joint":
         model.build_model()
-        model.ce_UNet.load_weights(config["paths"]["expt_path"] / "models" / "ce_model.ckpt")
-        model.sr_UNet.load_weights(config["paths"]["expt_path"] / "models" / "sr_model.ckpt")
+        model.ce_UNet.load_weights(
+            config["paths"]["expt_path"] / "models" / "ce_model.ckpt",
+        )
+        model.sr_UNet.load_weights(
+            config["paths"]["expt_path"] / "models" / "sr_model.ckpt",
+        )
         return model
     elif expt_type == "dual":
         model.build_model()

@@ -1,10 +1,11 @@
 import argparse
 import copy
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
 import yaml
 
-from vq_sce.inference import Inference, SingleScaleInference, MultiScaleInference
+from vq_sce.inference import Inference, MultiScaleInference, SingleScaleInference
 from vq_sce.networks.model import Task
 from vq_sce.utils.dataloaders.build_dataloader import Subsets, get_test_dataloader
 
@@ -15,17 +16,17 @@ def main() -> None:
     # Handle arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", "-p", help="Expt path", type=str)
-    parser.add_argument("--data", '-d', help="Data path", type=str)
-    parser.add_argument("--stage", '-st', help="Joint stage", type=str)
-    parser.add_argument("--subset", '-su', help="Data subset", type=str)
-    parser.add_argument("--minibatch", '-m', help="Minibatch size", type=int, default=1)
-    parser.add_argument("--dev", '-dv', help="Development mode", action="store_true")
+    parser.add_argument("--data", "-d", help="Data path", type=str)
+    parser.add_argument("--stage", "-st", help="Joint stage", type=str)
+    parser.add_argument("--subset", "-su", help="Data subset", type=str)
+    parser.add_argument("--minibatch", "-m", help="Minibatch size", type=int, default=1)
+    parser.add_argument("--dev", "-dv", help="Development mode", action="store_true")
     arguments = parser.parse_args()
 
     expt_path = Path(arguments.path)
 
     # Parse config json
-    with open(expt_path / "config.yml", 'r') as infile:
+    with open(expt_path / "config.yml") as infile:
         config = yaml.load(infile, yaml.FullLoader)
 
     config["paths"]["expt_path"] = Path(arguments.path)
@@ -43,7 +44,9 @@ def main() -> None:
     else:
         config["data"]["down_sample"] = 1
 
-    config_copy = copy.deepcopy(config)  # Avoid subset-specific params being overwritten
+    config_copy = copy.deepcopy(
+        config,
+    )  # Avoid subset-specific params being overwritten
     inference: Inference
 
     if len(config["hyperparameters"]["scales"]) == 1:
@@ -58,7 +61,9 @@ def main() -> None:
         subsets = [arguments.subset]  # type: ignore
 
     for subset in subsets:
-        config_copy = copy.deepcopy(config)  # Avoid subset-specific params being overwritten
+        config_copy = copy.deepcopy(
+            config,
+        )  # Avoid subset-specific params being overwritten
 
         if subset == Subsets.TEST:
             config_copy["data"]["data_path"] = Path(arguments.data) / "test"
@@ -71,9 +76,9 @@ def main() -> None:
             assert arguments.stage == config_copy["data"]["type"]
 
         # Set up dataset and override Inference class's default one
-        test_ds, TestGenerator = get_test_dataloader(config_copy, subset=subset)
+        test_ds, test_generator = get_test_dataloader(config_copy, subset=subset)
         inference.test_ds = test_ds
-        inference.TestGenerator = TestGenerator
+        inference.TestGenerator = test_generator
         inference.data_path = config_copy["data"]["data_path"]
 
         metric_dict = inference.run(option="metrics")
@@ -91,7 +96,11 @@ def main() -> None:
                 df = pd.DataFrame(index=metric_dict["id"])
                 df[f"{config_copy['paths']['expt_path'].stem}"] = metric_dict[metric]
             else:
-                new_df = pd.DataFrame(metric_dict[metric], index=metric_dict["id"], columns=[f"{config_copy['paths']['expt_path'].stem}"])
+                new_df = pd.DataFrame(
+                    metric_dict[metric],
+                    index=metric_dict["id"],
+                    columns=[f"{config_copy['paths']['expt_path'].stem}"],
+                )
                 df = df.join(new_df, how="outer")
 
             df.to_csv(df_path, index=True)

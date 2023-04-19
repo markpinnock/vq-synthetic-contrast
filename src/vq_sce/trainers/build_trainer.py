@@ -1,18 +1,21 @@
-import tensorflow as tf
 from typing import Any
 
-from .trainer import TrainingLoop
-from .joint_trainer import JointTrainingLoop
+import tensorflow as tf
+
 from vq_sce.utils.dataloaders.build_dataloader import get_train_dataloader
 from vq_sce.utils.dataloaders.joint_dataset import JointDataset
 
-TRAINER_DICT = {
-    "single": TrainingLoop,
-    "joint": JointTrainingLoop
-}
+from .joint_trainer import JointTrainingLoop
+from .trainer import TrainingLoop
+
+TRAINER_DICT = {"single": TrainingLoop, "joint": JointTrainingLoop}
 
 
-def build_training_loop(config: dict[str, Any], model: tf.keras.Model, dev: bool) -> Any:
+def build_training_loop(
+    config: dict[str, Any],
+    model: tf.keras.Model,
+    dev: bool,
+) -> Any:
     expt_type = config["expt"]["expt_type"]
 
     # Get datasets and data generator
@@ -22,7 +25,7 @@ def build_training_loop(config: dict[str, Any], model: tf.keras.Model, dev: bool
             "train_dataset": train_ds,
             "val_dataset": val_ds,
             "train_generator": train_gen,
-            "val_generator": val_gen
+            "val_generator": val_gen,
         }
 
     elif expt_type == "joint":
@@ -39,14 +42,12 @@ def build_training_loop(config: dict[str, Any], model: tf.keras.Model, dev: bool
             "ce_train_dataset": ce_train_ds,
             "ce_val_dataset": ce_val_ds,
             "train_generator": train_gen,
-            "val_generator": val_gen
+            "val_generator": val_gen,
         }
 
     else:
         raise ValueError("Must be `single` or `joint`")
 
-    training_loop = TRAINER_DICT[expt_type](Model=model,
-                                            config=config,
-                                            **datasets)
+    training_loop = TRAINER_DICT[expt_type](Model=model, config=config, **datasets)
 
     return training_loop

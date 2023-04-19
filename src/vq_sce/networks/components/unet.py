@@ -1,6 +1,7 @@
+from typing import Any, TypedDict
+
 import numpy as np
 import tensorflow as tf
-from typing import Any, TypedDict
 
 from .layers.conv_layers import BottomBlock, DownBlock, UpBlock, VQConfigType
 from .layers.vq_layers import VQBlock
@@ -8,7 +9,7 @@ from .layers.vq_layers import VQBlock
 MAX_CHANNELS = 512
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 
 
 class CacheType(TypedDict):
@@ -20,7 +21,8 @@ class CacheType(TypedDict):
     upsamp_factor: list[int]
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
+
 
 class UNet(tf.keras.Model):
     _vq_config: VQConfigType | None
@@ -31,9 +33,8 @@ class UNet(tf.keras.Model):
         initialiser: tf.keras.initializers.Initializer,
         config: dict[str, Any],
         shared_vq: VQBlock | None = None,
-        name: str | None = None
+        name: str | None = None,
     ) -> None:
-
         super().__init__(name=name)
 
         # Check network and image dimensions
@@ -47,14 +48,16 @@ class UNet(tf.keras.Model):
             self._vq_layers = config["vq_layers"].keys()
             self._vq_config = {"vq_beta": config["vq_beta"]}  # type: ignore[assignment]
         else:
-           self._vq_layers = []
-           self._vq_config = None
+            self._vq_layers = []
+            self._vq_config = None
 
         self._initialiser = initialiser
-        max_num_layers = int(np.log2(np.min([self._source_dims[1], self._source_dims[2]])))
-        assert config["layers"] <= max_num_layers and config["layers"] >= 0, (
-            f"Maximum number of generator layers: {max_num_layers}"
+        max_num_layers = int(
+            np.log2(np.min([self._source_dims[1], self._source_dims[2]])),
         )
+        assert (
+            config["layers"] <= max_num_layers and config["layers"] >= 0
+        ), f"Maximum number of generator layers: {max_num_layers}"
 
         self.shared_vq = shared_vq
         self.encoder: list[tf.keras.layers.Layer] = []
@@ -63,8 +66,7 @@ class UNet(tf.keras.Model):
         self.get_decoder(cache)
 
     def get_encoder(self) -> CacheType:
-        """" Create U-Net encoder """
-
+        """Create U-Net encoder."""
         # Cache channels, strides and weights
         cache: CacheType = {
             "channels": [],
@@ -72,7 +74,7 @@ class UNet(tf.keras.Model):
             "encode_kernels": [],
             "decode_strides": [],
             "decode_kernels": [],
-            "upsamp_factor": []
+            "upsamp_factor": [],
         }
 
         # Upsample in z-direction for residual if needed
@@ -83,15 +85,14 @@ class UNet(tf.keras.Model):
         target_z = self._target_dims[0]
 
         for i in range(0, self._config["layers"]):
-            channels = np.min([self._config["nc"] * 2 ** i, MAX_CHANNELS])
+            channels = np.min([self._config["nc"] * 2**i, MAX_CHANNELS])
             cache["channels"].append(channels)
             cache["upsamp_factor"].append(target_z // source_z)
 
             # If source z dim is odd or if source feature dim
             # smaller than target feature dim, don't downsample source
-            if ((source_z / 2) - (source_z // 2) != 0 or
-                source_z < target_z):
-                cache["encode_strides"].append((1, 2, 2)) # TODO: can this be moved?
+            if (source_z / 2) - (source_z // 2) != 0 or source_z < target_z:
+                cache["encode_strides"].append((1, 2, 2))
                 cache["encode_kernels"].append((2, 4, 4))
             else:
                 cache["encode_strides"].append((2, 2, 2))
@@ -124,8 +125,9 @@ class UNet(tf.keras.Model):
                     initialiser=self._initialiser,
                     use_vq=use_vq,
                     vq_config=self._vq_config,
-                    name=f"down_{i}")
-                )
+                    name=f"down_{i}",
+                ),
+            )
 
         use_vq = "bottom" in self._vq_layers
         if use_vq:
@@ -139,14 +141,13 @@ class UNet(tf.keras.Model):
             use_vq=use_vq,
             vq_config=self._vq_config,
             shared_vq=self.shared_vq,
-            name="bottom"
+            name="bottom",
         )
 
         return cache
 
     def get_decoder(self, cache: CacheType) -> None:
-        """ Create U-Net decoder """
-
+        """Create U-Net decoder."""
         for i in range(self._config["layers"] - 1, -1, -1):
             channels = cache["channels"][i]
             strides = cache["decode_strides"][i]
@@ -166,15 +167,18 @@ class UNet(tf.keras.Model):
                     initialiser=self._initialiser,
                     use_vq=use_vq,
                     vq_config=self._vq_config,
-                    name=f"up_{i}")
-                )
+                    name=f"up_{i}",
+                ),
+            )
 
         self.final_layer = tf.keras.layers.Conv3D(
-            1, (1, 1, 1), (1, 1, 1),
+            1,
+            (1, 1, 1),
+            (1, 1, 1),
             padding="same",
             activation="tanh",
             kernel_initializer=self._initialiser,
-            name="final"
+            name="final",
         )
 
         if "final" in self._vq_layers:
@@ -182,7 +186,7 @@ class UNet(tf.keras.Model):
                 num_embeddings=self._vq_config["embeddings"],
                 embedding_dim=1,
                 beta=self._vq_config["vq_beta"],
-                name="output_vq"
+                name="output_vq",
             )
         else:
             self.output_vq = None
@@ -214,50 +218,42 @@ class UNet(tf.keras.Model):
             return x + residual_x, self.output_vq(x) + residual_x
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
+
 
 class MultiscaleUNet(UNet):
-
-    """ Input:
-        - initialiser e.g. keras.initializers.RandomNormal
-        - nc: number of channels in first layer
-        - num_layers: number of layers
-        - img_dims: input image size
-        Returns:
-        - keras.Model """
+    """Multiscale UNet.
+    :param initialiser: e.g. keras.initializers.RandomNormal
+    :param nc: number of channels in first layer
+    :param num_layers: number of layers
+    :param img_dims: input image size
+    """
 
     def __init__(
         self,
         initialiser: tf.keras.initializers.Initializer,
         config: dict[str, Any],
         shared_vq: VQBlock | None = None,
-        name: str | None = None
+        name: str | None = None,
     ) -> None:
-
         super().__init__(initialiser, config, shared_vq, name=name)
 
     def get_encoder(self) -> CacheType:
-        """" Create multi-scale U-Net encoder """
-
+        """Create multi-scale U-Net encoder."""
         cache = super().get_encoder()
 
         # Upsample in z-direction for residual if needed
-        self.upsample = tf.keras.layers.UpSampling3D(
-            size=(self._z_upsamp_factor, 2, 2)
-        )
+        self.upsample = tf.keras.layers.UpSampling3D(size=(self._z_upsamp_factor, 2, 2))
 
         return cache
 
-
     def get_decoder(self, cache: CacheType) -> None:
-        """ Create multi-scale U-Net decoder """
-
+        """Create multi-scale U-Net decoder."""
         super().get_decoder(cache)
 
         use_vq = "upsamp" in self._vq_layers
         if use_vq:
-            self._vq_config["embeddings"] = \
-                self._config["vq_layers"]["upsamp"]
+            self._vq_config["embeddings"] = self._config["vq_layers"]["upsamp"]
 
         self.upsample_out = UpBlock(
             cache["channels"][0],
@@ -267,7 +263,7 @@ class MultiscaleUNet(UNet):
             initialiser=self._initialiser,
             use_vq=use_vq,
             vq_config=self._vq_config,
-            name=f"upsamp"
+            name="upsamp",
         )
 
     def call(self, x: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor | None]:
