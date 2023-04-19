@@ -1,37 +1,39 @@
-import tensorflow as tf
 from typing import TypedDict
+
+import tensorflow as tf
 
 from .vq_layers import VQBlock
 
+# -------------------------------------------------------------------------
 
-#-------------------------------------------------------------------------
 
 class VQConfigType(TypedDict):
     vq_beta: float
     embeddings: int
 
 
-#-------------------------------------------------------------------------
-""" Instance normalisation layer for Pix2Pix generator """
+# -------------------------------------------------------------------------
+
 
 class InstanceNorm(tf.keras.layers.Layer):
+    """Instance normalisation layer for Pix2Pix generator."""
 
     def __init__(self, name: str | None = None) -> None:
         super().__init__(name=name)
         self.epsilon = 1e-12
-    
+
     def build(self, input_shape: list[int]) -> None:
         self.beta = self.add_weight(
             "beta",
             shape=[1, 1, 1, 1, input_shape[-1]],
             initializer="zeros",
-            trainable=True
+            trainable=True,
         )
         self.gamma = self.add_weight(
             "gamma",
             shape=[1, 1, 1, 1, input_shape[-1]],
             initializer="ones",
-            trainable=True
+            trainable=True,
         )
 
     def call(self, x: tf.Tensor, training: bool) -> tf.Tensor:
@@ -41,10 +43,11 @@ class InstanceNorm(tf.keras.layers.Layer):
         return (x - mu) / (sigma + self.epsilon) * self.gamma + self.beta
 
 
-#-------------------------------------------------------------------------
-""" Down-sampling convolutional block """
+# -------------------------------------------------------------------------
+
 
 class DownBlock(tf.keras.layers.Layer):
+    """Down-sampling convolutional block."""
 
     def __init__(
         self,
@@ -54,28 +57,32 @@ class DownBlock(tf.keras.layers.Layer):
         initialiser: tf.keras.initializers.Initializer,
         use_vq: bool,
         vq_config: VQConfigType | None,
-        name: str | None = None
+        name: str | None = None,
     ) -> None:
-
         super().__init__(name=name)
         self.conv1 = tf.keras.layers.Conv3D(
-            nc, weights, strides=(1, 1, 1),
+            nc,
+            weights,
+            strides=(1, 1, 1),
             padding="same",
             kernel_initializer=initialiser,
-            name="conv1"
+            name="conv1",
         )
         self.conv2 = tf.keras.layers.Conv3D(
-            nc, weights, strides=strides,
+            nc,
+            weights,
+            strides=strides,
             padding="same",
             kernel_initializer=initialiser,
-            name="conv2"
+            name="conv2",
         )
         self.use_vq = use_vq
         if use_vq and vq_config is not None:
             self.vq = VQBlock(
                 vq_config["embeddings"],
-                nc, vq_config["vq_beta"],
-                name=f"{name}_vq"
+                nc,
+                vq_config["vq_beta"],
+                name=f"{name}_vq",
             )
 
         # Normalisation
@@ -83,7 +90,6 @@ class DownBlock(tf.keras.layers.Layer):
         self.inst_norm_2 = InstanceNorm(name="instancenorm2")
 
     def call(self, x: tf.Tensor, training: bool) -> tuple[tf.Tensor, tf.Tensor]:
-
         # 1st convolution - output to skip layer
         x = self.conv1(x)
         x = self.inst_norm_1(x, training)
@@ -101,10 +107,11 @@ class DownBlock(tf.keras.layers.Layer):
         return tf.nn.relu(x), skip
 
 
-#-------------------------------------------------------------------------
-""" Bottom convolutional block """
+# -------------------------------------------------------------------------
+
 
 class BottomBlock(tf.keras.layers.Layer):
+    """Bottom convolutional block."""
 
     def __init__(
         self,
@@ -115,28 +122,32 @@ class BottomBlock(tf.keras.layers.Layer):
         use_vq: bool,
         vq_config: VQConfigType | None,
         shared_vq: VQBlock | None,
-        name: str | None = None
+        name: str | None = None,
     ) -> None:
-
         super().__init__(name=name)
         self.conv1 = tf.keras.layers.Conv3D(
-            nc, weights, strides=strides,
+            nc,
+            weights,
+            strides=strides,
             padding="same",
             kernel_initializer=initialiser,
-            name="conv1"
+            name="conv1",
         )
         self.conv2 = tf.keras.layers.Conv3D(
-            nc, weights, strides=strides,
+            nc,
+            weights,
+            strides=strides,
             padding="same",
             kernel_initializer=initialiser,
-            name="conv2"
+            name="conv2",
         )
         self.use_vq = use_vq
         if use_vq and shared_vq is None and vq_config is not None:
             self.vq = VQBlock(
-                vq_config["embeddings"], nc,
+                vq_config["embeddings"],
+                nc,
                 vq_config["vq_beta"],
-                name=f"{name}_vq"
+                name=f"{name}_vq",
             )
         elif use_vq and shared_vq is not None and vq_config is not None:
             self.vq = shared_vq
@@ -148,7 +159,6 @@ class BottomBlock(tf.keras.layers.Layer):
         self.inst_norm_2 = InstanceNorm(name="instancenorm2")
 
     def call(self, x: tf.Tensor, training: bool) -> tf.Tensor:
-
         # 1st convolution
         x = self.conv1(x)
         x = self.inst_norm_1(x, training)
@@ -165,10 +175,11 @@ class BottomBlock(tf.keras.layers.Layer):
         return tf.nn.relu(x)
 
 
-#-------------------------------------------------------------------------
-""" Up-sampling convolutional block """
+# -------------------------------------------------------------------------
+
 
 class UpBlock(tf.keras.layers.Layer):
+    """Up-sampling convolutional block."""
 
     def __init__(
         self,
@@ -179,36 +190,42 @@ class UpBlock(tf.keras.layers.Layer):
         initialiser: tf.keras.initializers.Initializer,
         use_vq: bool,
         vq_config: VQConfigType | None,
-        name: str | None = None
+        name: str | None = None,
     ) -> None:
-
         super().__init__(name=name)
         self._upsamp_factor = upsamp_factor
         self.tconv = tf.keras.layers.Conv3DTranspose(
-            nc, weights, strides=strides,
+            nc,
+            weights,
+            strides=strides,
             padding="same",
             kernel_initializer=initialiser,
-            name="tconv"
+            name="tconv",
         )
         self.conv1 = tf.keras.layers.Conv3D(
-            nc, weights, strides=(1, 1, 1),
+            nc,
+            weights,
+            strides=(1, 1, 1),
             padding="same",
             kernel_initializer=initialiser,
-            name="conv1"
+            name="conv1",
         )
         self.conv2 = tf.keras.layers.Conv3D(
-            nc, weights, strides=(1, 1, 1),
+            nc,
+            weights,
+            strides=(1, 1, 1),
             padding="same",
             kernel_initializer=initialiser,
-            name="conv2"
+            name="conv2",
         )
 
         self.use_vq = use_vq
         if use_vq and vq_config is not None:
             self.vq = VQBlock(
                 vq_config["embeddings"],
-                nc, vq_config["vq_beta"],
-                name=f"{name}_vq"
+                nc,
+                vq_config["vq_beta"],
+                name=f"{name}_vq",
             )
 
         # Instance normalisation
@@ -221,19 +238,14 @@ class UpBlock(tf.keras.layers.Layer):
         # Up-sampling module for skip layer if differing input and output dims
         if upsamp_factor > 1:
             self.upsample_skip = UpsampleSkip(
-                nc, (upsamp_factor * 2, 1, 1),
+                nc,
+                (upsamp_factor * 2, 1, 1),
                 strides=(upsamp_factor, 1, 1),
                 initialiser=initialiser,
-                name="upsample_skip"
+                name="upsample_skip",
             )
-    
-    def call(
-        self,
-        x: tf.Tensor,
-        skip: tf.Tensor,
-        training: bool
-    ) -> tf.Tensor:
 
+    def call(self, x: tf.Tensor, skip: tf.Tensor, training: bool) -> tf.Tensor:
         # Transpose convolution and up-sample
         x = self.tconv(x)
         x = self.inst_norm_t(x, training)
@@ -258,10 +270,11 @@ class UpBlock(tf.keras.layers.Layer):
         return tf.nn.relu(x)
 
 
-#-------------------------------------------------------------------------
-""" Layer for up-sampling skip layer if different input and output depth """
+# -------------------------------------------------------------------------
+
 
 class UpsampleSkip(tf.keras.layers.Layer):
+    """Layer for up-sampling skip layer if different input and output depth."""
 
     def __init__(
         self,
@@ -269,21 +282,21 @@ class UpsampleSkip(tf.keras.layers.Layer):
         weights: tuple[int, int, int],
         strides: tuple[int, int, int],
         initialiser: tf.keras.initializers.Initializer,
-        name: str | None = None
+        name: str | None = None,
     ) -> None:
-
         super().__init__(name=name)
         self.tconv = tf.keras.layers.Conv3DTranspose(
-            nc, weights, strides=strides,
+            nc,
+            weights,
+            strides=strides,
             padding="same",
             kernel_initializer=initialiser,
-            name="tconv"
+            name="tconv",
         )
 
         self.inst_norm = InstanceNorm(name="instancenorm")
-    
-    def call(self, x: tf.Tensor, training: bool) -> tf.Tensor:
 
+    def call(self, x: tf.Tensor, training: bool) -> tf.Tensor:
         x = self.tconv(x)
         x = self.inst_norm(x, training)
 

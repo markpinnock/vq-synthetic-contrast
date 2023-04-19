@@ -1,35 +1,43 @@
 import argparse
 import json
-import matplotlib.pyplot as plt
-import numpy as np
 import os
 from pathlib import Path
-import SimpleITK as itk
 from typing import TypedDict
 
+import matplotlib.pyplot as plt
+import numpy as np
+import SimpleITK as itk  # noqa: N813
+
 from vq_sce import (
-    HU_MIN,
-    HU_MAX,
     HQ_SLICE_THICK,
+    HU_MAX,
+    HU_MIN,
     LQ_DEPTH,
     LQ_SLICE_THICK,
-    MIN_HQ_DEPTH
+    MIN_HQ_DEPTH,
 )
 
 HU_DEFAULT = -2048
 HU_THRESHOLD = -2000
 
-TypeImageDict = tuple[dict[str, itk.Image], dict[str, itk.Image], dict[str, itk.Image], dict[str, Path]]
+TypeImageDict = tuple[
+    dict[str, itk.Image],
+    dict[str, itk.Image],
+    dict[str, itk.Image],
+    dict[str, Path],
+]
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
+
 
 class IgnoreType(TypedDict):
     subject_ignore: dict[str, str]
     image_ignore: list[str]
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
+
 
 class ImgConv:
     def __init__(
@@ -40,9 +48,8 @@ class ImgConv:
         ignore: IgnoreType | None = None,
         start_at: str | None = None,
         stop_before: str | None = None,
-        allow_all_ce: bool | None = False
+        allow_all_ce: bool | None = False,
     ) -> None:
-
         self.image_path = Path(file_path) / "Images"
         self.trans_path = Path(file_path) / "Transforms"
         self.save_path = Path(save_path)
@@ -60,7 +67,7 @@ class ImgConv:
         self.HU_filter.SetUpperBound(HU_MAX)
 
         try:
-            with open(self.save_path / "source_coords.json", 'r') as fp:
+            with open(self.save_path / "source_coords.json") as fp:
                 self.source_coords = json.load(fp)
         except FileNotFoundError:
             self.source_coords = {}
@@ -68,7 +75,9 @@ class ImgConv:
         if include is None:
             self.subjects = [name for name in os.listdir(self.image_path)]
         else:
-            self.subjects = [name for name in os.listdir(self.image_path) if name in include]
+            self.subjects = [
+                name for name in os.listdir(self.image_path) if name in include
+            ]
 
         self.subjects = sorted(self.subjects)
         idx_start = None if start_at is None else self.subjects.index(start_at)
@@ -89,98 +98,98 @@ class ImgConv:
         target_name: str,
         source_img: itk.Image,
         target_img: itk.Image,
-        subject_path: Path
+        subject_path: Path,
     ) -> itk.Image:
-
         subject_id = subject_path.stem
-        transform_path = (self.trans_path / subject_id)
-        transform_candidates = list(transform_path.glob(
-            f"{source_name[-3:]}_to_{target_name[-3:]}.h5"
-        ))
-
-        source_img = itk.Resample(
-            source_img, target_img,
-            defaultPixelValue=HU_DEFAULT
+        transform_path = self.trans_path / subject_id
+        transform_candidates = list(
+            transform_path.glob(f"{source_name[-3:]}_to_{target_name[-3:]}.h5"),
         )
+
+        source_img = itk.Resample(source_img, target_img, defaultPixelValue=HU_DEFAULT)
 
         if len(transform_candidates) == 1:
             transform = itk.ReadTransform(str(transform_candidates[0]))
             source_img = itk.Resample(
-                source_img, transform,
-                defaultPixelValue=HU_DEFAULT
+                source_img,
+                transform,
+                defaultPixelValue=HU_DEFAULT,
             )
 
         return source_img
 
-    def _load_images(
-        self,
-        subject_path: Path
-    ) -> TypeImageDict | None:
-
+    def _load_images(self, subject_path: Path) -> TypeImageDict | None:
         # Get candidates for CE, HQ non-CE, HQ post-CE, LQ post-CE
-        CE_paths = list(subject_path.glob("*AC*.nrrd"))
-        HQ_paths = list(subject_path.glob("*HQ*.nrrd"))
-        LQ_paths = list(subject_path.glob("*LQ*.nrrd"))
-        
+        ce_paths = list(subject_path.glob("*AC*.nrrd"))
+        hq_paths = list(subject_path.glob("*HQ*.nrrd"))
+        lq_paths = list(subject_path.glob("*LQ*.nrrd"))
+
         if self.ignore is not None:
-            CE_paths = [
-                p for p in CE_paths if p.stem not in self.ignore["image_ignore"]
+            ce_paths = [
+                p for p in ce_paths if p.stem not in self.ignore["image_ignore"]
             ]
-            HQ_paths = [
-                p for p in HQ_paths if p.stem not in self.ignore["image_ignore"]
+            hq_paths = [
+                p for p in hq_paths if p.stem not in self.ignore["image_ignore"]
             ]
-            LQ_paths = [
-                p for p in LQ_paths if p.stem not in self.ignore["image_ignore"]
+            lq_paths = [
+                p for p in lq_paths if p.stem not in self.ignore["image_ignore"]
             ]
 
-        NCE_path = HQ_paths[0]
-        HQ_paths = HQ_paths[1:-1]
+        nce_path = hq_paths[0]
+        hq_paths = hq_paths[1:-1]
 
         # Ignore CE if multiple
-        if len(CE_paths) > 1 and not self.allow_all_ce:
-            assert int(CE_paths[0].stem[-3:]) > int(NCE_path.stem[-3:]), (
-                        f"{CE_paths[0].stem} vs {NCE_path.stem}")
-            print(f"{subject_path.stem} CE: {len(CE_paths)}")
+        if len(ce_paths) > 1 and not self.allow_all_ce:
+            assert int(ce_paths[0].stem[-3:]) > int(
+                nce_path.stem[-3:],
+            ), f"{ce_paths[0].stem} vs {nce_path.stem}"
+            print(f"{subject_path.stem} CE: {len(ce_paths)}")  # noqa: T201
             return None
 
         # Ignore CE if comes after needle insertion
-        elif len(CE_paths) == 1 and not self.allow_all_ce:
-            assert int(CE_paths[0].stem[-3:]) > int(NCE_path.stem[-3:]), (
-                        f"{CE_paths[0].stem} vs {NCE_path.stem}")
+        elif len(ce_paths) == 1 and not self.allow_all_ce:
+            assert int(ce_paths[0].stem[-3:]) > int(
+                nce_path.stem[-3:],
+            ), f"{ce_paths[0].stem} vs {nce_path.stem}"
 
-            if int(CE_paths[0].stem[-3:]) > int(HQ_paths[0].stem[-3:]):
-                print(f"{subject_path.stem} CE: {CE_paths[0].stem}, HQ: {HQ_paths[0].stem}")
+            if int(ce_paths[0].stem[-3:]) > int(hq_paths[0].stem[-3:]):
+                print(  # noqa: T201
+                    f"{subject_path.stem}"
+                    f"CE: {ce_paths[0].stem}, HQ: {hq_paths[0].stem}",
+                )
                 return None
             else:
-                if (len(LQ_paths) > 0 and 
-                    int(CE_paths[0].stem[-3:]) > int(LQ_paths[0].stem[-3:])):
-                    print(f"{subject_path.stem} CE: {CE_paths[0].stem}, LQ: {LQ_paths[0].stem}")
+                if len(lq_paths) > 0 and int(ce_paths[0].stem[-3:]) > int(
+                    lq_paths[0].stem[-3:],
+                ):
+                    print(  # noqa: T201
+                        f"{subject_path.stem}"
+                        f"CE: {ce_paths[0].stem}, LQ: {lq_paths[0].stem}",
+                    )
                     return None
 
         # Read images and transform if required
-        NCE, ACE, HQs, LQs = {}, {}, {}, {}
-        NCE[NCE_path.stem] = itk.ReadImage(str(NCE_path))
+        nce, ace, hqs, lqs = {}, {}, {}, {}
+        nce[nce_path.stem] = itk.ReadImage(str(nce_path))
 
-        for img_path in CE_paths:
-            ACE[img_path.stem] = itk.ReadImage(str(img_path))
+        for img_path in ce_paths:
+            ace[img_path.stem] = itk.ReadImage(str(img_path))
 
-        for img_path in HQ_paths:
-            HQs[img_path.stem] = itk.ReadImage(str(img_path))
-            assert HQs[img_path.stem].GetSpacing()[2] == HQ_SLICE_THICK, (
-                f"{HQs[img_path.stem]} spacing:"
-                f"{HQs[img_path.stem].GetSpacing()}"
+        for img_path in hq_paths:
+            hqs[img_path.stem] = itk.ReadImage(str(img_path))
+            assert hqs[img_path.stem].GetSpacing()[2] == HQ_SLICE_THICK, (
+                f"{hqs[img_path.stem]} spacing:" f"{hqs[img_path.stem].GetSpacing()}"
             )
-        for img_path in LQ_paths:
-            LQs[img_path.stem] = img_path
+        for img_path in lq_paths:
+            lqs[img_path.stem] = img_path
 
-        return NCE, ACE, HQs, LQs
+        return nce, ace, hqs, lqs
 
     def _trim_source(
         self,
         source: itk.Image,
         lq: bool,
     ) -> tuple[itk.Image, int | None, int | None]:
-
         source_slice_means = itk.GetArrayFromImage(source).mean(axis=(1, 2))
         source_slice_idx = np.argwhere(source_slice_means > HU_THRESHOLD)
         if len(source_slice_idx) == 0 and lq:
@@ -201,8 +210,12 @@ class ImgConv:
 
         return source, source_lower, source_upper
 
-    def _save_ce_nce(self, ace_dict: dict[str, itk.Image], nce_dict: dict[str, itk.Image], subject_path: Path) -> None:
-
+    def _save_ce_nce(
+        self,
+        ace_dict: dict[str, itk.Image],
+        nce_dict: dict[str, itk.Image],
+        subject_path: Path,
+    ) -> None:
         # Process initial non-CE and CE images
         nce_name = list(nce_dict.keys())[0]
         nce = nce_dict[nce_name]
@@ -213,7 +226,7 @@ class ImgConv:
                 target_name=nce_name,
                 source_img=ace,
                 target_img=nce,
-                subject_path=subject_path
+                subject_path=subject_path,
             )
             ace, ace_lower, ace_upper = self._trim_source(ace, False)
             self.source_coords[ace_name] = {nce_name: [ace_lower, ace_upper]}
@@ -235,7 +248,7 @@ class ImgConv:
         lqs_dict: dict[str, Path],
         nce_dict: dict[str, itk.Image],
         subject_path: Path,
-        num_lq: int
+        num_lq: int,
     ) -> None:
         # Process initial non-CE and CE images
         nce_name = list(nce_dict.keys())[0]
@@ -248,49 +261,59 @@ class ImgConv:
                 target_name=nce_name,
                 source_img=hq,
                 target_img=nce,
-                subject_path=subject_path
+                subject_path=subject_path,
             )
             hq, hq_lower, hq_upper = self._trim_source(hq, False)
             if hq_lower is None or hq_upper is None:
-                print((f"Skipping {hq_name} - no overlap "
-                       f"or size wrong {hq.GetDepth()}"))
+                print(  # noqa: T201
+                    (
+                        f"Skipping {hq_name} - no overlap "
+                        f"or size wrong {hq.GetDepth()}"
+                    ),
+                )
                 continue
             self.source_coords[hq_name] = {nce_name: [hq_lower, hq_upper]}
 
             series_no = int(hq_name[-3:])
-            LQ_candidates = list(lqs_dict.keys())
-            LQ_candidates = sorted(
-                lqs_dict, key=lambda x: abs(int(x[-3:]) - series_no)
-            )
-            LQ_names = LQ_candidates[0:num_lq]
-            assert len(LQ_names) > 0, f"LQ candidates: {len(LQ_names)}"
+            lq_candidates = list(lqs_dict.keys())
+            lq_candidates = sorted(lqs_dict, key=lambda x: abs(int(x[-3:]) - series_no))
+            lq_names = lq_candidates[0:num_lq]
+            assert len(lq_names) > 0, f"LQ candidates: {len(lq_names)}"
 
-            for lq_name in LQ_names:
+            for lq_name in lq_names:
                 lq = itk.ReadImage(str(lqs_dict[lq_name]))
                 if lq.GetSpacing()[2] != LQ_SLICE_THICK:
-                    print(f"{lq_name} spacing {lq.GetSpacing()}")
+                    print(f"{lq_name} spacing {lq.GetSpacing()}")  # noqa: T201
                     continue
 
-                HQ_candidates = sorted(
-                hqs_dict, key=lambda x: abs(int(x[-3:]) - int(lq_name[-3:]))
-            )
-                closest_hq = HQ_candidates[0]
+                hq_candidates = sorted(
+                    hqs_dict,
+                    key=lambda x: abs(int(x[-3:]) - int(lq_name[-3:])),
+                )
+                closest_hq = hq_candidates[0]
                 lq = self._transform_if_required(
                     source_name=closest_hq,
                     target_name=nce_name,
                     source_img=lq,
                     target_img=nce,
-                    subject_path=subject_path
+                    subject_path=subject_path,
                 )
                 lq, lq_lower, lq_upper = self._trim_source(lq, lq=True)
                 if lq_lower is None or lq_upper is None:
-                    print((f"Skipping {lq_name} - no overlap "
-                           f"or size wrong {lq.GetDepth()}"))
+                    print(  # noqa: T201
+                        (
+                            f"Skipping {lq_name} - no overlap "
+                            f"or size wrong {lq.GetDepth()}"
+                        ),
+                    )
                     continue
 
                 self.source_coords[lq_name] = {nce_name: [lq_lower, lq_upper]}
-                if lq_lower - hq_lower < 0 or lq_lower - hq_lower + MIN_HQ_DEPTH > hq.GetDepth():
-                    print(f"Skipping {lq_name} - extends past {hq_name}")
+                if (
+                    lq_lower - hq_lower < 0
+                    or lq_lower - hq_lower + MIN_HQ_DEPTH > hq.GetDepth()
+                ):
+                    print(f"Skipping {lq_name} - extends past {hq_name}")  # noqa: T201
                     continue
 
                 #  Clamp HU values and save
@@ -303,36 +326,34 @@ class ImgConv:
             hq_npy = itk.GetArrayFromImage(hq).astype("float16")
             np.save(self.HQ_save_path / f"{hq_name}.npy", hq_npy)
 
-    def process_images(self, num_LQ: int = 2) -> None:
-
+    def process_images(self, num_lq: int = 2) -> None:
         for subject in self.subjects:
             subject_path = self.image_path / subject
             imgs = self._load_images(subject_path)
             if imgs is None:
                 continue
             else:
-                nce, ace, HQs, LQs = imgs
+                nce, ace, hqs, lqs = imgs
 
             if len(ace) > 0:
                 self._save_ce_nce(ace, nce, subject_path)
 
-            if len(LQs) > 0:
-                self._save_lq_hq(HQs, LQs, nce, subject_path, num_LQ)
+            if len(lqs) > 0:
+                self._save_lq_hq(hqs, lqs, nce, subject_path, num_lq)
 
             self.source_coords = dict(sorted(self.source_coords.items()))
-            with open(self.save_path / "source_coords.json", 'w') as fp:
+            with open(self.save_path / "source_coords.json", "w") as fp:
                 json.dump(self.source_coords, fp, indent=4)
 
-            print(f"{subject} saved")
+            print(f"{subject} saved")  # noqa: T201
 
     def check_saved(self) -> None:
-
         for subject in self.subjects:
             img_paths = list((self.save_path / "CE").glob(f"{subject}*"))
             img_paths += list((self.save_path / "HQ").glob(f"{subject}*"))
             img_paths += list((self.save_path / "LQ").glob(f"{subject}*"))
             if len(img_paths) == 0:
-                print(f"No images for {subject}")
+                print(f"No images for {subject}")  # noqa: T201
                 continue
 
             imgs = {}
@@ -351,25 +372,31 @@ class ImgConv:
             plt.show()
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--image_path", '-i', type=str, help="Image path")
-    parser.add_argument("--save_path", '-s', type=str, help="Save path")
-    parser.add_argument("--to_include", '-t', type=str, help="Include IDs")
-    parser.add_argument("--start_at", '-sa', type=str, help="Start ID")
-    parser.add_argument("--stop_before", '-sb', type=str, help="End ID")
-    parser.add_argument("--allow_all_ce", '-a', help="Allow all CE", action="store_true")
+    parser.add_argument("--image_path", "-i", type=str, help="Image path")
+    parser.add_argument("--save_path", "-s", type=str, help="Save path")
+    parser.add_argument("--to_include", "-t", type=str, help="Include IDs")
+    parser.add_argument("--start_at", "-sa", type=str, help="Start ID")
+    parser.add_argument("--stop_before", "-sb", type=str, help="End ID")
+    parser.add_argument(
+        "--allow_all_ce",
+        "-a",
+        help="Allow all CE",
+        action="store_true",
+    )
     arguments = parser.parse_args()
 
     if arguments.to_include is not None:
-        to_include = arguments.to_include.split(',')
+        to_include = arguments.to_include.split(",")
     else:
         to_include = None
     root_dir = Path(__file__).resolve().parents[0]
 
-    with open(root_dir / "ignore.json", 'r') as fp:
+    with open(root_dir / "ignore.json") as fp:
         ignore = json.load(fp)
 
     img_conv = ImgConv(
@@ -379,14 +406,15 @@ def main() -> None:
         ignore=ignore,
         start_at=arguments.start_at,
         stop_before=arguments.stop_before,
-        allow_all_ce=arguments.allow_all_ce
+        allow_all_ce=arguments.allow_all_ce,
     )
     img_conv.process_images()
     img_conv.check_saved()
 
     # Check T083A0
 
-#-------------------------------------------------------------------------
+
+# -------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

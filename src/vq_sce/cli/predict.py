@@ -1,8 +1,9 @@
 import argparse
 from pathlib import Path
+
 import yaml
 
-from vq_sce.inference import Inference, SingleScaleInference, MultiScaleInference
+from vq_sce.inference import Inference, MultiScaleInference, SingleScaleInference
 from vq_sce.networks.model import Task
 
 
@@ -10,18 +11,18 @@ def main() -> None:
     # Handle arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", "-p", help="Expt path", type=str)
-    parser.add_argument("--data", '-d', help="Data path", type=str)
-    parser.add_argument("--original", '-o', help="Original data path", type=str)
-    parser.add_argument("--stage", '-s', help="Joint stage", type=str)
-    parser.add_argument("--minibatch", '-m', help="Minibatch size", type=int, default=4)
-    parser.add_argument("--option", '-op', help="`save`, `display`", type=str)
-    parser.add_argument("--dev", '-dv', help="Development mode", action="store_true")
+    parser.add_argument("--data", "-d", help="Data path", type=str)
+    parser.add_argument("--original", "-o", help="Original data path", type=str)
+    parser.add_argument("--stage", "-s", help="Joint stage", type=str)
+    parser.add_argument("--minibatch", "-m", help="Minibatch size", type=int, default=4)
+    parser.add_argument("--option", "-op", help="`save`, `display`", type=str)
+    parser.add_argument("--dev", "-dv", help="Development mode", action="store_true")
     arguments = parser.parse_args()
 
     expt_path = Path(arguments.path)
 
     # Parse config json
-    with open(expt_path / "config.yml", 'r') as infile:
+    with open(expt_path / "config.yml") as infile:
         config = yaml.load(infile, yaml.FullLoader)
 
     config["paths"]["expt_path"] = Path(arguments.path)

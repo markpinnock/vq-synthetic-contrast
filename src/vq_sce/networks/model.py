@@ -1,16 +1,17 @@
 import copy
 import enum
-import numpy as np
-import tensorflow as tf
 from typing import Any
 
-from .components.unet import UNet, MAX_CHANNELS
-from .components.layers.vq_layers import VQBlock
+import numpy as np
+import tensorflow as tf
+
 from vq_sce.utils.augmentation.augmentation import StdAug
 from vq_sce.utils.losses import L1
 
+from .components.layers.vq_layers import VQBlock
+from .components.unet import MAX_CHANNELS, UNet
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 
 
 @enum.unique
@@ -21,10 +22,11 @@ class Task(str, enum.Enum):
     JOINT = "joint"
 
 
-#-------------------------------------------------------------------------
-""" Wrapper for model """
+# -------------------------------------------------------------------------
+
 
 class Model(tf.keras.Model):
+    """Wrapper for model."""
 
     def __init__(self, config: dict[str, Any], name: str = "Model") -> None:
         super().__init__(name=name)
@@ -41,12 +43,12 @@ class Model(tf.keras.Model):
         self._source_dims = [
             self._source_dims[0],
             self._source_dims[1] // self._scales[0],
-            self._source_dims[2] // self._scales[0]
+            self._source_dims[2] // self._scales[0],
         ]
         self._target_dims = [
             self._target_dims[0],
             self._target_dims[1] // self._scales[0],
-            self._target_dims[2] // self._scales[0]
+            self._target_dims[2] // self._scales[0],
         ]
         config["hyperparameters"]["source_dims"] = self._source_dims
         config["hyperparameters"]["target_dims"] = self._target_dims
@@ -62,13 +64,9 @@ class Model(tf.keras.Model):
         else:
             self.Aug = None
 
-        self.UNet = UNet(
-            self._initialiser,
-            config["hyperparameters"],
-            name="unet"
-        )
+        self.UNet = UNet(self._initialiser, config["hyperparameters"], name="unet")
 
-    def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:
+    def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:  # noqa: A003
         self.optimiser = optimiser
 
         # Set up metrics
@@ -79,11 +77,7 @@ class Model(tf.keras.Model):
 
     @property
     def metrics(self) -> list[tf.keras.metrics.Metric]:
-        return [
-            self.L1_metric,
-            self.vq_metric,
-            self.total_metric
-        ]
+        return [self.L1_metric, self.vq_metric, self.total_metric]
 
     def build_model(self) -> None:
         _, _ = self(tf.keras.Input(shape=self._source_dims + [1]))
@@ -99,11 +93,6 @@ class Model(tf.keras.Model):
 
     @tf.function
     def train_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
-
-        """ Expects data in order 'source, target'
-            or 'source, target, segmentations'
-        """
-
         # Augmentation if required
         if self.Aug:
             (source,), (target,) = self.Aug(source=[source], target=[target])
@@ -117,7 +106,7 @@ class Model(tf.keras.Model):
             pred, _ = self(source)
 
             # Calculate L1
-            L1_loss = L1(target, pred)
+            L1_loss = L1(target, pred)  # noqa: N806
 
             # Calculate VQ loss
             if self._use_vq:
@@ -136,7 +125,6 @@ class Model(tf.keras.Model):
 
     @tf.function
     def test_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
-
         # Sample patch if needed
         if self._scales[0] > 1:
             x, y = self._get_scale_indices()
@@ -145,7 +133,7 @@ class Model(tf.keras.Model):
         pred, _ = self(source)
 
         # Calculate L1
-        L1_loss = L1(target, pred)
+        L1_loss = L1(target, pred)  # noqa: N806
 
         # Calculate VQ loss
         if self._use_vq:
@@ -159,7 +147,6 @@ class Model(tf.keras.Model):
         self.total_metric.update_state(total_loss)
 
     def _get_scale_indices(self) -> tuple[int, int]:
-
         # Want higher probability of training on more central regions
         if np.random.randn() > 0.5:
             x = np.random.randint(0, self._scales[0])
@@ -167,16 +154,22 @@ class Model(tf.keras.Model):
         else:
             x = np.random.randint(
                 self._scales[0] / 4,
-                self._scales[0] - self._scales[0] / 4
+                self._scales[0] - self._scales[0] / 4,
             )
             y = np.random.randint(
                 self._scales[0] / 4,
-                self._scales[0] - self._scales[0] / 4
+                self._scales[0] - self._scales[0] / 4,
             )
 
         return x, y
 
-    def _sample_patches(self, x: int, y: int, source: tf.Tensor, target: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor]:
+    def _sample_patches(
+        self,
+        x: int,
+        y: int,
+        source: tf.Tensor,
+        target: tf.Tensor,
+    ) -> tuple[tf.Tensor, tf.Tensor]:
         x_src = x * self._source_dims[1]
         y_src = y * self._source_dims[2]
         x_tar = x * self._target_dims[1]
@@ -184,21 +177,25 @@ class Model(tf.keras.Model):
         source = source[
             :,
             :,
-            x_src:(x_src + self._source_dims[1]),
-            y_src:(y_src + self._source_dims[2]),
-            :
+            x_src : (x_src + self._source_dims[1]),
+            y_src : (y_src + self._source_dims[2]),
+            :,
         ]
         target = target[
             :,
             :,
-            x_tar:(x_tar + self._target_dims[1]),
-            y_tar:(y_tar + self._target_dims[2]),
-            :
+            x_tar : (x_tar + self._target_dims[1]),
+            y_tar : (y_tar + self._target_dims[2]),
+            :,
         ]
 
         return source, target
 
-    def example_inference(self, source: tf.Tensor, target: tf.Tensor) -> tuple[tf.Tensor, ...]:
+    def example_inference(
+        self,
+        source: tf.Tensor,
+        target: tf.Tensor,
+    ) -> tuple[tf.Tensor, ...]:
         if self._scales[0] == 1:
             pred, _ = self(source)
 
@@ -216,10 +213,11 @@ class Model(tf.keras.Model):
         return self.UNet(x)
 
 
-#-------------------------------------------------------------------------
-""" Wrapper for joint super-res/contrast enhancement model """
+# -------------------------------------------------------------------------
+
 
 class JointModel(tf.keras.Model):
+    """Wrapper for joint super-res/contrast enhancement model."""
 
     def __init__(self, config: dict[str, Any], name: str = "Model") -> None:
         super().__init__(name=name)
@@ -241,22 +239,22 @@ class JointModel(tf.keras.Model):
         self._sr_source_dims = [
             self._sr_source_dims[0],
             self._sr_source_dims[1] // self._scales[0],
-            self._sr_source_dims[2] // self._scales[0]
+            self._sr_source_dims[2] // self._scales[0],
         ]
         self._sr_target_dims = [
             self._sr_target_dims[0],
             self._sr_target_dims[1] // self._scales[0],
-            self._sr_target_dims[2] // self._scales[0]
+            self._sr_target_dims[2] // self._scales[0],
         ]
         self._ce_source_dims = [
             self._ce_source_dims[0],
             self._ce_source_dims[1] // self._scales[0],
-            self._ce_source_dims[2] // self._scales[0]
+            self._ce_source_dims[2] // self._scales[0],
         ]
         self._ce_target_dims = [
             self._ce_target_dims[0],
             self._ce_target_dims[1] // self._scales[0],
-            self._ce_target_dims[2] // self._scales[0]
+            self._ce_target_dims[2] // self._scales[0],
         ]
 
         self._sr_config["hyperparameters"]["source_dims"] = self._sr_source_dims
@@ -264,9 +262,9 @@ class JointModel(tf.keras.Model):
         self._ce_config["hyperparameters"]["source_dims"] = self._ce_source_dims
         self._ce_config["hyperparameters"]["target_dims"] = self._ce_target_dims
 
-        assert config["hyperparameters"]["vq_layers"]["bottom"] is not None, (
-            config["hyperparameters"]["vq_layers"]
-        )
+        assert config["hyperparameters"]["vq_layers"]["bottom"] is not None, config[
+            "hyperparameters"
+        ]["vq_layers"]
         self._use_vq = True
 
         # Set up augmentation
@@ -286,24 +284,24 @@ class JointModel(tf.keras.Model):
             num_embeddings=embeddings,
             embedding_dim=MAX_CHANNELS,
             beta=config["hyperparameters"]["vq_beta"],
-            name="shared_vq"
+            name="shared_vq",
         )
 
         self.sr_UNet = UNet(
             self._initialiser,
             self._sr_config["hyperparameters"],
             shared_vq=shared_vq,
-            name="sr_unet"
+            name="sr_unet",
         )
 
         self.ce_UNet = UNet(
             self._initialiser,
             self._ce_config["hyperparameters"],
             shared_vq=shared_vq,
-            name="ce_unet"
+            name="ce_unet",
         )
 
-    def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:
+    def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:  # noqa: A003
         self.optimiser = optimiser
 
         # Set up metrics
@@ -322,7 +320,7 @@ class JointModel(tf.keras.Model):
             self.sr_total_metric,
             self.ce_L1_metric,
             self.ce_vq_metric,
-            self.ce_total_metric
+            self.ce_total_metric,
         ]
 
     def build_model(self) -> None:
@@ -347,10 +345,6 @@ class JointModel(tf.keras.Model):
 
     @tf.function
     def sr_train_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
-
-        """ Expects data in order 'source, target'
-        """
-
         # Augmentation if required
         if self.sr_Aug:
             (source,), (target,) = self.sr_Aug(source=[source], target=[target])
@@ -364,7 +358,7 @@ class JointModel(tf.keras.Model):
             pred, _ = self.sr_UNet(source)
 
             # Calculate L1
-            L1_loss = L1(target, pred)
+            L1_loss = L1(target, pred)  # noqa: N806
 
             # Calculate VQ loss
             if self._use_vq:
@@ -383,10 +377,6 @@ class JointModel(tf.keras.Model):
 
     @tf.function
     def ce_train_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
-
-        """ Expects data in order 'source, target'
-        """
-
         # Augmentation if required
         if self.ce_Aug:
             (source,), (target,) = self.ce_Aug(source=[source], target=[target])
@@ -400,7 +390,7 @@ class JointModel(tf.keras.Model):
             pred, _ = self.ce_UNet(source)
 
             # Calculate L1
-            L1_loss = L1(target, pred)
+            L1_loss = L1(target, pred)  # noqa: N806
 
             # Calculate VQ loss
             if self._use_vq:
@@ -423,7 +413,6 @@ class JointModel(tf.keras.Model):
 
     @tf.function
     def sr_test_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
-
         # Sample patch if needed
         if self._scales[0] > 1:
             x, y = self._get_scale_indices()
@@ -432,7 +421,7 @@ class JointModel(tf.keras.Model):
         pred, _ = self.sr_UNet(source)
 
         # Calculate L1
-        L1_loss = L1(target, pred)
+        L1_loss = L1(target, pred)  # noqa: N806
 
         # Calculate VQ loss
         if self._use_vq:
@@ -447,7 +436,6 @@ class JointModel(tf.keras.Model):
 
     @tf.function
     def ce_test_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
-
         # Sample patch if needed
         if self._scales[0] > 1:
             x, y = self._get_scale_indices()
@@ -456,7 +444,7 @@ class JointModel(tf.keras.Model):
         pred, _ = self.ce_UNet(source)
 
         # Calculate L1
-        L1_loss = L1(target, pred)
+        L1_loss = L1(target, pred)  # noqa: N806
 
         # Calculate VQ loss
         if self._use_vq:
@@ -474,7 +462,6 @@ class JointModel(tf.keras.Model):
         self.ce_test_step(**ce_data)
 
     def _get_scale_indices(self) -> tuple[int, int]:
-
         # Want higher probability of training on more central regions
         if np.random.randn() > 0.5:
             x = np.random.randint(0, self._scales[0])
@@ -482,16 +469,22 @@ class JointModel(tf.keras.Model):
         else:
             x = np.random.randint(
                 self._scales[0] / 4,
-                self._scales[0] - self._scales[0] / 4
+                self._scales[0] - self._scales[0] / 4,
             )
             y = np.random.randint(
                 self._scales[0] / 4,
-                self._scales[0] - self._scales[0] / 4
+                self._scales[0] - self._scales[0] / 4,
             )
 
         return x, y
 
-    def _sample_patches(self, x: int, y: int, source: tf.Tensor, target: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor]:
+    def _sample_patches(
+        self,
+        x: int,
+        y: int,
+        source: tf.Tensor,
+        target: tf.Tensor,
+    ) -> tuple[tf.Tensor, tf.Tensor]:
         x_src = x * self._sr_source_dims[1]
         y_src = y * self._sr_source_dims[2]
         x_tar = x * self._sr_target_dims[1]
@@ -499,21 +492,25 @@ class JointModel(tf.keras.Model):
         source = source[
             :,
             :,
-            x_src:(x_src + self._sr_source_dims[1]),
-            y_src:(y_src + self._sr_source_dims[2]),
-            :
+            x_src : (x_src + self._sr_source_dims[1]),
+            y_src : (y_src + self._sr_source_dims[2]),
+            :,
         ]
         target = target[
             :,
             :,
-            x_tar:(x_tar + self._sr_target_dims[1]),
-            y_tar:(y_tar + self._sr_target_dims[2]),
-            :
+            x_tar : (x_tar + self._sr_target_dims[1]),
+            y_tar : (y_tar + self._sr_target_dims[2]),
+            :,
         ]
 
         return source, target
 
-    def example_inference(self, source: tf.Tensor, target: tf.Tensor) -> tuple[tf.Tensor, ...]:
+    def example_inference(
+        self,
+        source: tf.Tensor,
+        target: tf.Tensor,
+    ) -> tuple[tf.Tensor, ...]:
         if self._scales[0] == 1:
             pred, _ = self(source)
 
@@ -542,12 +539,18 @@ class JointModel(tf.keras.Model):
             return x, None
 
 
-#-------------------------------------------------------------------------
-""" Wrapper for dual super-res/contrast enhancement model (inference only) """
+# -------------------------------------------------------------------------
+
 
 class DualModel(tf.keras.Model):
+    """Wrapper for dual super-res/contrast enhancement model (inference only)."""
 
-    def __init__(self, sr_config: dict[str, Any], ce_config: dict[str, Any], name: str = "Model") -> None:
+    def __init__(
+        self,
+        sr_config: dict[str, Any],
+        ce_config: dict[str, Any],
+        name: str = "Model",
+    ) -> None:
         super().__init__(name=name)
         self._initialiser = tf.keras.initializers.HeNormal()
         self._sr_config = sr_config
@@ -565,22 +568,22 @@ class DualModel(tf.keras.Model):
         self._sr_source_dims = [
             self._sr_source_dims[0],
             self._sr_source_dims[1] // self._scales[0],
-            self._sr_source_dims[2] // self._scales[0]
+            self._sr_source_dims[2] // self._scales[0],
         ]
         self._sr_target_dims = [
             self._sr_target_dims[0],
             self._sr_target_dims[1] // self._scales[0],
-            self._sr_target_dims[2] // self._scales[0]
+            self._sr_target_dims[2] // self._scales[0],
         ]
         self._ce_source_dims = [
             self._ce_source_dims[0],
             self._ce_source_dims[1] // self._scales[0],
-            self._ce_source_dims[2] // self._scales[0]
+            self._ce_source_dims[2] // self._scales[0],
         ]
         self._ce_target_dims = [
             self._ce_target_dims[0],
             self._ce_target_dims[1] // self._scales[0],
-            self._ce_target_dims[2] // self._scales[0]
+            self._ce_target_dims[2] // self._scales[0],
         ]
 
         self._sr_config["hyperparameters"]["source_dims"] = self._sr_source_dims
@@ -591,13 +594,13 @@ class DualModel(tf.keras.Model):
         self.sr_UNet = UNet(
             self._initialiser,
             self._sr_config["hyperparameters"],
-            name="sr_unet"
+            name="sr_unet",
         )
 
         self.ce_UNet = UNet(
             self._initialiser,
             self._ce_config["hyperparameters"],
-            name="ce_unet"
+            name="ce_unet",
         )
 
     def build_model(self) -> None:
