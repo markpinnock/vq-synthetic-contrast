@@ -1,0 +1,106 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: check-ast                  # Simply check whether the files parse as valid python
+      - id: check-case-conflict        # Check for files that would conflict in case-insensitive filesystems
+      - id: check-builtin-literals     # Require literal syntax when initializing empty or zero Python builtin types
+      - id: check-docstring-first      # Checks a common error of defining a docstring after code
+      - id: check-merge-conflict       # Check for files that contain merge conflict strings
+      - id: check-toml                 # Attempts to load all TOML files to verify syntax
+        additional_dependencies: [
+          tomli,
+        ]
+      - id: check-yaml                 # Attempts to load all YAML files to verify syntax
+      - id: debug-statements           # Check for debugger imports and py37+ `breakpoint()` calls in python source
+      - id: detect-private-key         # Detects the presence of private keys
+      - id: end-of-file-fixer          # Ensures that a file is either empty, or ends with one newline
+      - id: mixed-line-ending          # Replaces or checks mixed line ending
+      - id: name-tests-test            # Check that test functions are named correctly
+        args: [--pytest-test-first]
+      - id: trailing-whitespace        # This hook trims trailing whitespace
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 6.0.0
+    hooks:
+      - id: flake8
+        additional_dependencies: [
+          flake8-blind-except,      # check for blind, catch-all "except:" statements
+          flake8-bugbear,           # find likely bugs and design problems
+          flake8-builtins,          # check for python builtins being used as variables or parameters
+          flake8-fixme,             # check for FIXME, TODO and other temporary developer notes
+          flake8-logging-format,    # validate (lack of) logging format strings
+          flake8-markdown,          # lint Python code blocks in Markdown files using flake8
+          flake8-pep3101,           # check for old string formatting
+          flake8-print,             # check for print statements
+          flake8-use-fstring,       # enforce use of f-string
+          flake8-2020,              # check for misuse of `sys.version` or `sys.version_info`
+          pep8-naming,              # check PEP-8 naming conventions
+        ]
+
+  - repo: https://github.com/asottile/add-trailing-comma
+    rev: v2.3.0
+    hooks:
+    - id: add-trailing-comma
+
+  - repo: https://github.com/pre-commit/pygrep-hooks
+    rev: v1.10.0
+    hooks:
+      - id: python-check-blanket-noqa         # enforce that noqa annotations always occur with specific codes
+      - id: python-no-log-warn                # check for the deprecated .warn() method of python loggers
+      - id: python-use-type-annotations       # enforce that type annotations are used instead of type comments
+      - id: rst-backticks                     # detect common mistake of using single backticks when writing rst
+      - id: rst-directive-colons              # detect mistake of rst directive not ending with double colon
+      - id: rst-inline-touching-normal        # detect mistake of inline code touching normal text in rst
+
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.3.1
+    hooks:
+      - id: pyupgrade
+        args: ['--py38-plus', '--keep-runtime-typing']
+
+
+  - repo: https://github.com/asottile/setup-cfg-fmt
+    rev: v2.2.0
+    hooks:
+    - id: setup-cfg-fmt
+      args: ['--include-version-classifiers']
+
+  - repo: https://github.com/psf/black
+    rev: 22.12.0
+    hooks:
+    - id: black
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+        name: isort (python)
+
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.20.0
+    hooks:
+      - id: check-github-workflows
+
+  - repo: https://github.com/PyCQA/doc8
+    rev: v1.0.0
+    hooks:
+    - id: doc8
+
+  - repo: https://github.com/PyCQA/pydocstyle
+    rev: 6.2.3
+    hooks:
+    - id: pydocstyle
+      args:
+      - --ignore=D10,D203,D205,D213
+
+  - repo: https://github.com/PyCQA/docformatter
+    rev: v1.5.1
+    hooks:
+    - id: docformatter
+      args:
+      - --wrap-summaries=88
+
+exclude: ^test_vq_sce
