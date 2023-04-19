@@ -119,25 +119,13 @@ class SuperResDataloader(BaseDataloader):
             source = np.load(self._source_path / f"{source_id}.npy")
             source = self._preprocess_image(source, None, None)
 
-            yield {"source": source, "subject_id": source_id}
+            target_id = self._source_target_map[source_id]
+            _, hq_coords = self._calc_coords(source_id, target_id)
 
-    def subject_generator(self, source_name: Any) -> Iterator[dict[str, Any]]:
-        source_name = source_name.decode("utf-8")
-        source = np.load(Path(self._img_path) / source_name)
+            target = np.load(self._target_path / f"{target_id}.npy")
+            target = self._preprocess_image(target, hq_coords[0], hq_coords[1])
 
-        # Linear coords are what we'll use to do our patch updates in 1D
-        # E.g. [1, 2, 3
-        #       4, 5, 6
-        #       7, 8, 9]
-        linear_coords = generate_indices(source.shape, self._config["stride_length"], self._config["target_dims"])
-
-        source = self._normalise(source)
-        linear_source = tf.reshape(source, -1)
-
-        for coords in linear_coords:
-            patch = tf.reshape(tf.gather(linear_source, coords), self._config["target_dims"] + [1])
-
-            yield {"source": patch, "subject_ID": source_name, "coords": coords}
+            yield {"source": source, "target": target, "source_id": source_id, "target_id": target_id}
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -161,27 +149,27 @@ if __name__ == "__main__":
         target = TestLoader.un_normalise(data["target"])
 
         plt.subplot(3, 2, 1)
-        plt.imshow(source[0, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(source[0, 1, :, :, 0], cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         plt.subplot(3, 2, 2)
-        plt.imshow(source[1, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(source[1, 1, :, :, 0], cmap="gray", vmin=-150, vmax=250) 
         plt.axis("off")
 
         plt.subplot(3, 2, 3)
-        plt.imshow(target[0, 6, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(target[0, 6, :, :, 0], cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         plt.subplot(3, 2, 4)
-        plt.imshow(target[1, 6, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(target[1, 6, :, :, 0], cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         plt.subplot(3, 2, 5)
-        plt.imshow(target[0, 6, :, :, 0].numpy() - source[0, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(target[0, 6, :, :, 0] - source[0, 1, :, :, 0], cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         plt.subplot(3, 2, 6)
-        plt.imshow(target[1, 6, :, :, 0].numpy() - source[1, 1, :, :, 0].numpy(), cmap="gray", vmin=-150, vmax=250)  # type: ignore[attr-defined]
+        plt.imshow(target[1, 6, :, :, 0] - source[1, 1, :, :, 0], cmap="gray", vmin=-150, vmax=250)
         plt.axis("off")
 
         plt.show()

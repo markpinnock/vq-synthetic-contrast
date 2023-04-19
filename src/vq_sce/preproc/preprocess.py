@@ -19,6 +19,8 @@ from vq_sce import (
 HU_DEFAULT = -2048
 HU_THRESHOLD = -2000
 
+TypeImageDict = tuple[dict[str, itk.Image], dict[str, itk.Image], dict[str, itk.Image], dict[str, Path]]
+
 
 #-------------------------------------------------------------------------
 
@@ -113,7 +115,7 @@ class ImgConv:
     def _load_images(
         self,
         subject_path: Path
-    ) -> tuple[dict[str, itk.Image | Path], ...] | None:
+    ) -> TypeImageDict | None:
 
         # Get candidates for CE, HQ non-CE, HQ post-CE, LQ post-CE
         CE_paths = list(subject_path.glob("*AC*.nrrd"))
@@ -199,13 +201,13 @@ class ImgConv:
 
         return source, source_lower, source_upper
 
-    def _save_ce_nce(self, ace: itk.Image, nce: itk.Image, subject_path: Path) -> None:
+    def _save_ce_nce(self, ace_dict: dict[str, itk.Image], nce_dict: dict[str, itk.Image], subject_path: Path) -> None:
 
         # Process initial non-CE and CE images
-        nce_name = list(nce.keys())[0]
-        nce = nce[nce_name]
+        nce_name = list(nce_dict.keys())[0]
+        nce = nce_dict[nce_name]
 
-        for ace_name, ace in ace.items():
+        for ace_name, ace in ace_dict.items():
             ace = self._transform_if_required(
                 source_name=ace_name,
                 target_name=nce_name,
@@ -229,18 +231,18 @@ class ImgConv:
 
     def _save_lq_hq(
         self,
-        hqs: itk.Image,
-        lqs: itk.Image,
-        nce: itk.Image,
+        hqs_dict: dict[str, itk.Image],
+        lqs_dict: dict[str, Path],
+        nce_dict: dict[str, itk.Image],
         subject_path: Path,
         num_lq: int
     ) -> None:
         # Process initial non-CE and CE images
-        nce_name = list(nce.keys())[0]
-        nce = nce[nce_name]
+        nce_name = list(nce_dict.keys())[0]
+        nce = nce_dict[nce_name]
 
         # Process HQ and LQ post-CE images
-        for hq_name, hq in hqs.items():
+        for hq_name, hq in hqs_dict.items():
             hq = self._transform_if_required(
                 source_name=hq_name,
                 target_name=nce_name,
@@ -256,21 +258,21 @@ class ImgConv:
             self.source_coords[hq_name] = {nce_name: [hq_lower, hq_upper]}
 
             series_no = int(hq_name[-3:])
-            LQ_candidates = list(lqs.keys())
+            LQ_candidates = list(lqs_dict.keys())
             LQ_candidates = sorted(
-                lqs, key=lambda x: abs(int(x[-3:]) - series_no)
+                lqs_dict, key=lambda x: abs(int(x[-3:]) - series_no)
             )
             LQ_names = LQ_candidates[0:num_lq]
             assert len(LQ_names) > 0, f"LQ candidates: {len(LQ_names)}"
 
             for lq_name in LQ_names:
-                lq = itk.ReadImage(str(lqs[lq_name]))
+                lq = itk.ReadImage(str(lqs_dict[lq_name]))
                 if lq.GetSpacing()[2] != LQ_SLICE_THICK:
                     print(f"{lq_name} spacing {lq.GetSpacing()}")
                     continue
 
                 HQ_candidates = sorted(
-                hqs, key=lambda x: abs(int(x[-3:]) - int(lq_name[-3:]))
+                hqs_dict, key=lambda x: abs(int(x[-3:]) - int(lq_name[-3:]))
             )
                 closest_hq = HQ_candidates[0]
                 lq = self._transform_if_required(

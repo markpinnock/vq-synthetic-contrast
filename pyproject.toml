@@ -42,7 +42,8 @@ test = [
 
 [project.scripts]
 train = "vq_sce.cli.training:main"
-predict = "vq_sce.cli.inference:main"
+predict = "vq_sce.cli.predict:main"
+calc_metrics = "vq_sce.cli.calc_metrics:main"
 
 [tool.mypy]
 warn_unused_configs = true
@@ -56,6 +57,7 @@ pretty = true
 show_traceback = true
 install_types = true
 scripts_are_modules = true
+allow_untyped_calls = true
 allow_untyped_decorators = true
 allow_subclassing_any = true
 

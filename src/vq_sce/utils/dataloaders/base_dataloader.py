@@ -25,6 +25,7 @@ class BaseDataloader(ABC):
     _targets: dict[str, Path]
     _ex_sources: npt.NDArray[np.float32]
     _ex_targets: npt.NDArray[np.float32]
+    _source_coords: dict[str, dict[str, list[int]]]
 
     @abstractmethod
     def __init__(self) -> None:
@@ -99,18 +100,17 @@ class BaseDataloader(ABC):
     def inference_generator(self) -> Iterator[dict[str, Any]]:
         pass
 
-    @abstractmethod
-    def subject_generator(self, source_name: Any) -> Iterator[dict[str, Any]]:
-        pass
-
     @property
     def example_images(self) -> DataDictType:
-        """ Return example images """
-
+        """Return example images."""
         return {"target": self._ex_targets, "source": self._ex_sources}
 
     @property
     def data(self) -> dict[str, dict[str, Path]]:
-        """ Return list of all images """
-
+        """Return list of all images."""
         return {"target": self._targets, "source": self._sources}
+
+    @property
+    def source_coords(self) -> dict[str, dict[str, list[int]]]:
+        """Return source coords."""
+        return self._source_coords

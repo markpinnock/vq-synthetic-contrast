@@ -1,4 +1,5 @@
 import copy
+import enum
 import numpy as np
 import tensorflow as tf
 from typing import Any
@@ -7,6 +8,17 @@ from .components.unet import UNet, MAX_CHANNELS
 from .components.layers.vq_layers import VQBlock
 from vq_sce.utils.augmentation.augmentation import StdAug
 from vq_sce.utils.losses import L1
+
+
+#-------------------------------------------------------------------------
+
+
+@enum.unique
+class Task(str, enum.Enum):
+    CONTRAST = "contrast"
+    SUPER_RES = "super_res"
+    DUAL = "dual"
+    JOINT = "joint"
 
 
 #-------------------------------------------------------------------------
@@ -515,6 +527,109 @@ class JointModel(tf.keras.Model):
         for metric in self.metrics:
             metric.reset_states()
 
-    def call(self, x: tf.Tensor) -> tf.Tensor:
-        x, _ = self.sr_UNet(x)
-        return self.ce_UNet(x)
+    def call(self, x: tf.Tensor, task: str = Task.JOINT) -> tuple[tf.Tensor, None]:
+        if task == Task.CONTRAST:
+            x, _ = self.ce_UNet(x)
+            return x, None
+
+        elif task == Task.SUPER_RES:
+            x, _ = self.sr_UNet(x)
+            return x, None
+
+        else:
+            x, _ = self.sr_UNet(x)
+            x, _ = self.ce_UNet(x)
+            return x, None
+
+
+#-------------------------------------------------------------------------
+""" Wrapper for dual super-res/contrast enhancement model (inference only) """
+
+class DualModel(tf.keras.Model):
+
+    def __init__(self, sr_config: dict[str, Any], ce_config: dict[str, Any], name: str = "Model") -> None:
+        super().__init__(name=name)
+        self._initialiser = tf.keras.initializers.HeNormal()
+        self._sr_config = sr_config
+        self._ce_config = ce_config
+
+        self._sr_source_dims = sr_config["data"]["source_dims"]
+        self._sr_target_dims = sr_config["data"]["target_dims"]
+        self._ce_source_dims = ce_config["data"]["target_dims"]
+        self._ce_target_dims = ce_config["data"]["target_dims"]
+
+        self._scales = sr_config["hyperparameters"]["scales"]
+        assert self._scales == ce_config["hyperparameters"]["scales"]
+        assert len(self._scales) == 1, self._scales
+
+        self._sr_source_dims = [
+            self._sr_source_dims[0],
+            self._sr_source_dims[1] // self._scales[0],
+            self._sr_source_dims[2] // self._scales[0]
+        ]
+        self._sr_target_dims = [
+            self._sr_target_dims[0],
+            self._sr_target_dims[1] // self._scales[0],
+            self._sr_target_dims[2] // self._scales[0]
+        ]
+        self._ce_source_dims = [
+            self._ce_source_dims[0],
+            self._ce_source_dims[1] // self._scales[0],
+            self._ce_source_dims[2] // self._scales[0]
+        ]
+        self._ce_target_dims = [
+            self._ce_target_dims[0],
+            self._ce_target_dims[1] // self._scales[0],
+            self._ce_target_dims[2] // self._scales[0]
+        ]
+
+        self._sr_config["hyperparameters"]["source_dims"] = self._sr_source_dims
+        self._sr_config["hyperparameters"]["target_dims"] = self._sr_target_dims
+        self._ce_config["hyperparameters"]["source_dims"] = self._ce_source_dims
+        self._ce_config["hyperparameters"]["target_dims"] = self._ce_target_dims
+
+        self.sr_UNet = UNet(
+            self._initialiser,
+            self._sr_config["hyperparameters"],
+            name="sr_unet"
+        )
+
+        self.ce_UNet = UNet(
+            self._initialiser,
+            self._ce_config["hyperparameters"],
+            name="ce_unet"
+        )
+
+    def build_model(self) -> None:
+        _, _ = self(tf.keras.Input(shape=self._sr_source_dims + [1]))
+
+    def summary(self) -> None:
+        source = tf.keras.Input(shape=self._sr_source_dims + [1])
+        pred, vq = self.sr_UNet.call(source)
+
+        if vq is None:
+            tf.keras.Model(inputs=source, outputs=pred).summary()
+        else:
+            tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
+
+        source = tf.keras.Input(shape=self._ce_source_dims + [1])
+        pred, vq = self.ce_UNet.call(source)
+
+        if vq is None:
+            tf.keras.Model(inputs=source, outputs=pred).summary()
+        else:
+            tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
+
+    def call(self, x: tf.Tensor, task: str = Task.DUAL) -> tuple[tf.Tensor, None]:
+        if task == Task.CONTRAST:
+            x, _ = self.ce_UNet(x)
+            return x, None
+
+        elif task == Task.SUPER_RES:
+            x, _ = self.sr_UNet(x)
+            return x, None
+
+        else:
+            x, _ = self.sr_UNet(x)
+            x, _ = self.ce_UNet(x)
+            return x, None
