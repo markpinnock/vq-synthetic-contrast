@@ -57,6 +57,7 @@ pretty = true
 show_traceback = true
 install_types = true
 scripts_are_modules = true
+allow_untyped_calls = true
 allow_untyped_decorators = true
 allow_subclassing_any = true
 
