@@ -216,7 +216,7 @@ class SingleScaleInference(Inference):
                 self.display(pred, subject_id)
 
             elif option == Options.METRICS:
-                target = self.TestGenerator.un_normalise(data["target"][0, ...]).numpy()
+                target = self.TestGenerator.un_normalise(data["target"][0, ...])
 
                 metrics["id"].append(subject_id)
                 metrics["L1"].append(float(L1(target.astype("float32"), pred)))
@@ -309,7 +309,7 @@ class MultiScaleInference(Inference):
                 self.display(pred, subject_id)
 
             elif option == Options.METRICS:
-                target = self.TestGenerator.un_normalise(data["target"][0, ...]).numpy()
+                target = self.TestGenerator.un_normalise(data["target"][0, ...])
 
                 metrics["id"].append(subject_id)
                 metrics["L1"].append(float(L1(target.astype("float32"), pred)))
