@@ -249,21 +249,23 @@ class MultiScaleInference(Inference):
         scales = config["hyperparameters"]["scales"]
         self.patch_size = [depth, height // scales[0], width // scales[0]]
         self.upscale_patch_size = [self.patch_size[0], self.patch_size[1] * 2, self.patch_size[2] * 2]
-        self.upscale_strides = [STRIDES[0], STRIDES[1] * 2, STRIDES[2] * 2]
+        self.strides = [1, self.patch_size[1] // STRIDE_FACTOR, self.patch_size[2] // STRIDE_FACTOR]
+        self.upscale_strides = [self.strides[0], self.strides[1] * 2, self.strides[2] * 2]
         self.dn_samp = config["hyperparameters"]["scales"][0]
         self.num_scales = len(config["hyperparameters"]["scales"])
 
     def run(self, option: str) -> dict[str, list[float]] | None:
         """Run inference on test data."""
+        metrics: dict[str, list[float]] = {"id": [], "L1": [], "MSE": [], "pSNR": [], "SSIM": []}
+
         for data in self.test_ds:
             source = data["source"][0, ...]
             source = source[:, ::self.dn_samp, ::self.dn_samp]
-            # source = tf.transpose(source, [2, 0, 1])                    # TODO CHANGE
             subject_id = data["subject_id"][0].numpy().decode("utf-8")
+            target_id = data["target_id"][0].numpy().decode("utf-8")
 
-            linear_coords = generate_indices(source.shape, STRIDES, self.patch_size)
+            linear_coords = generate_indices(source.shape, self.strides, self.patch_size)
             patch_stack = extract_patches(source, linear_coords, self.patch_size)
-            # patch_stack = tf.transpose(patch_stack, [0, 2, 3, 1, 4])    # TODO CHANGE
             num_patches = patch_stack.shape[0]
             pred_stack = []
 
@@ -272,24 +274,20 @@ class MultiScaleInference(Inference):
                 pred_stack.extend(pred_mb[:, :, :, :, 0])
 
             pred_stack = tf.stack(pred_stack, axis=0)
-            # pred_stack = tf.transpose(pred_stack, [0, 3, 1, 2])    # TODO CHANGE
             depth, height, width = source.shape[1:-1]
             upscale_dims = (depth, height * 2, width * 2)
             self.combine.new_subject(upscale_dims)
 
-            upscale_linear_coords = generate_indices(upscale_dims, self.upscale_strides, upscale_patch_size)
+            upscale_linear_coords = generate_indices(upscale_dims, self.upscale_strides, self.upscale_patch_size)
             self.combine.apply_patches(pred_stack, upscale_linear_coords)
             pred = self.combine.get_img()
-            # pred = tf.transpose(pred, [1, 2, 0]).numpy()    # TODO CHANGE
 
             for _ in range(1, self.num_scales - 1):
-                # pred = tf.transpose(pred, [2, 0, 1])                    # TODO CHANGE
                 upscale_dims = (upscale_dims[0], upscale_dims[1] * 2, upscale_dims[2] * 2)
                 self.combine.new_subject(upscale_dims)
 
                 linear_coords = generate_indices(pred.shape, self.strides, self.patch_size)
                 patch_stack = extract_patches(pred, linear_coords, self.patch_size)
-                # patch_stack = tf.transpose(patch_stack, [0, 2, 3, 1, 4])    # TODO CHANGE
                 num_patches = patch_stack.shape[0]
                 pred_stack = []
 
@@ -298,15 +296,34 @@ class MultiScaleInference(Inference):
                     pred_stack.extend(pred_mb)
 
                 pred_stack = tf.stack(pred_stack, axis=0)
-                # pred_stack = tf.transpose(pred_stack, [0, 3, 1, 2])    # TODO CHANGE
                 upscale_linear_coords = generate_indices(upscale_dims, self.upscale_strides, self.upscale_patch_size)
                 self.combine.apply_patches(pred_stack, upscale_linear_coords)
                 pred = self.combine.get_img()
-                # pred = tf.transpose(pred, [1, 2, 0])    # TODO CHANGE
 
             pred = self.TestGenerator.un_normalise(pred.numpy())
 
-            if save:
-                self.save(pred, subject_id)
-            else:
+            if option == Options.SAVE:
+                self.save(pred, subject_id, target_id)
+
+            elif option == Options.DISPLAY:
                 self.display(pred, subject_id)
+
+            elif option == Options.METRICS:
+                target = self.TestGenerator.un_normalise(data["target"][0, ...]).numpy()
+
+                metrics["id"].append(subject_id)
+                metrics["L1"].append(float(L1(target.astype("float32"), pred)))
+
+                detailed_metrics = self.calc_metrics(pred, target)
+                for k, v in detailed_metrics.items():
+                    metrics[k].append(v)
+
+                print(f"{subject_id} metrics processed")
+
+            else:
+                raise ValueError(f"Option not recognised: {option}")
+
+        if option == Options.METRICS:
+            return metrics
+        else:
+            return None
