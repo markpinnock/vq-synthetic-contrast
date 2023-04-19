@@ -24,7 +24,7 @@ class CacheType(TypedDict):
 # -------------------------------------------------------------------------
 
 
-class UNet(tf.keras.Model):
+class UNet(tf.keras.Layer):
     _vq_config: VQConfigType | None
     _vq_layers: list[str] | None
 
