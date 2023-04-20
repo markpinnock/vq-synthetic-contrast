@@ -49,7 +49,7 @@ class SaveResults(tf.keras.callbacks.Callback):
                     f"valid_{prefix}_vq": [],
                 }
 
-    def on_epoch_end(self, epoch, logs):
+    def on_epoch_end(self, epoch: int, logs: dict[str, float]) -> None:
         """Save results."""
         for metric_name, metric in logs.items():
             if "val" in metric_name:
@@ -60,6 +60,36 @@ class SaveResults(tf.keras.callbacks.Callback):
         if (epoch + 1) % self.save_freq == 0:
             with open(self.log_path / "results.json", "w") as fp:
                 json.dump(self.results, fp, indent=4)
+
+
+# -------------------------------------------------------------------------
+
+
+class SaveModel(tf.keras.callbacks.Callback):
+    """Save model every N epochs."""
+
+    def __init__(
+        self,
+        filepath: Path,
+        save_freq: int,
+        save_weights_only: bool = False,
+    ) -> None:
+        super().__init__()
+        self.model_path = filepath
+        self.model_path.mkdir(parents=True, exist_ok=True)
+        self.save_freq = save_freq
+        self.save_weights_only = save_weights_only
+
+    def on_epoch_end(self, epoch: int, logs: dict[str, float]) -> None:
+        """Save results."""
+        if (epoch + 1) % self.save_freq == 0:
+            if self.save_weights_only:
+                self.model.save_weights(
+                    self.model_path / f"ckpt-{epoch + 1}",
+                    overwrite=True,
+                )
+            else:
+                self.model.save(self.model_path / f"ckpt-{epoch + 1}", overwrite=True)
 
 
 # -------------------------------------------------------------------------
@@ -80,41 +110,40 @@ class SaveExamples(tf.keras.callbacks.Callback):
         (self.image_path / "train").mkdir(parents=True, exist_ok=True)
         (self.image_path / "validation").mkdir(parents=True, exist_ok=True)
         self.save_freq = save_freq
-        self.epochs = 0
 
         self.train_generator = train_generator
         self.valid_generator = valid_generator
 
-    def on_epoch_begin(self, epoch: int, logs: dict[str, float]) -> None:
-        self.epochs += 1
+    def on_epoch_end(self, epoch: int, logs: dict[str, float]) -> None:
+        """Save example predictions."""
+        if (epoch + 1) % self.save_freq == 0:
+            source, target, pred = self._generate_predictions(self.train_generator)
+            self._save_images("train", epoch, source, target, pred)
+            source, target, pred = self._generate_predictions(self.valid_generator)
+            self._save_images("validation", epoch, source, target, pred)
 
-    def on_test_begin(self, logs: dict[str, float]) -> None:
-        """Save example output for training."""
-        if self.epochs % self.save_freq == 0:
-            data = self.train_generator.example_images
-            source, target, pred = self.model.example_inference(**data)
+    def _generate_predictions(
+        self,
+        generator: BaseDataloader,
+    ) -> tuple[
+        npt.NDArray[np.float32],
+        npt.NDArray[np.float32],
+        npt.NDArray[np.float32],
+    ]:
+        """Generate example output."""
+        data = generator.example_images
+        source, target, pred = self.model.example_inference(**data)
 
-            source = self.train_generator.un_normalise(source)
-            target = self.train_generator.un_normalise(target)
-            pred = self.train_generator.un_normalise(pred)
+        source = generator.un_normalise(source)
+        target = generator.un_normalise(target)
+        pred = generator.un_normalise(pred)
 
-            self._save_images("train", source, target, pred)
-
-    def on_test_end(self, logs: dict[str, float]) -> None:
-        """Save example output for validation."""
-        if self.epochs % self.save_freq == 0:
-            data = self.valid_generator.example_images
-            source, target, pred = self.model.example_inference(**data)
-
-            source = self.valid_generator.un_normalise(source)
-            target = self.valid_generator.un_normalise(target)
-            pred = self.valid_generator.un_normalise(pred)
-
-            self._save_images("validation", source, target, pred)
+        return source, target, pred
 
     def _save_images(
         self,
         phase: str,
+        epoch: int,
         source: npt.NDArray[np.float32],
         target: npt.NDArray[np.float32],
         pred: npt.NDArray[np.float32],
@@ -148,7 +177,7 @@ class SaveExamples(tf.keras.callbacks.Callback):
             axs[i, 4].axis("off")
 
         plt.tight_layout()
-        plt.savefig(self.image_path / phase / f"{self.epochs}.png", dpi=250)
+        plt.savefig(self.image_path / phase / f"{epoch + 1}.png", dpi=250)
         plt.close()
 
 
@@ -170,46 +199,44 @@ class SaveMultiScaleExamples(tf.keras.callbacks.Callback):
         (self.image_path / "train").mkdir(parents=True, exist_ok=True)
         (self.image_path / "validation").mkdir(parents=True, exist_ok=True)
         self.save_freq = save_freq
-        self.epochs = 0
 
         self.train_generator = train_generator
         self.valid_generator = valid_generator
 
-    def on_epoch_start(self, epoch: int, logs: dict[str, float]) -> None:
-        self.epochs += 1
+    def on_epoch_end(self, epoch: int, logs: dict[str, float]) -> None:
+        """Save example predictions."""
+        if (epoch + 1) % self.save_freq == 0:
+            source, target, pred = self._generate_predictions(self.train_generator)
+            self._save_images("train", epoch, source, target, pred)
+            source, target, pred = self._generate_predictions(self.valid_generator)
+            self._save_images("validation", epoch, source, target, pred)
 
-    def on_test_begin(self, logs: dict[str, float]) -> None:
-        """Save example output for training."""
-        if self.epochs % self.save_freq == 0:
-            data = self.train_generator.example_images
-            source, target, pred = self.model.example_inference(**data)
+    def _generate_predictions(
+        self,
+        generator: BaseDataloader,
+    ) -> tuple[
+        npt.NDArray[np.float32],
+        npt.NDArray[np.float32],
+        dict[str, npt.NDArray[np.float32]],
+    ]:
+        """Generate example output."""
+        data = generator.example_images
+        source, target, pred = self.model.example_inference(**data)
 
-            source = self.train_generator.un_normalise(source)
-            target = self.train_generator.un_normalise(target)
-            for scale in pred.keys():
-                pred[scale] = self.train_generator.un_normalise(pred[scale])
+        source = generator.un_normalise(source)
+        target = generator.un_normalise(target)
+        for scale in pred.keys():
+            pred[scale] = self.train_generator.un_normalise(pred[scale])
 
-            self._save_images("train", source, target, pred)
-
-    def on_test_end(self, logs: dict[str, float]) -> None:
-        """Save example output for validation."""
-        if self.epochs % self.save_freq == 0:
-            data = self.valid_generator.example_images
-            source, target, pred = self.model.example_inference(**data)
-
-            source = self.valid_generator.un_normalise(source)
-            target = self.valid_generator.un_normalise(target)
-            for scale in pred.keys():
-                pred[scale] = self.valid_generator.un_normalise(pred[scale])
-
-            self._save_images("validation", source, target, pred)
+        return source, target, pred
 
     def _save_images(
         self,
         phase: str,
+        epoch: int,
         source: npt.NDArray[np.float32],
         target: npt.NDArray[np.float32],
-        pred: npt.NDArray[np.float32],
+        pred: dict[str, npt.NDArray[np.float32]],
     ) -> None:
         """Save images.
         :param phase: `train` or `validation`
@@ -246,5 +273,5 @@ class SaveMultiScaleExamples(tf.keras.callbacks.Callback):
             axs[i, 4 + j].axis("off")
 
         plt.tight_layout()
-        plt.savefig(self.image_path / phase / f"{self.epochs}.png", dpi=250)
+        plt.savefig(self.image_path / phase / f"{epoch + 1}.png", dpi=250)
         plt.close()

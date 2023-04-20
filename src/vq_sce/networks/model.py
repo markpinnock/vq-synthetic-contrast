@@ -424,7 +424,7 @@ class JointModel(tf.keras.Model):
         self.sr_train_step(**data[Task.SUPER_RES])
         self.ce_train_step(**data[Task.CONTRAST])
 
-        {metric.name: metric.result() for metric in self.metrics}
+        return {metric.name: metric.result() for metric in self.metrics}
 
     def sr_test_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
         # Sample patch if needed
@@ -473,7 +473,7 @@ class JointModel(tf.keras.Model):
         self.sr_test_step(**data[Task.SUPER_RES])
         self.ce_test_step(**data[Task.CONTRAST])
 
-        {metric.name: metric.result() for metric in self.metrics}
+        return {metric.name: metric.result() for metric in self.metrics}
 
     def _get_scale_indices(self) -> tuple[int, int]:
         # Want higher probability of training on more central regions

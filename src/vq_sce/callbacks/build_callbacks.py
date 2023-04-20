@@ -3,7 +3,7 @@ from typing import Any
 
 import tensorflow as tf
 
-from vq_sce.callbacks.callbacks import SaveExamples, SaveResults
+from vq_sce.callbacks.callbacks import SaveExamples, SaveModel, SaveResults
 from vq_sce.networks.model import Task
 from vq_sce.utils.dataloaders.build_dataloader import get_train_dataloader
 from vq_sce.utils.dataloaders.joint_dataset import JointDataset
@@ -57,12 +57,6 @@ def build_callbacks_and_datasets(config: dict[str, Any], dev: bool) -> dict[str,
     expt_path = Path(config["paths"]["expt_path"])
     save_freq = config["expt"]["save_every"]
 
-    model_checkpoint = tf.keras.callbacks.ModelCheckpoint(
-        filepath=expt_path / "models",
-        save_weights_only=False,
-        save_freq="epoch",
-    )
-
     tensorboard = tf.keras.callbacks.TensorBoard(
         log_dir=expt_path / "logs",
         histogram_freq=int(config["expt"]["log_histograms"]),
@@ -75,6 +69,12 @@ def build_callbacks_and_datasets(config: dict[str, Any], dev: bool) -> dict[str,
         filepath=expt_path / "logs",
         save_freq=save_freq,
         data_type=config["data"]["type"],
+    )
+
+    model_checkpoint = SaveModel(
+        filepath=expt_path / "models",
+        save_weights_only=False,
+        save_freq=save_freq,
     )
 
     save_examples = SaveExamples(
