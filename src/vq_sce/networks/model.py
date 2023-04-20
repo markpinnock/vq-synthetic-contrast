@@ -409,9 +409,8 @@ class JointModel(tf.keras.Model):
                 vq_loss = 0
 
             total_loss = loss + vq_loss
-            self.ce_L1_metric.update_state(loss)
+            self.ce_loss_metric.update_state(loss)
             self.ce_vq_metric.update_state(vq_loss)
-            self.ce_total_metric.update_state(total_loss)
 
         # Get gradients and update weights
         grads = tape.gradient(total_loss, self.ce_UNet.trainable_variables)
