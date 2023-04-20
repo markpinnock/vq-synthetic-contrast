@@ -22,7 +22,6 @@ class SaveResults(tf.keras.callbacks.Callback):
         self.log_path = filepath
         self.log_path.mkdir(parents=True, exist_ok=True)
         self.save_freq = save_freq
-        self.epochs = 0
 
         try:
             with open(self.log_path / "results.json") as fp:
@@ -50,21 +49,15 @@ class SaveResults(tf.keras.callbacks.Callback):
                     f"valid_{prefix}_vq": [],
                 }
 
-    def on_epoch_start(self, epoch: int, logs: dict[str, float]) -> None:
-        self.epochs += 1
-
-    def on_test_begin(self, logs: dict[str, float]) -> None:
-        """Save results for training."""
-        if self.epochs % self.save_freq == 0:
-            for metric_name, metric in logs.items():
+    def on_epoch_end(self, epoch, logs):
+        """Save results."""
+        for metric_name, metric in logs.items():
+            if "val" in metric_name:
+                self.results[f"valid_{metric_name.strip('val_')}"].append(metric)
+            else:
                 self.results[f"train_{metric_name}"].append(metric)
 
-    def on_test_end(self, logs: dict[str, float]) -> None:
-        """Save results for validation."""
-        if self.epochs % self.save_freq == 0:
-            for metric_name, metric in logs.items():
-                self.results[f"valid_{metric_name}"].append(metric)
-
+        if (epoch + 1) % self.save_freq == 0:
             with open(self.log_path / "results.json", "w") as fp:
                 json.dump(self.results, fp, indent=4)
 
