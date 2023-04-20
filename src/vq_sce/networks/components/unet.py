@@ -24,7 +24,7 @@ class CacheType(TypedDict):
 # -------------------------------------------------------------------------
 
 
-class UNet(tf.keras.Layer):
+class UNet(tf.keras.layers.Layer):
     _vq_config: VQConfigType | None
     _vq_layers: list[str] | None
 
@@ -191,13 +191,9 @@ class UNet(tf.keras.Layer):
         else:
             self.output_vq = None
 
-    def call(self, x: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor | None]:
+    def call(self, x: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor]:
         skip_layers = []
-
-        if self._z_upsamp_factor > 1:
-            residual_x = self.upsample(x)
-        else:
-            residual_x = x
+        residual_x = self.upsample(x)
 
         for layer in self.encoder:
             x, skip = layer(x, training=True)
@@ -212,7 +208,7 @@ class UNet(tf.keras.Layer):
         x = self.final_layer(x, training=True)
 
         if self.output_vq is None:
-            return x + residual_x, None
+            return x + residual_x, residual_x
 
         else:
             return x + residual_x, self.output_vq(x) + residual_x

@@ -4,26 +4,45 @@ from typing import Any
 import tensorflow as tf
 
 from vq_sce.callbacks.callbacks import SaveExamples, SaveResults
+from vq_sce.networks.model import Task
 from vq_sce.utils.dataloaders.build_dataloader import get_train_dataloader
 from vq_sce.utils.dataloaders.joint_dataset import JointDataset
 
 
-def build_callbacks_and_datasets(
-    config: dict[str, Any],
-    model: tf.keras.Model,
-    dev: bool,
-) -> dict[str, Any]:
+def build_callbacks_and_datasets(config: dict[str, Any], dev: bool) -> dict[str, Any]:
     expt_type = config["expt"]["expt_type"]
 
     # Get datasets and data generators
     if expt_type == "single":
         train_ds, valid_ds, train_gen, valid_gen = get_train_dataloader(config, dev)
+        train_examples = len(train_gen.data["source"])
+        valid_examples = len(valid_gen.data["source"])
+        train_steps = train_examples // config["expt"]["mb_size"]
+        valid_steps = valid_examples // config["expt"]["mb_size"]
 
     elif expt_type == "joint":
-        config["data"]["type"] = "contrast"
-        ce_train_ds, ce_valid_ds, _, _ = get_train_dataloader(config, dev)
-        config["data"]["type"] = "super_res"
-        sr_train_ds, sr_valid_ds, _, _ = get_train_dataloader(config, dev)
+        config["data"]["type"] = Task.CONTRAST
+        ce_train_ds, ce_valid_ds, ce_train_gen, ce_valid_gen = get_train_dataloader(
+            config,
+            dev,
+        )
+        config["data"]["type"] = Task.SUPER_RES
+        sr_train_ds, sr_valid_ds, sr_train_gen, sr_valid_gen = get_train_dataloader(
+            config,
+            dev,
+        )
+
+        if len(ce_train_gen.data["source"]) < len(sr_train_gen.data["source"]):
+            train_examples = len(ce_train_gen.data["source"])
+        else:
+            train_examples = len(sr_train_gen.data["source"])
+        train_steps = train_examples // config["expt"]["mb_size"]
+
+        if len(ce_valid_gen.data["source"]) < len(sr_valid_gen.data["source"]):
+            valid_examples = len(ce_valid_gen.data["source"])
+        else:
+            valid_examples = len(sr_valid_gen.data["source"])
+        valid_steps = valid_examples // config["expt"]["mb_size"]
 
         train_ds = tf.data.Dataset.zip({"ce": ce_train_ds, "sr": sr_train_ds})
         valid_ds = tf.data.Dataset.zip({"ce": ce_valid_ds, "sr": sr_valid_ds})
@@ -41,7 +60,7 @@ def build_callbacks_and_datasets(
     model_checkpoint = tf.keras.callbacks.ModelCheckpoint(
         filepath=expt_path / "models",
         save_weights_only=False,
-        save_freq=save_freq,
+        save_freq="epoch",
     )
 
     tensorboard = tf.keras.callbacks.TensorBoard(
@@ -55,7 +74,7 @@ def build_callbacks_and_datasets(
     save_results = SaveResults(
         filepath=expt_path / "logs",
         save_freq=save_freq,
-        data_type=config["data"]["data_type"],
+        data_type=config["data"]["type"],
     )
 
     save_examples = SaveExamples(
@@ -67,4 +86,10 @@ def build_callbacks_and_datasets(
 
     callbacks = [model_checkpoint, tensorboard, save_results, save_examples]
 
-    return {"train_ds": train_ds, "valid_ds": valid_ds, "callbacks": callbacks}
+    return {
+        "train_ds": train_ds,
+        "valid_ds": valid_ds,
+        "callbacks": callbacks,
+        "train_steps": train_steps,
+        "valid_steps": valid_steps,
+    }

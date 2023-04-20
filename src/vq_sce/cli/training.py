@@ -1,5 +1,4 @@
 import argparse
-import datetime
 import os
 from pathlib import Path
 from typing import Any
@@ -8,15 +7,14 @@ import tensorflow as tf
 import yaml
 
 from vq_sce import RANDOM_SEED
+from vq_sce.callbacks.build_callbacks import build_callbacks_and_datasets
 from vq_sce.networks.build_model import build_model
-from vq_sce.trainers.build_trainer import build_training_loop
 
 # -------------------------------------------------------------------------
 
 
 def train(config: dict[str, Any], dev: bool) -> None:
     tf.random.set_seed(RANDOM_SEED)
-    tf.get_logger().setLevel("ERROR")
 
     # Development mode if necessary
     if dev:
@@ -25,6 +23,7 @@ def train(config: dict[str, Any], dev: bool) -> None:
         dims = config["data"]["target_dims"]
         config["data"]["target_dims"] = [dims[0], dims[1] // 4, dims[2] // 4]
         config["data"]["down_sample"] = 4
+
     else:
         config["data"]["down_sample"] = 1
 
@@ -34,26 +33,18 @@ def train(config: dict[str, Any], dev: bool) -> None:
     if config["expt"]["verbose"]:
         model.summary()
 
-    # Write graph for visualising in Tensorboard
-    if config["expt"]["graph"]:
-        curr_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        log_dir = str(Path(config["paths"]["expt_path"]) / "logs" / curr_time)
-        writer = tf.summary.create_file_writer(log_dir)
+    callbacks_and_datasets = build_callbacks_and_datasets(config, dev)
 
-        @tf.function
-        def trace(x: tf.Tensor) -> None:
-            model(x)
-
-        tf.summary.trace_on(graph=True)
-        trace(tf.zeros([1] + config["data"]["source_dims"] + [1]))
-
-        with writer.as_default():
-            tf.summary.trace_export("graph", step=0)
-
-    training_loop = build_training_loop(config, model, dev)
-
-    # Run training loop
-    training_loop.train()
+    # Run training
+    model.fit(
+        x=callbacks_and_datasets["train_ds"],
+        epochs=config["expt"]["epochs"],
+        callbacks=callbacks_and_datasets["callbacks"],
+        validation_data=callbacks_and_datasets["valid_ds"],
+        initial_epoch=0,
+        steps_per_epoch=callbacks_and_datasets["train_steps"],
+        validation_steps=callbacks_and_datasets["valid_steps"],
+    )
 
 
 # -------------------------------------------------------------------------

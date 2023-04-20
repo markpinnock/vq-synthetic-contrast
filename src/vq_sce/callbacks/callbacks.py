@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-from typing import Any
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -51,20 +50,20 @@ class SaveResults(tf.keras.callbacks.Callback):
                     f"valid_{prefix}_vq": [],
                 }
 
-    def on_epoch_start(self, epoch: int, logs: dict[str, Any]) -> None:
-        self.epochs = epoch + 1
+    def on_epoch_start(self, epoch: int, logs: dict[str, float]) -> None:
+        self.epochs += 1
 
-    def on_test_begin(self, logs: dict[str, Any]) -> None:
+    def on_test_begin(self, logs: dict[str, float]) -> None:
         """Save results for training."""
         if self.epochs % self.save_freq == 0:
             for metric_name, metric in logs.items():
-                self.results[f"train_{metric_name}"].append(float(metric.result()))
+                self.results[f"train_{metric_name}"].append(metric)
 
-    def on_test_end(self, logs: dict[str, Any]) -> None:
+    def on_test_end(self, logs: dict[str, float]) -> None:
         """Save results for validation."""
         if self.epochs % self.save_freq == 0:
             for metric_name, metric in logs.items():
-                self.results[f"valid_{metric_name}"].append(float(metric.result()))
+                self.results[f"valid_{metric_name}"].append(metric)
 
             with open(self.log_path / "results.json", "w") as fp:
                 json.dump(self.results, fp, indent=4)
@@ -93,10 +92,10 @@ class SaveExamples(tf.keras.callbacks.Callback):
         self.train_generator = train_generator
         self.valid_generator = valid_generator
 
-    def on_epoch_start(self, epoch: int, logs: dict[str, Any]) -> None:
-        self.epochs = epoch + 1
+    def on_epoch_begin(self, epoch: int, logs: dict[str, float]) -> None:
+        self.epochs += 1
 
-    def on_test_begin(self, logs: dict[str, Any]) -> None:
+    def on_test_begin(self, logs: dict[str, float]) -> None:
         """Save example output for training."""
         if self.epochs % self.save_freq == 0:
             data = self.train_generator.example_images
@@ -108,7 +107,7 @@ class SaveExamples(tf.keras.callbacks.Callback):
 
             self._save_images("train", source, target, pred)
 
-    def on_test_end(self, logs: dict[str, Any]) -> None:
+    def on_test_end(self, logs: dict[str, float]) -> None:
         """Save example output for validation."""
         if self.epochs % self.save_freq == 0:
             data = self.valid_generator.example_images
@@ -183,10 +182,10 @@ class SaveMultiScaleExamples(tf.keras.callbacks.Callback):
         self.train_generator = train_generator
         self.valid_generator = valid_generator
 
-    def on_epoch_start(self, epoch: int, logs: dict[str, Any]) -> None:
-        self.epochs = epoch + 1
+    def on_epoch_start(self, epoch: int, logs: dict[str, float]) -> None:
+        self.epochs += 1
 
-    def on_test_begin(self, logs: dict[str, Any]) -> None:
+    def on_test_begin(self, logs: dict[str, float]) -> None:
         """Save example output for training."""
         if self.epochs % self.save_freq == 0:
             data = self.train_generator.example_images
@@ -199,7 +198,7 @@ class SaveMultiScaleExamples(tf.keras.callbacks.Callback):
 
             self._save_images("train", source, target, pred)
 
-    def on_test_end(self, logs: dict[str, Any]) -> None:
+    def on_test_end(self, logs: dict[str, float]) -> None:
         """Save example output for validation."""
         if self.epochs % self.save_freq == 0:
             data = self.valid_generator.example_images

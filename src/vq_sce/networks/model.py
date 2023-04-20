@@ -66,6 +66,8 @@ class Model(tf.keras.Model):
         self.UNet = UNet(self._initialiser, config["hyperparameters"], name="unet")
 
     def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:  # noqa: A003
+        super().compile()
+
         # Set up optimiser and loss
         self.optimiser = optimiser
         self.loss = tf.keras.losses.MeanAbsoluteError()
@@ -93,9 +95,11 @@ class Model(tf.keras.Model):
 
     def train_step(
         self,
-        source: tf.Tensor,
-        target: tf.Tensor,
-    ) -> dict[str, tf.keras.Metrics.Metric]:
+        data: dict[str, dict[str, tf.Tensor]],
+    ) -> dict[str, tf.Tensor]:
+        source = data["source"]
+        target = data["target"]
+
         # Augmentation if required
         if self.Aug:
             (source,), (target,) = self.Aug(source=[source], target=[target])
@@ -125,16 +129,15 @@ class Model(tf.keras.Model):
         grads = tape.gradient(total_loss, self.UNet.trainable_variables)
         self.optimiser.apply_gradients(zip(grads, self.UNet.trainable_variables))
 
-        return {
-            self.loss_metric.name: self.loss_metric,
-            self.vq_metric.name: self.vq_metric,
-        }
+        return {metric.name: metric.result() for metric in self.metrics}
 
     def test_step(
         self,
-        source: tf.Tensor,
-        target: tf.Tensor,
-    ) -> dict[str, tf.keras.Metrics.Metric]:
+        data: dict[str, dict[str, tf.Tensor]],
+    ) -> dict[str, tf.Tensor]:
+        source = data["source"]
+        target = data["target"]
+
         # Sample patch if needed
         if self._scales[0] > 1:
             x, y = self._get_scale_indices()
@@ -154,10 +157,7 @@ class Model(tf.keras.Model):
         self.loss_metric.update_state(loss)
         self.vq_metric.update_state(vq_loss)
 
-        return {
-            self.loss_metric.name: self.loss_metric,
-            self.vq_metric.name: self.vq_metric,
-        }
+        return {metric.name: metric.result() for metric in self.metrics}
 
     def _get_scale_indices(self) -> tuple[int, int]:
         # Want higher probability of training on more central regions
@@ -315,6 +315,8 @@ class JointModel(tf.keras.Model):
         )
 
     def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:  # noqa: A003
+        super().compile()
+
         # Set up optimiser and loss
         self.optimiser = optimiser
         self.loss = tf.keras.losses.MeanAbsoluteError()
@@ -417,18 +419,12 @@ class JointModel(tf.keras.Model):
 
     def train_step(
         self,
-        sr_data: tf.Tensor,
-        ce_data: tf.Tensor,
-    ) -> dict[str, tf.keras.Metrics.Metric]:
-        self.sr_train_step(**sr_data)
-        self.ce_train_step(**ce_data)
+        data: dict[str, dict[str, tf.Tensor]],
+    ) -> dict[str, tf.Tensor]:
+        self.sr_train_step(**data[Task.SUPER_RES])
+        self.ce_train_step(**data[Task.CONTRAST])
 
-        return {
-            self.sr_loss_metric.name: self.sr_loss_metric,
-            self.sr_vq_metric.name: self.sr_vq_metric,
-            self.ce_loss_metric.name: self.ce_loss_metric,
-            self.ce_vq_metric.name: self.ce_vq_metric,
-        }
+        {metric.name: metric.result() for metric in self.metrics}
 
     def sr_test_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
         # Sample patch if needed
@@ -472,11 +468,12 @@ class JointModel(tf.keras.Model):
 
     def test_step(
         self,
-        sr_data: tf.Tensor,
-        ce_data: tf.Tensor,
-    ) -> dict[str, tf.keras.Metrics.Metric]:
-        self.sr_test_step(**sr_data)
-        self.ce_test_step(**ce_data)
+        data: dict[str, dict[str, tf.Tensor]],
+    ) -> dict[str, tf.Tensor]:
+        self.sr_test_step(**data[Task.SUPER_RES])
+        self.ce_test_step(**data[Task.CONTRAST])
+
+        {metric.name: metric.result() for metric in self.metrics}
 
     def _get_scale_indices(self) -> tuple[int, int]:
         # Want higher probability of training on more central regions
