@@ -44,8 +44,12 @@ def build_callbacks_and_datasets(config: dict[str, Any], dev: bool) -> dict[str,
             valid_examples = len(sr_valid_gen.data["source"])
         valid_steps = valid_examples // config["expt"]["mb_size"]
 
-        train_ds = tf.data.Dataset.zip({"ce": ce_train_ds, "sr": sr_train_ds})
-        valid_ds = tf.data.Dataset.zip({"ce": ce_valid_ds, "sr": sr_valid_ds})
+        train_ds = tf.data.Dataset.zip(
+            {Task.CONTRAST: ce_train_ds, Task.SUPER_RES: sr_train_ds},
+        )
+        valid_ds = tf.data.Dataset.zip(
+            {Task.CONTRAST: ce_valid_ds, Task.SUPER_RES: sr_valid_ds},
+        )
 
         train_gen = JointDataset(config=config["data"], dataset_type="training")
         valid_gen = JointDataset(config=config["data"], dataset_type="validation")
@@ -69,6 +73,7 @@ def build_callbacks_and_datasets(config: dict[str, Any], dev: bool) -> dict[str,
         filepath=expt_path / "logs",
         save_freq=save_freq,
         data_type=config["data"]["type"],
+        expt_type=config["expt"]["expt_type"],
     )
 
     model_checkpoint = SaveModel(

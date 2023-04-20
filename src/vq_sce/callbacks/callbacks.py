@@ -17,7 +17,13 @@ from vq_sce.utils.dataloaders.base_dataloader import BaseDataloader
 class SaveResults(tf.keras.callbacks.Callback):
     """Save metrics to json every N epochs."""
 
-    def __init__(self, filepath: Path, save_freq: int, data_type: str) -> None:
+    def __init__(
+        self,
+        filepath: Path,
+        save_freq: int,
+        data_type: str,
+        expt_type: str,
+    ) -> None:
         super().__init__()
         self.log_path = filepath
         self.log_path.mkdir(parents=True, exist_ok=True)
@@ -28,7 +34,7 @@ class SaveResults(tf.keras.callbacks.Callback):
                 self.results = json.load(fp)
 
         except FileNotFoundError:
-            if data_type == Task.JOINT:
+            if expt_type == Task.JOINT:
                 self.results = {
                     "train_sr_L1": [],
                     "valid_sr_L1": [],
