@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+import absl.logging
 import tensorflow as tf
 import yaml
 
@@ -15,6 +16,7 @@ from vq_sce.networks.build_model import build_model
 
 def train(config: dict[str, Any], dev: bool) -> None:
     tf.random.set_seed(RANDOM_SEED)
+    absl.logging.set_verbosity(absl.logging.ERROR)
 
     # Development mode if necessary
     if dev:
