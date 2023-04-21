@@ -120,7 +120,7 @@ class StdAug(tf.keras.layers.Layer):
         aug_source: list[tf.Tensor | None] = []
         aug_target: list[tf.Tensor | None] = []
 
-        mb_size = source[0].shape[0]
+        mb_size = tf.shape(source[0])[0]
         self._create_matrix_indices(mb_size)
         thetas = tf.reshape(self._transformation(mb_size), [mb_size, -1])
 

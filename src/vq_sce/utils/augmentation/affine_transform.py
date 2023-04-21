@@ -72,8 +72,8 @@ class AffineTransform(tf.keras.layers.Layer, abc.ABC):
         return self._flat_coords
 
     def call(self, im: tf.Tensor, thetas: tf.Tensor) -> tf.Tensor:
-        mb_size = im.shape[0]
-        n_ch = im.shape[-1]
+        mb_size = tf.shape(im)[0]
+        n_ch = tf.shape(im)[-1]
         self.transform_coords(mb_size, thetas)
         base, indices = self.get_img_indices()
         weights = self.get_weights(*indices)

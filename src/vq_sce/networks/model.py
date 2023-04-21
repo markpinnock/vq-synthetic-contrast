@@ -6,7 +6,6 @@ import numpy as np
 import tensorflow as tf
 
 from vq_sce.utils.augmentation.augmentation import StdAug
-from vq_sce.utils.losses import L1
 
 from .components.layers.vq_layers import VQBlock
 from .components.unet import MAX_CHANNELS, UNet
@@ -67,20 +66,23 @@ class Model(tf.keras.Model):
         self.UNet = UNet(self._initialiser, config["hyperparameters"], name="unet")
 
     def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:  # noqa: A003
+        super().compile()
+
+        # Set up optimiser and loss
         self.optimiser = optimiser
+        self.loss = tf.keras.losses.MeanAbsoluteError()
 
         # Set up metrics
         prefix = "ce" if self._config["data"]["type"] == "contrast" else "sr"
-        self.L1_metric = tf.keras.metrics.Mean(name=f"{prefix}_L1")
+        self.loss_metric = tf.keras.metrics.Mean(name=f"{prefix}_L1")
         self.vq_metric = tf.keras.metrics.Mean(name=f"{prefix}_vq")
-        self.total_metric = tf.keras.metrics.Mean(name=f"{prefix}_total")
 
     @property
     def metrics(self) -> list[tf.keras.metrics.Metric]:
-        return [self.L1_metric, self.vq_metric, self.total_metric]
+        return [self.loss_metric, self.vq_metric]
 
     def build_model(self) -> None:
-        _, _ = self(tf.keras.Input(shape=self._source_dims + [1]))
+        _ = self(tf.keras.Input(shape=self._source_dims + [1]))
 
     def summary(self) -> None:
         source = tf.keras.Input(shape=self._source_dims + [1])
@@ -91,8 +93,13 @@ class Model(tf.keras.Model):
         else:
             tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
 
-    @tf.function
-    def train_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
+    def train_step(
+        self,
+        data: dict[str, dict[str, tf.Tensor]],
+    ) -> dict[str, tf.Tensor]:
+        source = data["source"]
+        target = data["target"]
+
         # Augmentation if required
         if self.Aug:
             (source,), (target,) = self.Aug(source=[source], target=[target])
@@ -103,10 +110,10 @@ class Model(tf.keras.Model):
             source, target = self._sample_patches(x, y, source, target)
 
         with tf.GradientTape(persistent=True) as tape:
-            pred, _ = self(source)
+            pred = self(source)
 
             # Calculate L1
-            L1_loss = L1(target, pred)  # noqa: N806
+            loss = self.loss(target, pred)
 
             # Calculate VQ loss
             if self._use_vq:
@@ -114,26 +121,32 @@ class Model(tf.keras.Model):
             else:
                 vq_loss = 0
 
-            total_loss = L1_loss + vq_loss
-            self.L1_metric.update_state(L1_loss)
+            total_loss = loss + vq_loss
+            self.loss_metric.update_state(loss)
             self.vq_metric.update_state(vq_loss)
-            self.total_metric.update_state(total_loss)
 
         # Get gradients and update weights
         grads = tape.gradient(total_loss, self.UNet.trainable_variables)
         self.optimiser.apply_gradients(zip(grads, self.UNet.trainable_variables))
 
-    @tf.function
-    def test_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
+        return {metric.name: metric.result() for metric in self.metrics}
+
+    def test_step(
+        self,
+        data: dict[str, dict[str, tf.Tensor]],
+    ) -> dict[str, tf.Tensor]:
+        source = data["source"]
+        target = data["target"]
+
         # Sample patch if needed
         if self._scales[0] > 1:
             x, y = self._get_scale_indices()
             source, target = self._sample_patches(x, y, source, target)
 
-        pred, _ = self(source)
+        pred = self(source)
 
         # Calculate L1
-        L1_loss = L1(target, pred)  # noqa: N806
+        loss = self.loss(target, pred)
 
         # Calculate VQ loss
         if self._use_vq:
@@ -141,10 +154,10 @@ class Model(tf.keras.Model):
         else:
             vq_loss = 0
 
-        total_loss = L1_loss + vq_loss
-        self.L1_metric.update_state(L1_loss)
+        self.loss_metric.update_state(loss)
         self.vq_metric.update_state(vq_loss)
-        self.total_metric.update_state(total_loss)
+
+        return {metric.name: metric.result() for metric in self.metrics}
 
     def _get_scale_indices(self) -> tuple[int, int]:
         # Want higher probability of training on more central regions
@@ -197,11 +210,11 @@ class Model(tf.keras.Model):
         target: tf.Tensor,
     ) -> tuple[tf.Tensor, ...]:
         if self._scales[0] == 1:
-            pred, _ = self(source)
+            pred = self(source)
 
         else:
             source, target = self._sample_patches(2, 2, source, target)
-            pred, _ = self(source)
+            pred = self(source)
 
         return source, target, pred
 
@@ -210,7 +223,8 @@ class Model(tf.keras.Model):
             metric.reset_states()
 
     def call(self, x: tf.Tensor) -> tf.Tensor:
-        return self.UNet(x)
+        x, _ = self.UNet(x)
+        return x
 
 
 # -------------------------------------------------------------------------
@@ -302,29 +316,29 @@ class JointModel(tf.keras.Model):
         )
 
     def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:  # noqa: A003
+        super().compile()
+
+        # Set up optimiser and loss
         self.optimiser = optimiser
+        self.loss = tf.keras.losses.MeanAbsoluteError()
 
         # Set up metrics
-        self.sr_L1_metric = tf.keras.metrics.Mean(name="sr_L1")
+        self.sr_loss_metric = tf.keras.metrics.Mean(name="sr_L1")
         self.sr_vq_metric = tf.keras.metrics.Mean(name="sr_vq")
-        self.sr_total_metric = tf.keras.metrics.Mean(name="sr_total")
-        self.ce_L1_metric = tf.keras.metrics.Mean(name="ce_L1")
+        self.ce_loss_metric = tf.keras.metrics.Mean(name="ce_L1")
         self.ce_vq_metric = tf.keras.metrics.Mean(name="ce_vq")
-        self.ce_total_metric = tf.keras.metrics.Mean(name="ce_total")
 
     @property
     def metrics(self) -> list[tf.keras.metrics.Metric]:
         return [
-            self.sr_L1_metric,
+            self.sr_loss_metric,
             self.sr_vq_metric,
-            self.sr_total_metric,
-            self.ce_L1_metric,
+            self.ce_loss_metric,
             self.ce_vq_metric,
-            self.ce_total_metric,
         ]
 
     def build_model(self) -> None:
-        _, _ = self(tf.keras.Input(shape=self._sr_source_dims + [1]))
+        _ = self(tf.keras.Input(shape=self._sr_source_dims + [1]))
 
     def summary(self) -> None:
         source = tf.keras.Input(shape=self._sr_source_dims + [1])
@@ -343,7 +357,6 @@ class JointModel(tf.keras.Model):
         else:
             tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
 
-    @tf.function
     def sr_train_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
         # Augmentation if required
         if self.sr_Aug:
@@ -358,7 +371,7 @@ class JointModel(tf.keras.Model):
             pred, _ = self.sr_UNet(source)
 
             # Calculate L1
-            L1_loss = L1(target, pred)  # noqa: N806
+            loss = self.loss(target, pred)
 
             # Calculate VQ loss
             if self._use_vq:
@@ -366,16 +379,14 @@ class JointModel(tf.keras.Model):
             else:
                 vq_loss = 0
 
-            total_loss = L1_loss + vq_loss
-            self.sr_L1_metric.update_state(L1_loss)
+            total_loss = loss + vq_loss
+            self.sr_loss_metric.update_state(loss)
             self.sr_vq_metric.update_state(vq_loss)
-            self.sr_total_metric.update_state(total_loss)
 
         # Get gradients and update weights
         grads = tape.gradient(total_loss, self.sr_UNet.trainable_variables)
         self.optimiser.apply_gradients(zip(grads, self.sr_UNet.trainable_variables))
 
-    @tf.function
     def ce_train_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
         # Augmentation if required
         if self.ce_Aug:
@@ -390,7 +401,7 @@ class JointModel(tf.keras.Model):
             pred, _ = self.ce_UNet(source)
 
             # Calculate L1
-            L1_loss = L1(target, pred)  # noqa: N806
+            loss = self.loss(target, pred)
 
             # Calculate VQ loss
             if self._use_vq:
@@ -398,20 +409,23 @@ class JointModel(tf.keras.Model):
             else:
                 vq_loss = 0
 
-            total_loss = L1_loss + vq_loss
-            self.ce_L1_metric.update_state(L1_loss)
+            total_loss = loss + vq_loss
+            self.ce_loss_metric.update_state(loss)
             self.ce_vq_metric.update_state(vq_loss)
-            self.ce_total_metric.update_state(total_loss)
 
         # Get gradients and update weights
         grads = tape.gradient(total_loss, self.ce_UNet.trainable_variables)
         self.optimiser.apply_gradients(zip(grads, self.ce_UNet.trainable_variables))
 
-    def train_step(self, sr_data: tf.Tensor, ce_data: tf.Tensor) -> None:
-        self.sr_train_step(**sr_data)
-        self.ce_train_step(**ce_data)
+    def train_step(
+        self,
+        data: dict[str, dict[str, tf.Tensor]],
+    ) -> dict[str, tf.Tensor]:
+        self.sr_train_step(**data[Task.SUPER_RES])
+        self.ce_train_step(**data[Task.CONTRAST])
 
-    @tf.function
+        return {metric.name: metric.result() for metric in self.metrics}
+
     def sr_test_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
         # Sample patch if needed
         if self._scales[0] > 1:
@@ -421,7 +435,7 @@ class JointModel(tf.keras.Model):
         pred, _ = self.sr_UNet(source)
 
         # Calculate L1
-        L1_loss = L1(target, pred)  # noqa: N806
+        loss = self.loss(target, pred)
 
         # Calculate VQ loss
         if self._use_vq:
@@ -429,12 +443,9 @@ class JointModel(tf.keras.Model):
         else:
             vq_loss = 0
 
-        total_loss = L1_loss + vq_loss
-        self.sr_L1_metric.update_state(L1_loss)
+        self.sr_loss_metric.update_state(loss)
         self.sr_vq_metric.update_state(vq_loss)
-        self.sr_total_metric.update_state(total_loss)
 
-    @tf.function
     def ce_test_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
         # Sample patch if needed
         if self._scales[0] > 1:
@@ -444,7 +455,7 @@ class JointModel(tf.keras.Model):
         pred, _ = self.ce_UNet(source)
 
         # Calculate L1
-        L1_loss = L1(target, pred)  # noqa: N806
+        loss = self.loss(target, pred)
 
         # Calculate VQ loss
         if self._use_vq:
@@ -452,14 +463,17 @@ class JointModel(tf.keras.Model):
         else:
             vq_loss = 0
 
-        total_loss = L1_loss + vq_loss
-        self.ce_L1_metric.update_state(L1_loss)
+        self.ce_loss_metric.update_state(loss)
         self.ce_vq_metric.update_state(vq_loss)
-        self.ce_total_metric.update_state(total_loss)
 
-    def test_step(self, sr_data: tf.Tensor, ce_data: tf.Tensor) -> None:
-        self.sr_test_step(**sr_data)
-        self.ce_test_step(**ce_data)
+    def test_step(
+        self,
+        data: dict[str, dict[str, tf.Tensor]],
+    ) -> dict[str, tf.Tensor]:
+        self.sr_test_step(**data[Task.SUPER_RES])
+        self.ce_test_step(**data[Task.CONTRAST])
+
+        return {metric.name: metric.result() for metric in self.metrics}
 
     def _get_scale_indices(self) -> tuple[int, int]:
         # Want higher probability of training on more central regions
@@ -512,11 +526,11 @@ class JointModel(tf.keras.Model):
         target: tf.Tensor,
     ) -> tuple[tf.Tensor, ...]:
         if self._scales[0] == 1:
-            pred, _ = self(source)
+            pred = self(source)
 
         else:
             source, target = self._sample_patches(2, 2, source, target)
-            pred, _ = self(source)
+            pred = self(source)
 
         return source, target, pred
 
@@ -524,19 +538,19 @@ class JointModel(tf.keras.Model):
         for metric in self.metrics:
             metric.reset_states()
 
-    def call(self, x: tf.Tensor, task: str = Task.JOINT) -> tuple[tf.Tensor, None]:
+    def call(self, x: tf.Tensor, task: str = Task.JOINT) -> tf.Tensor:
         if task == Task.CONTRAST:
             x, _ = self.ce_UNet(x)
-            return x, None
+            return x
 
         elif task == Task.SUPER_RES:
             x, _ = self.sr_UNet(x)
-            return x, None
+            return x
 
         else:
             x, _ = self.sr_UNet(x)
             x, _ = self.ce_UNet(x)
-            return x, None
+            return x
 
 
 # -------------------------------------------------------------------------

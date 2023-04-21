@@ -42,6 +42,7 @@ def build_model(config: dict[str, Any], purpose: str = "training") -> tf.keras.M
             *config["hyperparameters"]["opt"], name="opt"
         )
         model.compile(optimiser)
+        model.build_model()
         return model
     elif purpose == "inference" and expt_type == "single":
         model.build_model()

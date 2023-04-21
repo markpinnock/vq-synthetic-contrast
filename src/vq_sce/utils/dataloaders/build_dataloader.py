@@ -48,15 +48,27 @@ def get_train_dataloader(config: dict[str, Any], dev: bool) -> DataloaderType:
     )
 
     # Create dataloader
-    train_ds = tf.data.Dataset.from_generator(
-        generator=train_generator.data_generator,
-        output_types={k: "float32" for k in output_types},
-    ).batch(config["expt"]["mb_size"])
+    train_ds = (
+        tf.data.Dataset.from_generator(
+            generator=train_generator.data_generator,
+            output_types={k: "float32" for k in output_types},
+            output_shapes={k: [None, None, None, None] for k in output_types},
+        )
+        .repeat()
+        .batch(config["expt"]["mb_size"])
+        .prefetch(tf.data.AUTOTUNE)
+    )
 
-    val_ds = tf.data.Dataset.from_generator(
-        generator=val_generator.data_generator,
-        output_types={k: "float32" for k in output_types},
-    ).batch(config["expt"]["mb_size"])
+    val_ds = (
+        tf.data.Dataset.from_generator(
+            generator=val_generator.data_generator,
+            output_types={k: "float32" for k in output_types},
+            output_shapes={k: [None, None, None, None] for k in output_types},
+        )
+        .repeat()
+        .batch(config["expt"]["mb_size"])
+        .prefetch(tf.data.AUTOTUNE)
+    )
 
     return train_ds, val_ds, train_generator, val_generator
 
