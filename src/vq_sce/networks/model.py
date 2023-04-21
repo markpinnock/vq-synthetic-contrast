@@ -82,7 +82,7 @@ class Model(tf.keras.Model):
         return [self.loss_metric, self.vq_metric]
 
     def build_model(self) -> None:
-        _, _ = self(tf.keras.Input(shape=self._source_dims + [1]))
+        _ = self(tf.keras.Input(shape=self._source_dims + [1]))
 
     def summary(self) -> None:
         source = tf.keras.Input(shape=self._source_dims + [1])
@@ -110,7 +110,7 @@ class Model(tf.keras.Model):
             source, target = self._sample_patches(x, y, source, target)
 
         with tf.GradientTape(persistent=True) as tape:
-            pred, _ = self(source)
+            pred = self(source)
 
             # Calculate L1
             loss = self.loss(target, pred)
@@ -143,7 +143,7 @@ class Model(tf.keras.Model):
             x, y = self._get_scale_indices()
             source, target = self._sample_patches(x, y, source, target)
 
-        pred, _ = self(source)
+        pred = self(source)
 
         # Calculate L1
         loss = self.loss(target, pred)
@@ -210,11 +210,11 @@ class Model(tf.keras.Model):
         target: tf.Tensor,
     ) -> tuple[tf.Tensor, ...]:
         if self._scales[0] == 1:
-            pred, _ = self(source)
+            pred = self(source)
 
         else:
             source, target = self._sample_patches(2, 2, source, target)
-            pred, _ = self(source)
+            pred = self(source)
 
         return source, target, pred
 
@@ -223,7 +223,8 @@ class Model(tf.keras.Model):
             metric.reset_states()
 
     def call(self, x: tf.Tensor) -> tf.Tensor:
-        return self.UNet(x)
+        x, _ = self.UNet(x)
+        return x
 
 
 # -------------------------------------------------------------------------
@@ -337,7 +338,7 @@ class JointModel(tf.keras.Model):
         ]
 
     def build_model(self) -> None:
-        _, _ = self(tf.keras.Input(shape=self._sr_source_dims + [1]))
+        _ = self(tf.keras.Input(shape=self._sr_source_dims + [1]))
 
     def summary(self) -> None:
         source = tf.keras.Input(shape=self._sr_source_dims + [1])
@@ -525,11 +526,11 @@ class JointModel(tf.keras.Model):
         target: tf.Tensor,
     ) -> tuple[tf.Tensor, ...]:
         if self._scales[0] == 1:
-            pred, _ = self(source)
+            pred = self(source)
 
         else:
             source, target = self._sample_patches(2, 2, source, target)
-            pred, _ = self(source)
+            pred = self(source)
 
         return source, target, pred
 
@@ -537,19 +538,19 @@ class JointModel(tf.keras.Model):
         for metric in self.metrics:
             metric.reset_states()
 
-    def call(self, x: tf.Tensor, task: str = Task.JOINT) -> tuple[tf.Tensor, None]:
+    def call(self, x: tf.Tensor, task: str = Task.JOINT) -> tf.Tensor:
         if task == Task.CONTRAST:
             x, _ = self.ce_UNet(x)
-            return x, None
+            return x
 
         elif task == Task.SUPER_RES:
             x, _ = self.sr_UNet(x)
-            return x, None
+            return x
 
         else:
             x, _ = self.sr_UNet(x)
             x, _ = self.ce_UNet(x)
-            return x, None
+            return x
 
 
 # -------------------------------------------------------------------------
