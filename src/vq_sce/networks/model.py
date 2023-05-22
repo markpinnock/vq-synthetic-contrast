@@ -65,11 +65,11 @@ class Model(tf.keras.Model):
 
         self.UNet = UNet(self._initialiser, config["hyperparameters"], name="unet")
 
-    def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:  # noqa: A003
+    def compile(self, opt_config: dict[str, float]) -> None:  # noqa: A003
         super().compile()
 
         # Set up optimiser and loss
-        self.optimiser = optimiser
+        self.optimiser = tf.keras.optimizers.Adam(**opt_config, name="opt")
         self.loss = tf.keras.losses.MeanAbsoluteError()
 
         # Set up metrics
@@ -319,16 +319,12 @@ class JointModel(tf.keras.Model):
         )
         return shared_vq
 
-    def compile(  # noqa: A003
-        self,
-        sr_optimiser: tf.keras.optimizers.Optimizer,
-        ce_optimiser: tf.keras.optimizers.Optimizer,
-    ) -> None:
+    def compile(self, opt_config: dict[str, float]) -> None:  # noqa: A003
         super().compile()
 
         # Set up optimiser and loss
-        self.sr_optimiser = sr_optimiser
-        self.ce_optimiser = ce_optimiser
+        self.sr_optimiser = tf.keras.optimizers.Adam(**opt_config, name="sr_opt")
+        self.ce_optimiser = tf.keras.optimizers.Adam(**opt_config, name="ce_opt")
         self.loss = tf.keras.losses.MeanAbsoluteError()
 
         # Set up metrics

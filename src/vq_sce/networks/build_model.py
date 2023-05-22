@@ -38,10 +38,7 @@ def build_model(config: dict[str, Any], purpose: str = "training") -> tf.keras.M
         raise ValueError(scales, expt_type)
 
     if purpose == "training":
-        optimiser = tf.keras.optimizers.Adam(
-            *config["hyperparameters"]["opt"], name="opt"
-        )
-        model.compile(optimiser)
+        model.compile(config["hyperparameters"]["opt"])
         model.build_model()
         return model
     elif purpose == "inference" and expt_type == "single":
