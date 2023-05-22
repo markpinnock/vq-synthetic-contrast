@@ -293,13 +293,7 @@ class JointModel(tf.keras.Model):
             self.ce_Aug = None
 
         # Get shared VQ layer
-        embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
-        shared_vq = VQBlock(
-            num_embeddings=embeddings,
-            embedding_dim=MAX_CHANNELS,
-            beta=config["hyperparameters"]["vq_beta"],
-            name="shared_vq",
-        )
+        shared_vq = self._get_vq_block(config)
 
         self.sr_UNet = UNet(
             self._initialiser,
@@ -314,6 +308,16 @@ class JointModel(tf.keras.Model):
             shared_vq=shared_vq,
             name="ce_unet",
         )
+
+    def _get_vq_block(self, config: dict[str, Any]) -> VQBlock:
+        embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
+        shared_vq = VQBlock(
+            num_embeddings=embeddings,
+            embedding_dim=MAX_CHANNELS,
+            beta=config["hyperparameters"]["vq_beta"],
+            name="shared_vq",
+        )
+        return shared_vq
 
     def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:  # noqa: A003
         super().compile()
