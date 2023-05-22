@@ -319,11 +319,16 @@ class JointModel(tf.keras.Model):
         )
         return shared_vq
 
-    def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:  # noqa: A003
+    def compile(  # noqa: A003
+        self,
+        sr_optimiser: tf.keras.optimizers.Optimizer,
+        ce_optimiser: tf.keras.optimizers.Optimizer,
+    ) -> None:
         super().compile()
 
         # Set up optimiser and loss
-        self.optimiser = optimiser
+        self.sr_optimiser = sr_optimiser
+        self.ce_optimiser = ce_optimiser
         self.loss = tf.keras.losses.MeanAbsoluteError()
 
         # Set up metrics
@@ -389,7 +394,7 @@ class JointModel(tf.keras.Model):
 
         # Get gradients and update weights
         grads = tape.gradient(total_loss, self.sr_UNet.trainable_variables)
-        self.optimiser.apply_gradients(zip(grads, self.sr_UNet.trainable_variables))
+        self.sr_optimiser.apply_gradients(zip(grads, self.sr_UNet.trainable_variables))
 
     def ce_train_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
         # Augmentation if required
@@ -419,7 +424,7 @@ class JointModel(tf.keras.Model):
 
         # Get gradients and update weights
         grads = tape.gradient(total_loss, self.ce_UNet.trainable_variables)
-        self.optimiser.apply_gradients(zip(grads, self.ce_UNet.trainable_variables))
+        self.ce_optimiser.apply_gradients(zip(grads, self.ce_UNet.trainable_variables))
 
     def train_step(
         self,
