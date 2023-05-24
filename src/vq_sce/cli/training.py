@@ -30,7 +30,7 @@ def train(config: dict[str, Any], dev: bool) -> None:
         config["data"]["down_sample"] = 1
 
     # Get model
-    model = build_model(config)
+    model = build_model(config, dev=dev)
 
     if config["expt"]["verbose"]:
         model.summary()
