@@ -65,8 +65,12 @@ class Model(tf.keras.Model):
 
         self.UNet = UNet(self._initialiser, config["hyperparameters"], name="unet")
 
-    def compile(self, opt_config: dict[str, float]) -> None:  # noqa: A003
-        super().compile()
+    def compile(  # noqa: A003
+        self,
+        opt_config: dict[str, float],
+        run_eagerly: bool = False,
+    ) -> None:
+        super().compile(run_eagerly=run_eagerly)
 
         # Set up optimiser and loss
         self.optimiser = tf.keras.optimizers.Adam(**opt_config, name="opt")
@@ -319,8 +323,12 @@ class JointModel(tf.keras.Model):
         )
         return shared_vq
 
-    def compile(self, opt_config: dict[str, float]) -> None:  # noqa: A003
-        super().compile()
+    def compile(  # noqa: A003
+        self,
+        opt_config: dict[str, float],
+        run_eagerly: bool = False,
+    ) -> None:
+        super().compile(run_eagerly=run_eagerly)
 
         # Set up optimiser and loss
         self.sr_optimiser = tf.keras.optimizers.Adam(**opt_config, name="sr_opt")
