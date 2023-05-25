@@ -23,6 +23,7 @@ class SaveResults(tf.keras.callbacks.Callback):
         save_freq: int,
         data_type: str,
         expt_type: str,
+        opt_type: str,
     ) -> None:
         super().__init__()
         self.log_path = filepath
@@ -45,6 +46,8 @@ class SaveResults(tf.keras.callbacks.Callback):
                     "train_ce_vq": [],
                     "valid_ce_vq": [],
                 }
+                if opt_type == "DARTS":
+                    self.results["train_alpha"] = []
 
             else:
                 prefix = "ce" if data_type == Task.CONTRAST else "sr"
