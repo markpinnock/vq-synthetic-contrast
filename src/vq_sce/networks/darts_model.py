@@ -3,9 +3,7 @@ from typing import Any
 
 import tensorflow as tf
 
-from vq_sce.networks.components.unet import UNet
 from vq_sce.networks.model import JointModel, Task
-from vq_sce.utils.dataloaders.build_dataloader import get_train_dataloader
 
 # -------------------------------------------------------------------------
 
@@ -45,34 +43,7 @@ class DARTSJointModel(JointModel):
     ) -> None:
         super().__init__(config=config, name=name)
 
-        # Get shared VQ layer
-        shared_vq = self._get_vq_block(config)
-
-        # Create virtual models to update during architecture search
-        self.virtual_sr_UNet = UNet(
-            self._initialiser,
-            self._sr_config["hyperparameters"],
-            shared_vq=shared_vq,
-            name="virtual_sr_unet",
-        )
-
-        self.virtual_ce_UNet = UNet(
-            self._initialiser,
-            self._ce_config["hyperparameters"],
-            shared_vq=shared_vq,
-            name="virtual_ce_unet",
-        )
-
         self.architect = Architect(name=f"{name}/architect")
-
-        # # Dataloader for outer loop optimisation
-        config["data"]["type"] = Task.SUPER_RES
-        _, self.sr_val_data, _, _ = get_train_dataloader(config, dev=dev)
-        self.sr_val_data = iter(self.sr_val_data)
-
-        config["data"]["type"] = Task.CONTRAST
-        _, self.ce_val_data, _, _ = get_train_dataloader(config, dev=dev)
-        self.ce_val_data = iter(self.ce_val_data)
 
     def compile(  # type: ignore # noqa: A003
         self,
@@ -109,11 +80,6 @@ class DARTSJointModel(JointModel):
             self.alpha_metric,
         ]
 
-    def build_model(self) -> None:
-        super().build_model()
-        _ = self.virtual_sr_UNet(tf.keras.Input(shape=self._sr_source_dims + [1]))
-        _ = self.virtual_ce_UNet(tf.keras.Input(shape=self._ce_source_dims + [1]))
-
     def virtual_step(
         self,
         model: tf.keras.Model,
@@ -128,8 +94,8 @@ class DARTSJointModel(JointModel):
         :param virtual_model: virtual model in which to store updates for above model
         :param optimiser: optimiser for updating virtual model
         :param alpha_index: index of loss weighting for this task
-        :param source: validation source images
-        :param target: validation target images
+        :param source: training source images
+        :param target: training target images
         """
         with tf.GradientTape() as tape:
             pred, _ = model(source)
@@ -223,103 +189,63 @@ class DARTSJointModel(JointModel):
 
     def architecture_step(
         self,
-        data: dict[str, dict[str, tf.Tensor]],
-        task: str = Task.JOINT,
+        virtual_model: tf.keras.Model,
+        train_data: dict[str, tf.Tensor],
+        val_data: dict[str, tf.Tensor],
+        task: str,
     ) -> None:
         # Sample patch if needed
         if self._scales[0] > 1:
             x, y = self._get_scale_indices()
-            (
-                data[Task.SUPER_RES]["source"],
-                data[Task.SUPER_RES]["target"],
-            ) = self._sample_patches(
+            train_data["source"], train_data["target"] = self._sample_patches(
                 x,
                 y,
-                data[Task.SUPER_RES]["source"],
-                data[Task.SUPER_RES]["target"],
+                train_data["source"],
+                train_data["target"],
             )
-            (
-                data[Task.CONTRAST]["source"],
-                data[Task.CONTRAST]["target"],
-            ) = self._sample_patches(
+            val_data["source"], val_data["target"] = self._sample_patches(
                 x,
                 y,
-                data[Task.CONTRAST]["source"],
-                data[Task.CONTRAST]["target"],
+                val_data["source"],
+                val_data["target"],
             )
 
-        if task == Task.SUPER_RES or task == Task.JOINT:
-            self.virtual_step(
-                model=self.sr_UNet,
-                virtual_model=self.virtual_sr_UNet,
-                alpha_index=Alpha.SUPER_RES,
-                optimiser=self.sr_optimiser,
-                **data[Task.SUPER_RES],
-            )
-            d_weights, d_alpha = self.unrolled_backward(
-                virtual_model=self.virtual_sr_UNet,
-                alpha_index=Alpha.SUPER_RES,
-                **next(self.sr_val_data),
-            )
-            hessian = self.calculate_hessian(
-                model=self.sr_UNet,
-                d_weights=d_weights,
-                alpha_index=Alpha.SUPER_RES,
-                **data[Task.SUPER_RES],
-            )
+        if task == Task.SUPER_RES:
+            model = self.sr_UNet
+            optimiser = self.sr_optimiser
+            alpha_index = Alpha.SUPER_RES
 
-            arch_grads = []
-            for d, h in zip(d_alpha, hessian):
-                arch_grads.append(d - self.weights_lr * h)
-
-            self.alpha_optimiser.apply_gradients(
-                zip(arch_grads, self.architect.trainable_variables),
-            )
-
-        if task == Task.CONTRAST or task == Task.JOINT:
-            self.virtual_step(
-                model=self.ce_UNet,
-                virtual_model=self.virtual_ce_UNet,
-                alpha_index=Alpha.CONTRAST,
-                optimiser=self.ce_optimiser,
-                **data[Task.CONTRAST],
-            )
-            d_weights, d_alpha = self.unrolled_backward(
-                virtual_model=self.virtual_ce_UNet,
-                alpha_index=Alpha.CONTRAST,
-                **next(self.ce_val_data),
-            )
-            hessian = self.calculate_hessian(
-                model=self.ce_UNet,
-                d_weights=d_weights,
-                alpha_index=Alpha.CONTRAST,
-                **data[Task.CONTRAST],
-            )
-
-            arch_grads = []
-            for d, h in zip(d_alpha, hessian):
-                arch_grads.append(d - self.weights_lr * h)
-
-            self.alpha_optimiser.apply_gradients(
-                zip(arch_grads, self.architect.trainable_variables),
-            )
-
-        self.alpha_metric.update_state(self.architect(Alpha.SUPER_RES))
-
-    def train_step(self, data: dict[str, dict[str, tf.Tensor]]) -> dict[str, tf.Tensor]:
-        self.architecture_step(data, Task.JOINT)
-        return super().train_step(data)
-
-    def call(self, x: tf.Tensor, task: str = Task.JOINT) -> tf.Tensor:
-        if task == Task.CONTRAST:
-            x, _ = self.ce_UNet(x)
-            return x
-
-        elif task == Task.SUPER_RES:
-            x, _ = self.sr_UNet(x)
-            return x
+        elif task == Task.CONTRAST:
+            model = self.ce_UNet
+            optimiser = self.ce_optimiser
+            alpha_index = Alpha.SUPER_RES
 
         else:
-            x, _ = self.sr_UNet(x)
-            x, _ = self.ce_UNet(x)
-            return x
+            raise ValueError(f"Invalid task: {task}")
+
+        self.virtual_step(
+            model=model,
+            virtual_model=virtual_model,
+            alpha_index=alpha_index,
+            optimiser=optimiser,
+            **train_data,
+        )
+        d_weights, d_alpha = self.unrolled_backward(
+            virtual_model=virtual_model,
+            alpha_index=alpha_index,
+            **val_data,
+        )
+        hessian = self.calculate_hessian(
+            model=model,
+            d_weights=d_weights,
+            alpha_index=alpha_index,
+            **train_data,
+        )
+
+        arch_grads = []
+        for d, h in zip(d_alpha, hessian):
+            arch_grads.append(d - self.weights_lr * h)
+
+        self.alpha_optimiser.apply_gradients(
+            zip(arch_grads, self.architect.trainable_variables),
+        )
