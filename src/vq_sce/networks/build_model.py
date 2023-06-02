@@ -51,7 +51,7 @@ def build_model(
 
     else:
         if len(scales) == 1 and expt_type == "joint":
-            model = DARTSJointModel(config, dev=dev)
+            model = DARTSJointModel(config)
         else:
             raise ValueError(scales, expt_type)
 
