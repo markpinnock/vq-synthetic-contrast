@@ -1,7 +1,5 @@
-import copy
 import json
 from pathlib import Path
-from typing import Any
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -10,12 +8,8 @@ import numpy.typing as npt
 import tensorflow as tf
 
 from vq_sce import ABDO_WINDOW, LQ_DEPTH
-from vq_sce.networks.components.layers.vq_layers import VQBlock
-from vq_sce.networks.components.unet import MAX_CHANNELS, UNet
-from vq_sce.networks.darts_model import Alpha
 from vq_sce.networks.model import Task
 from vq_sce.utils.dataloaders.base_dataloader import BaseDataloader
-from vq_sce.utils.dataloaders.build_dataloader import get_train_dataloader
 
 # -------------------------------------------------------------------------
 
@@ -292,111 +286,3 @@ class SaveMultiScaleExamples(tf.keras.callbacks.Callback):
         plt.tight_layout()
         plt.savefig(self.image_path / phase / f"{epoch + 1}.png", dpi=250)
         plt.close()
-
-
-# -------------------------------------------------------------------------
-
-
-class ArchitectureSearch(tf.keras.callbacks.Callback):
-    def __init__(self, config: dict[str, Any], dev: bool = False):
-        super().__init__()
-
-        sr_config = copy.deepcopy(config)
-        ce_config = copy.deepcopy(config)
-
-        sr_source_dims = config["data"]["source_dims"]
-        sr_target_dims = config["data"]["target_dims"]
-        ce_source_dims = config["data"]["target_dims"]
-        ce_target_dims = config["data"]["target_dims"]
-
-        scales = config["hyperparameters"]["scales"]
-        assert len(scales) == 1, scales
-        sr_source_dims = [
-            sr_source_dims[0],
-            sr_source_dims[1] // scales[0],
-            sr_source_dims[2] // scales[0],
-        ]
-        sr_target_dims = [
-            sr_target_dims[0],
-            sr_target_dims[1] // scales[0],
-            sr_target_dims[2] // scales[0],
-        ]
-        ce_source_dims = [
-            ce_source_dims[0],
-            ce_source_dims[1] // scales[0],
-            ce_source_dims[2] // scales[0],
-        ]
-        ce_target_dims = [
-            ce_target_dims[0],
-            ce_target_dims[1] // scales[0],
-            ce_target_dims[2] // scales[0],
-        ]
-
-        sr_config["hyperparameters"]["source_dims"] = sr_source_dims
-        sr_config["hyperparameters"]["target_dims"] = sr_target_dims
-        ce_config["hyperparameters"]["source_dims"] = ce_source_dims
-        ce_config["hyperparameters"]["target_dims"] = ce_target_dims
-
-        # # Dataloader for outer loop optimisation
-        config["data"]["type"] = Task.SUPER_RES
-        self.sr_train_data, self.sr_val_data, _, _ = get_train_dataloader(
-            config,
-            dev=dev,
-        )
-        self.sr_train_data = iter(self.sr_train_data)
-        self.sr_val_data = iter(self.sr_val_data)
-
-        config["data"]["type"] = Task.CONTRAST
-        self.ce_train_data, self.ce_val_data, _, _ = get_train_dataloader(
-            config,
-            dev=dev,
-        )
-        self.ce_train_data = iter(self.ce_train_data)
-        self.ce_val_data = iter(self.ce_val_data)
-
-        # Get shared VQ layer
-        shared_vq = self._get_vq_block(config)
-
-        # Create virtual models to update during architecture search
-        self.virtual_sr_UNet = UNet(
-            tf.keras.initializers.Zeros(),
-            sr_config["hyperparameters"],
-            shared_vq=shared_vq,
-            name="virtual_sr_unet",
-        )
-
-        self.virtual_ce_UNet = UNet(
-            tf.keras.initializers.Zeros(),
-            ce_config["hyperparameters"],
-            shared_vq=shared_vq,
-            name="virtual_ce_unet",
-        )
-
-    def _get_vq_block(self, config: dict[str, Any]) -> VQBlock:
-        embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
-        shared_vq = VQBlock(
-            num_embeddings=embeddings,
-            embedding_dim=MAX_CHANNELS,
-            beta=config["hyperparameters"]["vq_beta"],
-            name="shared_vq",
-        )
-        return shared_vq
-
-    def on_train_batch_begin(self, batch: int, logs: dict[str, float]):
-        train_batch = next(self.sr_train_data)
-        valid_batch = next(self.sr_val_data)
-        self.model.architecture_step(
-            self.virtual_sr_UNet,
-            train_batch,
-            valid_batch,
-            Task.SUPER_RES,
-        )
-        train_batch = next(self.ce_train_data)
-        valid_batch = next(self.ce_val_data)
-        self.model.architecture_step(
-            self.virtual_ce_UNet,
-            train_batch,
-            valid_batch,
-            Task.CONTRAST,
-        )
-        self.model.alpha_metric.update_state(self.model.architect(Alpha.SUPER_RES))

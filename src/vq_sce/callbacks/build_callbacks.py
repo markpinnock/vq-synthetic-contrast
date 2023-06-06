@@ -4,12 +4,7 @@ from typing import Any
 
 import tensorflow as tf
 
-from vq_sce.callbacks.callbacks import (
-    ArchitectureSearch,
-    SaveExamples,
-    SaveModel,
-    SaveResults,
-)
+from vq_sce.callbacks.callbacks import SaveExamples, SaveModel, SaveResults
 from vq_sce.networks.model import Task
 from vq_sce.utils.dataloaders.build_dataloader import get_train_dataloader
 from vq_sce.utils.dataloaders.joint_dataset import JointDataset
@@ -98,10 +93,6 @@ def build_callbacks_and_datasets(config: dict[str, Any], dev: bool) -> dict[str,
     )
 
     callbacks = [model_checkpoint, tensorboard, save_results, save_examples]
-
-    if config["expt"]["optimisation_type"] == "DARTS":
-        darts = ArchitectureSearch(config, dev)
-        callbacks.append(darts)
 
     return {
         "train_ds": train_ds,
