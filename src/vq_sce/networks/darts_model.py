@@ -3,6 +3,7 @@ from typing import Any
 
 import tensorflow as tf
 
+from vq_sce.networks.components.unet import UNet
 from vq_sce.networks.model import JointModel, Task
 
 # -------------------------------------------------------------------------
@@ -45,6 +46,24 @@ class DARTSJointModel(JointModel):
 
         self.architect = Architect(name=f"{name}/architect")
 
+        # Get shared VQ layer
+        shared_vq = self._get_vq_block(config)
+
+        # Create virtual models to update during architecture search
+        self.virtual_sr_UNet = UNet(
+            tf.keras.initializers.Zeros(),
+            self._sr_config["hyperparameters"],
+            shared_vq=shared_vq,
+            name="virtual_sr_unet",
+        )
+
+        self.virtual_ce_UNet = UNet(
+            tf.keras.initializers.Zeros(),
+            self._ce_config["hyperparameters"],
+            shared_vq=shared_vq,
+            name="virtual_ce_unet",
+        )
+
     def compile(  # type: ignore # noqa: A003
         self,
         w_opt_config: dict[str, float],
@@ -79,6 +98,11 @@ class DARTSJointModel(JointModel):
             self.ce_vq_metric,
             self.alpha_metric,
         ]
+
+    def build_model(self) -> None:
+        super().build_model()
+        _ = self.virtual_sr_UNet(tf.keras.Input(shape=self._sr_source_dims + [1]))
+        _ = self.virtual_ce_UNet(tf.keras.Input(shape=self._ce_source_dims + [1]))
 
     def virtual_step(
         self,
@@ -189,7 +213,6 @@ class DARTSJointModel(JointModel):
 
     def architecture_step(
         self,
-        virtual_model: tf.keras.Model,
         train_data: dict[str, tf.Tensor],
         val_data: dict[str, tf.Tensor],
         task: str,
@@ -212,11 +235,13 @@ class DARTSJointModel(JointModel):
 
         if task == Task.SUPER_RES:
             model = self.sr_UNet
+            virtual_model = self.virtual_sr_UNet
             optimiser = self.sr_optimiser
             alpha_index = Alpha.SUPER_RES
 
         elif task == Task.CONTRAST:
             model = self.ce_UNet
+            virtual_model = self.virtual_ce_UNet
             optimiser = self.ce_optimiser
             alpha_index = Alpha.SUPER_RES
 
@@ -249,3 +274,23 @@ class DARTSJointModel(JointModel):
         self.alpha_optimiser.apply_gradients(
             zip(arch_grads, self.architect.trainable_variables),
         )
+
+    def train_step(
+        self,
+        data: tuple[dict[str, dict[str, tf.Tensor]], dict[str, dict[str, tf.Tensor]]],
+    ) -> dict[str, tf.Tensor]:
+        train_batch, valid_batch = data
+        self.architecture_step(
+            train_batch[Task.SUPER_RES],
+            valid_batch[Task.SUPER_RES],
+            Task.SUPER_RES,
+        )
+        self.architecture_step(
+            train_batch[Task.CONTRAST],
+            valid_batch[Task.CONTRAST],
+            Task.CONTRAST,
+        )
+        self.alpha_metric.update_state(self.architect(Alpha.SUPER_RES))
+
+        super().train_step(train_batch)
+        return {metric.name: metric.result() for metric in self.metrics}
