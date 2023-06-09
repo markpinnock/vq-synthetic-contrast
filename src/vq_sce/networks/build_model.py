@@ -59,7 +59,7 @@ def build_model(
         if optimisation_type != "DARTS":
             model.compile(config["hyperparameters"]["opt"], run_eagerly=dev)
         else:
-            model.compile(
+            model.compile(  # type: ignore
                 config["hyperparameters"]["opt"],
                 config["hyperparameters"]["alpha_opt"],
                 run_eagerly=dev,

@@ -47,24 +47,24 @@ class DARTSJointModel(JointModel):
         self.architect = Architect(name=f"{name}/architect")
 
         # Get shared VQ layer
-        shared_vq = self._get_vq_block(config)
+        self.virtual_shared_vq = self._get_vq_block(config)
 
         # Create virtual models to update during architecture search
         self.virtual_sr_UNet = UNet(
             tf.keras.initializers.Zeros(),
             self._sr_config["hyperparameters"],
-            shared_vq=shared_vq,
+            shared_vq=self.virtual_shared_vq,
             name="virtual_sr_unet",
         )
 
         self.virtual_ce_UNet = UNet(
             tf.keras.initializers.Zeros(),
             self._ce_config["hyperparameters"],
-            shared_vq=shared_vq,
+            shared_vq=self.virtual_shared_vq,
             name="virtual_ce_unet",
         )
 
-    def compile(  # type: ignore # noqa: A003
+    def compile(  # type: ignore[override] # noqa: A003
         self,
         w_opt_config: dict[str, float],
         a_opt_config: dict[str, float],
@@ -275,7 +275,7 @@ class DARTSJointModel(JointModel):
             zip(arch_grads, self.architect.trainable_variables),
         )
 
-    def train_step(
+    def train_step(  # type: ignore[override]
         self,
         data: tuple[dict[str, dict[str, tf.Tensor]], dict[str, dict[str, tf.Tensor]]],
     ) -> dict[str, tf.Tensor]:
@@ -292,5 +292,27 @@ class DARTSJointModel(JointModel):
         )
         self.alpha_metric.update_state(self.architect(Alpha.SUPER_RES))
 
-        super().train_step(train_batch)
+        self.shared_vq.vq_alpha.assign(self.architect(Alpha.SUPER_RES))
+        self.sr_train_step(**train_batch[Task.SUPER_RES])
+        self.shared_vq.vq_alpha.assign(self.architect(Alpha.CONTRAST))
+        self.ce_train_step(**train_batch[Task.CONTRAST])
+
         return {metric.name: metric.result() for metric in self.metrics}
+
+    def call(self, x: tf.Tensor, task: str = Task.JOINT) -> tf.Tensor:
+        if task == Task.CONTRAST:
+            self.shared_vq.vq_alpha.assign(self.architect(Alpha.CONTRAST))
+            x, _ = self.ce_UNet(x)
+            return x
+
+        elif task == Task.SUPER_RES:
+            self.shared_vq.vq_alpha.assign(self.architect(Alpha.SUPER_RES))
+            x, _ = self.sr_UNet(x)
+            return x
+
+        else:
+            self.shared_vq.vq_alpha.assign(self.architect(Alpha.SUPER_RES))
+            x, _ = self.sr_UNet(x)
+            self.shared_vq.vq_alpha.assign(self.architect(Alpha.CONTRAST))
+            x, _ = self.ce_UNet(x)
+            return x

@@ -3,6 +3,9 @@ import tensorflow as tf
 WEIGHT_SCALE = 0.02
 
 
+# -------------------------------------------------------------------------
+
+
 class VQBlock(tf.keras.layers.Layer):
     """Vector quantization layer.
     Adapted from https://keras.io/examples/generative/vq_vae
@@ -36,7 +39,7 @@ class VQBlock(tf.keras.layers.Layer):
         # Alpha, learning rate for this block (set to constant 0.5 if not DARTS)
         self.vq_alpha = self.add_weight(
             "alpha",
-            shape=(1,),
+            shape=(),
             initializer=tf.keras.initializers.Constant(0.5),
             trainable=False,
         )

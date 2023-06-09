@@ -297,19 +297,19 @@ class JointModel(tf.keras.Model):
             self.ce_Aug = None
 
         # Get shared VQ layer
-        shared_vq = self._get_vq_block(config)
+        self.shared_vq = self._get_vq_block(config)
 
         self.sr_UNet = UNet(
             self._initialiser,
             self._sr_config["hyperparameters"],
-            shared_vq=shared_vq,
+            shared_vq=self.shared_vq,
             name="sr_unet",
         )
 
         self.ce_UNet = UNet(
             self._initialiser,
             self._ce_config["hyperparameters"],
-            shared_vq=shared_vq,
+            shared_vq=self.shared_vq,
             name="ce_unet",
         )
 
