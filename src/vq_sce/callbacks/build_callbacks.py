@@ -1,3 +1,4 @@
+import datetime
 from pathlib import Path
 from typing import Any
 
@@ -60,9 +61,10 @@ def build_callbacks_and_datasets(config: dict[str, Any], dev: bool) -> dict[str,
     # Get callbacks
     expt_path = Path(config["paths"]["expt_path"])
     save_freq = config["expt"]["save_every"]
+    date_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
     tensorboard = tf.keras.callbacks.TensorBoard(
-        log_dir=expt_path / "logs",
+        log_dir=expt_path / "logs" / date_time,
         histogram_freq=int(config["expt"]["log_histograms"]),
         write_graph=config["expt"]["verbose"],
         write_images=config["expt"]["verbose"],
@@ -74,6 +76,7 @@ def build_callbacks_and_datasets(config: dict[str, Any], dev: bool) -> dict[str,
         save_freq=save_freq,
         data_type=config["data"]["type"],
         expt_type=config["expt"]["expt_type"],
+        opt_type=config["expt"]["optimisation_type"],
     )
 
     model_checkpoint = SaveModel(

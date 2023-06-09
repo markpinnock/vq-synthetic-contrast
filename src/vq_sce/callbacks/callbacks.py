@@ -23,6 +23,7 @@ class SaveResults(tf.keras.callbacks.Callback):
         save_freq: int,
         data_type: str,
         expt_type: str,
+        opt_type: str,
     ) -> None:
         super().__init__()
         self.log_path = filepath
@@ -45,6 +46,8 @@ class SaveResults(tf.keras.callbacks.Callback):
                     "train_ce_vq": [],
                     "valid_ce_vq": [],
                 }
+                if opt_type == "DARTS":
+                    self.results["train_alpha"] = []
 
             else:
                 prefix = "ce" if data_type == Task.CONTRAST else "sr"
@@ -58,7 +61,9 @@ class SaveResults(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch: int, logs: dict[str, float]) -> None:
         """Save results."""
         for metric_name, metric in logs.items():
-            if "val" in metric_name:
+            if "alpha" in metric_name:
+                self.results["train_alpha"].append(metric)
+            elif "val" in metric_name and metric_name != "alpha":
                 self.results[f"valid_{metric_name.strip('val_')}"].append(metric)
             else:
                 self.results[f"train_{metric_name}"].append(metric)

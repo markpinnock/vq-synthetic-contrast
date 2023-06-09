@@ -3,6 +3,9 @@ import tensorflow as tf
 WEIGHT_SCALE = 0.02
 
 
+# -------------------------------------------------------------------------
+
+
 class VQBlock(tf.keras.layers.Layer):
     """Vector quantization layer.
     Adapted from https://keras.io/examples/generative/vq_vae
@@ -33,6 +36,14 @@ class VQBlock(tf.keras.layers.Layer):
             trainable=True,
         )
 
+        # Alpha, learning rate for this block (set to constant 0.5 if not DARTS)
+        self.vq_alpha = self.add_weight(
+            "alpha",
+            shape=(),
+            initializer=tf.keras.initializers.Constant(0.5),
+            trainable=False,
+        )
+
     def call(self, x: tf.Tensor) -> tf.Tensor:
         img_dims = tf.shape(x)
 
@@ -52,6 +63,9 @@ class VQBlock(tf.keras.layers.Layer):
                 self.dictionary,
                 transpose_b=True,
             )  # NHWD X C
+
+        # Multiply by block learning rate
+        quantized = self.vq_alpha * quantized
 
         # Reshape back to normal dims
         q = tf.reshape(quantized, img_dims)

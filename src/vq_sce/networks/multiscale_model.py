@@ -64,11 +64,11 @@ class MultiscaleModel(tf.keras.Model):
             name="unet",
         )
 
-    def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:  # noqa: A003
+    def compile(self, opt_config: dict[str, float]) -> None:  # noqa: A003
         super().compile()
 
         # Set up optimiser and loss
-        self.optimiser = optimiser
+        self.optimiser = tf.keras.optimizers.Adam(**opt_config, name="opt")
         self.loss = tf.keras.losses.MeanAbsoluteError()
 
         # Set up metrics
@@ -405,11 +405,12 @@ class JointMultiscaleModel(tf.keras.Model):
             name="ce_unet",
         )
 
-    def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:  # noqa: A003
+    def compile(self, opt_config: dict[str, float]) -> None:  # noqa: A003
         super().compile()
 
         # Set up optimiser and loss
-        self.optimiser = optimiser
+        self.sr_optimiser = tf.keras.optimizers.Adam(**opt_config, name="sr_opt")
+        self.ce_optimiser = tf.keras.optimizers.Adam(**opt_config, name="ce_opt")
         self.loss = tf.keras.losses.MeanAbsoluteError()
 
         # Set up metrics
@@ -492,7 +493,7 @@ class JointMultiscaleModel(tf.keras.Model):
 
                 # Get gradients and update weights
                 grads = tape.gradient(total_loss, self.sr_UNet.trainable_variables)
-                self.optimiser.apply_gradients(
+                self.sr_optimiser.apply_gradients(
                     zip(grads, self.sr_UNet.trainable_variables),
                 )
 
@@ -540,7 +541,7 @@ class JointMultiscaleModel(tf.keras.Model):
 
                 # Get gradients and update weights
                 grads = tape.gradient(total_loss, self.ce_UNet.trainable_variables)
-                self.optimiser.apply_gradients(
+                self.ce_optimiser.apply_gradients(
                     zip(grads, self.ce_UNet.trainable_variables),
                 )
 

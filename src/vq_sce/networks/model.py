@@ -65,11 +65,15 @@ class Model(tf.keras.Model):
 
         self.UNet = UNet(self._initialiser, config["hyperparameters"], name="unet")
 
-    def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:  # noqa: A003
-        super().compile()
+    def compile(  # noqa: A003
+        self,
+        opt_config: dict[str, float],
+        run_eagerly: bool = False,
+    ) -> None:
+        super().compile(run_eagerly=run_eagerly)
 
         # Set up optimiser and loss
-        self.optimiser = optimiser
+        self.optimiser = tf.keras.optimizers.Adam(**opt_config, name="opt")
         self.loss = tf.keras.losses.MeanAbsoluteError()
 
         # Set up metrics
@@ -293,6 +297,23 @@ class JointModel(tf.keras.Model):
             self.ce_Aug = None
 
         # Get shared VQ layer
+        self.shared_vq = self._get_vq_block(config)
+
+        self.sr_UNet = UNet(
+            self._initialiser,
+            self._sr_config["hyperparameters"],
+            shared_vq=self.shared_vq,
+            name="sr_unet",
+        )
+
+        self.ce_UNet = UNet(
+            self._initialiser,
+            self._ce_config["hyperparameters"],
+            shared_vq=self.shared_vq,
+            name="ce_unet",
+        )
+
+    def _get_vq_block(self, config: dict[str, Any]) -> VQBlock:
         embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
         shared_vq = VQBlock(
             num_embeddings=embeddings,
@@ -300,26 +321,18 @@ class JointModel(tf.keras.Model):
             beta=config["hyperparameters"]["vq_beta"],
             name="shared_vq",
         )
+        return shared_vq
 
-        self.sr_UNet = UNet(
-            self._initialiser,
-            self._sr_config["hyperparameters"],
-            shared_vq=shared_vq,
-            name="sr_unet",
-        )
-
-        self.ce_UNet = UNet(
-            self._initialiser,
-            self._ce_config["hyperparameters"],
-            shared_vq=shared_vq,
-            name="ce_unet",
-        )
-
-    def compile(self, optimiser: tf.keras.optimizers.Optimizer) -> None:  # noqa: A003
-        super().compile()
+    def compile(  # noqa: A003
+        self,
+        opt_config: dict[str, float],
+        run_eagerly: bool = False,
+    ) -> None:
+        super().compile(run_eagerly=run_eagerly)
 
         # Set up optimiser and loss
-        self.optimiser = optimiser
+        self.sr_optimiser = tf.keras.optimizers.Adam(**opt_config, name="sr_opt")
+        self.ce_optimiser = tf.keras.optimizers.Adam(**opt_config, name="ce_opt")
         self.loss = tf.keras.losses.MeanAbsoluteError()
 
         # Set up metrics
@@ -385,7 +398,7 @@ class JointModel(tf.keras.Model):
 
         # Get gradients and update weights
         grads = tape.gradient(total_loss, self.sr_UNet.trainable_variables)
-        self.optimiser.apply_gradients(zip(grads, self.sr_UNet.trainable_variables))
+        self.sr_optimiser.apply_gradients(zip(grads, self.sr_UNet.trainable_variables))
 
     def ce_train_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
         # Augmentation if required
@@ -415,7 +428,7 @@ class JointModel(tf.keras.Model):
 
         # Get gradients and update weights
         grads = tape.gradient(total_loss, self.ce_UNet.trainable_variables)
-        self.optimiser.apply_gradients(zip(grads, self.ce_UNet.trainable_variables))
+        self.ce_optimiser.apply_gradients(zip(grads, self.ce_UNet.trainable_variables))
 
     def train_step(
         self,
