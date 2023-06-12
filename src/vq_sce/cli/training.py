@@ -9,7 +9,7 @@ import yaml
 
 from vq_sce import RANDOM_SEED
 from vq_sce.callbacks.build_callbacks import build_callbacks_and_datasets
-from vq_sce.networks.build_model import build_model
+from vq_sce.networks.build_model import build_model_train
 
 # -------------------------------------------------------------------------
 
@@ -30,7 +30,7 @@ def train(config: dict[str, Any], dev: bool) -> None:
         config["data"]["down_sample"] = 1
 
     # Get model
-    model = build_model(config, dev=dev)
+    model = build_model_train(config, dev=dev)
 
     if config["expt"]["verbose"]:
         model.summary()
