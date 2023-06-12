@@ -67,7 +67,7 @@ def main() -> None:
     # Handle arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", "-p", help="Expt path", type=str)
-    parser.add_argument("--gpu", "-g", help="GPU number", type=int)
+    parser.add_argument("--gpu", "-g", help="GPU number", type=str)
     parser.add_argument("--dev", "-d", help="Development mode", action="store_true")
     arguments = parser.parse_args()
 
@@ -90,11 +90,25 @@ def main() -> None:
 
     # Set GPU
     if arguments.gpu is not None:
-        gpu_number = arguments.gpu
+        gpu_numbers = [int(gpu) for gpu in arguments.gpu.split(",")]
         os.environ["LD_LIBRARY_PATH"] = config["paths"]["cuda_path"]
-        gpus = tf.config.experimental.list_physical_devices("GPU")
-        tf.config.set_visible_devices(gpus[gpu_number], "GPU")
-        tf.config.experimental.set_memory_growth(gpus[gpu_number], True)
+        gpus = tf.config.list_physical_devices("GPU")
+
+        if arguments.dev:
+            tf.config.set_logical_device_configuration(
+                gpus[0],
+                [
+                    tf.config.LogicalDeviceConfiguration(
+                        memory_limit=15360 // len(gpu_numbers),
+                    )
+                    for _ in gpu_numbers
+                ],
+            )
+
+        else:
+            for gpu_number in gpu_numbers:
+                tf.config.set_visible_devices(gpus[gpu_number], "GPU")
+                tf.config.experimental.set_memory_growth(gpus[gpu_number], True)
 
     train(config, arguments.dev)
 
