@@ -179,6 +179,7 @@ class UNet(tf.keras.layers.Layer):
             activation="tanh",
             kernel_initializer=self._initialiser,
             name="final",
+            dtype="float32",
         )
 
         if "final" in self._vq_layers:
@@ -194,6 +195,7 @@ class UNet(tf.keras.layers.Layer):
     def call(self, x: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor]:
         skip_layers = []
         residual_x = self.upsample(x)
+        residual_x = tf.cast(residual_x, "float32")
 
         for layer in self.encoder:
             x, skip = layer(x, training=True)

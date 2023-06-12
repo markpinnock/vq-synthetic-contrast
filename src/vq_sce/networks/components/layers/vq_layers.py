@@ -23,7 +23,7 @@ class VQBlock(tf.keras.layers.Layer):
         beta: float = 0.25,
         name: str | None = None,
     ) -> None:
-        super().__init__(name=name)
+        super().__init__(name=name, dtype="float32")
         self.num_embeddings = num_embeddings
         self.embedding_dim = embedding_dim
         self.beta = beta
