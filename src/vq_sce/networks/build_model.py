@@ -10,7 +10,11 @@ from .multiscale_model import JointMultiscaleModel, MultiscaleModel
 # -------------------------------------------------------------------------
 
 
-def build_model_train(config: dict[str, Any], dev: bool = False) -> tf.keras.Model:
+def build_model_train(
+    config: dict[str, Any],
+    strategy: tf.distribute.Strategy,
+    dev: bool = False,
+) -> tf.keras.Model:
     """Build model for training purposes.
     :param config: config yaml
     :param dev: development mode
@@ -20,30 +24,31 @@ def build_model_train(config: dict[str, Any], dev: bool = False) -> tf.keras.Mod
     expt_type = config["expt"]["expt_type"]
     optimisation_type = config["expt"]["optimisation_type"]
 
-    if optimisation_type == "DARTS":
-        assert len(scales) == 1 and expt_type == "joint", (scales, expt_type)
-        model = DARTSJointModel(config)
-        model.compile(  # type: ignore
-            config["hyperparameters"]["opt"],
-            config["hyperparameters"]["alpha_opt"],
-            run_eagerly=dev,
-        )
+    with strategy.scope():
+        if optimisation_type == "DARTS":
+            assert len(scales) == 1 and expt_type == "joint", (scales, expt_type)
 
-    else:
-        if len(scales) == 1 and expt_type == "single":
-            model = Model(config)
-        elif len(scales) > 1 and expt_type == "single":
-            model = MultiscaleModel(config)
-        elif len(scales) == 1 and expt_type == "joint":
-            model = JointModel(config)
-        elif len(scales) > 1 and expt_type == "joint":
-            model = JointMultiscaleModel(config)
+            model = DARTSJointModel(config)
+            model.compile(  # type: ignore
+                config["hyperparameters"]["opt"],
+                config["hyperparameters"]["alpha_opt"],
+                run_eagerly=dev,
+            )
+
         else:
-            raise ValueError(scales, expt_type)
+            if len(scales) == 1 and expt_type == "single":
+                model = Model(config)
+            elif len(scales) > 1 and expt_type == "single":
+                model = MultiscaleModel(config)
+            elif len(scales) == 1 and expt_type == "joint":
+                model = JointModel(config)
+            elif len(scales) > 1 and expt_type == "joint":
+                model = JointMultiscaleModel(config)
+            else:
+                raise ValueError(scales, expt_type)
 
-        model.compile(config["hyperparameters"]["opt"], run_eagerly=dev)
-
-    model.build_model()
+            model.compile(config["hyperparameters"]["opt"], run_eagerly=dev)
+            model.build_model()
 
     return model
 
