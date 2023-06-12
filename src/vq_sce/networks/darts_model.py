@@ -39,8 +39,7 @@ class DARTSJointModel(JointModel):
     def __init__(
         self,
         config: dict[str, Any],
-        name: str = "DARTSModel",
-        dev: bool = False,
+        name: str = "darts_model",
     ) -> None:
         super().__init__(config=config, name=name)
 
