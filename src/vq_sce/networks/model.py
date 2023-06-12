@@ -76,6 +76,7 @@ class Model(tf.keras.Model):
 
         # Set up optimiser and loss
         self.optimiser = tf.keras.optimizers.Adam(**opt_config, name="opt")
+        self.optimiser = tf.keras.mixed_precision.LossScaleOptimizer(self.optimiser)
         self.loss = tf.keras.losses.MeanAbsoluteError(
             reduction=tf.keras.losses.Reduction.SUM,
         )
@@ -146,12 +147,14 @@ class Model(tf.keras.Model):
                 pred,
                 self.UNet,
             )
+            total_loss = self.optimiser.get_scaled_loss(total_loss)
 
         self.loss_metric.update_state(loss)
         self.vq_metric.update_state(vq_loss)
 
         # Get gradients and update weights
         grads = tape.gradient(total_loss, self.UNet.trainable_variables)
+        grads = self.optimiser.get_unscaled_gradients(grads)
         self.optimiser.apply_gradients(zip(grads, self.UNet.trainable_variables))
 
         return {metric.name: metric.result() for metric in self.metrics}
@@ -350,7 +353,13 @@ class JointModel(tf.keras.Model):
 
         # Set up optimiser and loss
         self.sr_optimiser = tf.keras.optimizers.Adam(**opt_config, name="sr_opt")
+        self.sr_optimiser = tf.keras.mixed_precision.LossScaleOptimizer(
+            self.sr_optimiser,
+        )
         self.ce_optimiser = tf.keras.optimizers.Adam(**opt_config, name="ce_opt")
+        self.ce_optimiser = tf.keras.mixed_precision.LossScaleOptimizer(
+            self.ce_optimiser,
+        )
         self.loss_object = tf.keras.losses.MeanAbsoluteError(
             reduction=tf.keras.losses.Reduction.SUM,
         )
@@ -429,12 +438,14 @@ class JointModel(tf.keras.Model):
                 pred,
                 self.sr_UNet,
             )
+            total_loss = self.sr_optimiser.get_scaled_loss(total_loss)
 
         self.sr_loss_metric.update_state(loss)
         self.sr_vq_metric.update_state(vq_loss)
 
         # Get gradients and update weights
         grads = tape.gradient(total_loss, self.sr_UNet.trainable_variables)
+        grads = self.sr_optimiser.get_unscaled_gradients(grads)
         self.sr_optimiser.apply_gradients(zip(grads, self.sr_UNet.trainable_variables))
 
     def ce_train_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
@@ -454,12 +465,14 @@ class JointModel(tf.keras.Model):
                 pred,
                 self.ce_UNet,
             )
+            total_loss = self.ce_optimiser.get_scaled_loss(total_loss)
 
         self.ce_loss_metric.update_state(loss)
         self.ce_vq_metric.update_state(vq_loss)
 
         # Get gradients and update weights
         grads = tape.gradient(total_loss, self.ce_UNet.trainable_variables)
+        grads = self.ce_optimiser.get_unscaled_gradients(grads)
         self.ce_optimiser.apply_gradients(zip(grads, self.ce_UNet.trainable_variables))
 
     def train_step(
