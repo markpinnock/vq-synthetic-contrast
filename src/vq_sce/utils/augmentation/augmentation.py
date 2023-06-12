@@ -15,7 +15,7 @@ class StdAug(tf.keras.layers.Layer):
     """Standard augmentation performing flipping, rotating, scale and shear."""
 
     def __init__(self, config: dict[str, Any], name: str = "std_aug") -> None:
-        super().__init__(name=name)
+        super().__init__(name=name, dtype="float32")
 
         self.source_affine_transform = AffineTransform2D(config["source_dims"])
         self.target_affine_transform = AffineTransform2D(config["target_dims"])
