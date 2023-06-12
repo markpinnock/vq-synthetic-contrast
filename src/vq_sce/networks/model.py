@@ -27,10 +27,12 @@ class Task(str, enum.Enum):
 class Model(tf.keras.Model):
     """Wrapper for model."""
 
-    def __init__(self, config: dict[str, Any], name: str = "Model") -> None:
-        super().__init__(name=name)
-        self._initialiser = tf.keras.initializers.HeNormal()
+    def __init__(self, config: dict[str, Any], name: str = "model") -> None:
         self._config = config
+        expt_type = config["expt"]["expt_type"]
+
+        super().__init__(name=f"{expt_type}_model")
+        self._initialiser = tf.keras.initializers.HeNormal()
 
         self._source_dims = config["data"]["source_dims"]
         self._target_dims = config["data"]["target_dims"]
@@ -237,7 +239,7 @@ class Model(tf.keras.Model):
 class JointModel(tf.keras.Model):
     """Wrapper for joint super-res/contrast enhancement model."""
 
-    def __init__(self, config: dict[str, Any], name: str = "Model") -> None:
+    def __init__(self, config: dict[str, Any], name: str = "joint_model") -> None:
         super().__init__(name=name)
         self._initialiser = tf.keras.initializers.HeNormal()
         self._sr_config = copy.deepcopy(config)
