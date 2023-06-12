@@ -29,13 +29,18 @@ def train(config: dict[str, Any], dev: bool) -> None:
     else:
         config["data"]["down_sample"] = 1
 
+    # Set distributed training strategy
+    strategy = tf.distribute.MirroredStrategy()
+    print(f"\nUsing {strategy.num_replicas_in_sync} devices\n")  # noqa: T201
+    config["expt"]["mb_size"] *= strategy.num_replicas_in_sync
+
     # Get model
-    model = build_model_train(config, dev=dev)
+    model = build_model_train(config, strategy=strategy, dev=dev)
 
     if config["expt"]["verbose"]:
         model.summary()
 
-    callbacks_and_datasets = build_callbacks_and_datasets(config, dev)
+    callbacks_and_datasets = build_callbacks_and_datasets(config, dev=dev)
 
     # If DARTS model, need to supply both train and validation data in training
     if config["expt"]["optimisation_type"] == "DARTS":
