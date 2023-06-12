@@ -27,7 +27,7 @@ class Task(str, enum.Enum):
 class Model(tf.keras.Model):
     """Wrapper for model."""
 
-    def __init__(self, config: dict[str, Any], name: str = "model") -> None:
+    def __init__(self, config: dict[str, Any]) -> None:
         self._config = config
         expt_type = config["expt"]["expt_type"]
 
@@ -76,12 +76,36 @@ class Model(tf.keras.Model):
 
         # Set up optimiser and loss
         self.optimiser = tf.keras.optimizers.Adam(**opt_config, name="opt")
-        self.loss = tf.keras.losses.MeanAbsoluteError()
+        self.loss = tf.keras.losses.MeanAbsoluteError(
+            reduction=tf.keras.losses.Reduction.SUM,
+        )
 
         # Set up metrics
         prefix = "ce" if self._config["data"]["type"] == "contrast" else "sr"
         self.loss_metric = tf.keras.metrics.Mean(name=f"{prefix}_L1")
         self.vq_metric = tf.keras.metrics.Mean(name=f"{prefix}_vq")
+
+    def calc_distributed_loss(
+        self,
+        targets: tf.Tensor,
+        preds: tf.Tensor,
+        model: tf.keras.Model,
+    ) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+        """Calculate loss using distributed training strategy."""
+        # Calculate L1
+        loss = self.loss_object(targets, preds) / tf.cast(
+            tf.reduce_prod(self._ce_target_dims),
+            tf.float32,
+        )
+        loss = loss / self._global_batch_size
+
+        # Calculate VQ loss
+        if self._use_vq:
+            vq_loss = tf.nn.scale_regularization_loss(tf.add_n(model.losses))
+        else:
+            vq_loss = 0
+
+        return loss + vq_loss, loss, vq_loss
 
     @property
     def metrics(self) -> list[tf.keras.metrics.Metric]:
@@ -115,21 +139,16 @@ class Model(tf.keras.Model):
             x, y = self._get_scale_indices()
             source, target = self._sample_patches(x, y, source, target)
 
-        with tf.GradientTape(persistent=True) as tape:
+        with tf.GradientTape() as tape:
             pred = self(source)
+            total_loss, loss, vq_loss = self.calc_distributed_loss(
+                target,
+                pred,
+                self.UNet,
+            )
 
-            # Calculate L1
-            loss = self.loss(target, pred)
-
-            # Calculate VQ loss
-            if self._use_vq:
-                vq_loss = sum(self.UNet.losses)
-            else:
-                vq_loss = 0
-
-            total_loss = loss + vq_loss
-            self.loss_metric.update_state(loss)
-            self.vq_metric.update_state(vq_loss)
+        self.loss_metric.update_state(loss)
+        self.vq_metric.update_state(vq_loss)
 
         # Get gradients and update weights
         grads = tape.gradient(total_loss, self.UNet.trainable_variables)
@@ -150,15 +169,7 @@ class Model(tf.keras.Model):
             source, target = self._sample_patches(x, y, source, target)
 
         pred = self(source)
-
-        # Calculate L1
-        loss = self.loss(target, pred)
-
-        # Calculate VQ loss
-        if self._use_vq:
-            vq_loss = sum(self.UNet.losses)
-        else:
-            vq_loss = 0
+        _, loss, vq_loss = self.calc_distributed_loss(target, pred, self.UNet)
 
         self.loss_metric.update_state(loss)
         self.vq_metric.update_state(vq_loss)
@@ -244,6 +255,11 @@ class JointModel(tf.keras.Model):
         self._initialiser = tf.keras.initializers.HeNormal()
         self._sr_config = copy.deepcopy(config)
         self._ce_config = copy.deepcopy(config)
+
+        assert (
+            self._sr_config["expt"]["mb_size"] == self._ce_config["expt"]["mb_size"]
+        ), (self._sr_config["expt"]["mb_size"], self._ce_config["expt"]["mb_size"])
+        self._global_batch_size = self._sr_config["expt"]["mb_size"]
 
         self._sr_source_dims = config["data"]["source_dims"]
         self._sr_target_dims = config["data"]["target_dims"]
@@ -335,13 +351,37 @@ class JointModel(tf.keras.Model):
         # Set up optimiser and loss
         self.sr_optimiser = tf.keras.optimizers.Adam(**opt_config, name="sr_opt")
         self.ce_optimiser = tf.keras.optimizers.Adam(**opt_config, name="ce_opt")
-        self.loss = tf.keras.losses.MeanAbsoluteError()
+        self.loss_object = tf.keras.losses.MeanAbsoluteError(
+            reduction=tf.keras.losses.Reduction.SUM,
+        )
 
         # Set up metrics
         self.sr_loss_metric = tf.keras.metrics.Mean(name="sr_L1")
         self.sr_vq_metric = tf.keras.metrics.Mean(name="sr_vq")
         self.ce_loss_metric = tf.keras.metrics.Mean(name="ce_L1")
         self.ce_vq_metric = tf.keras.metrics.Mean(name="ce_vq")
+
+    def calc_distributed_loss(
+        self,
+        targets: tf.Tensor,
+        preds: tf.Tensor,
+        model: tf.keras.Model,
+    ) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+        """Calculate loss using distributed training strategy."""
+        # Calculate L1
+        loss = self.loss_object(targets, preds) / tf.cast(
+            tf.reduce_prod(self._ce_target_dims),
+            tf.float32,
+        )
+        loss = loss / self._global_batch_size
+
+        # Calculate VQ loss
+        if self._use_vq:
+            vq_loss = tf.nn.scale_regularization_loss(tf.add_n(model.losses))
+        else:
+            vq_loss = 0
+
+        return loss + vq_loss, loss, vq_loss
 
     @property
     def metrics(self) -> list[tf.keras.metrics.Metric]:
@@ -382,21 +422,16 @@ class JointModel(tf.keras.Model):
             x, y = self._get_scale_indices()
             source, target = self._sample_patches(x, y, source, target)
 
-        with tf.GradientTape(persistent=True) as tape:
+        with tf.GradientTape() as tape:
             pred, _ = self.sr_UNet(source)
+            total_loss, loss, vq_loss = self.calc_distributed_loss(
+                target,
+                pred,
+                self.sr_UNet,
+            )
 
-            # Calculate L1
-            loss = self.loss(target, pred)
-
-            # Calculate VQ loss
-            if self._use_vq:
-                vq_loss = sum(self.sr_UNet.losses)
-            else:
-                vq_loss = 0
-
-            total_loss = loss + vq_loss
-            self.sr_loss_metric.update_state(loss)
-            self.sr_vq_metric.update_state(vq_loss)
+        self.sr_loss_metric.update_state(loss)
+        self.sr_vq_metric.update_state(vq_loss)
 
         # Get gradients and update weights
         grads = tape.gradient(total_loss, self.sr_UNet.trainable_variables)
@@ -412,21 +447,16 @@ class JointModel(tf.keras.Model):
             x, y = self._get_scale_indices()
             source, target = self._sample_patches(x, y, source, target)
 
-        with tf.GradientTape(persistent=True) as tape:
+        with tf.GradientTape() as tape:
             pred, _ = self.ce_UNet(source)
+            total_loss, loss, vq_loss = self.calc_distributed_loss(
+                target,
+                pred,
+                self.ce_UNet,
+            )
 
-            # Calculate L1
-            loss = self.loss(target, pred)
-
-            # Calculate VQ loss
-            if self._use_vq:
-                vq_loss = sum(self.ce_UNet.losses)
-            else:
-                vq_loss = 0
-
-            total_loss = loss + vq_loss
-            self.ce_loss_metric.update_state(loss)
-            self.ce_vq_metric.update_state(vq_loss)
+        self.ce_loss_metric.update_state(loss)
+        self.ce_vq_metric.update_state(vq_loss)
 
         # Get gradients and update weights
         grads = tape.gradient(total_loss, self.ce_UNet.trainable_variables)
@@ -448,15 +478,7 @@ class JointModel(tf.keras.Model):
             source, target = self._sample_patches(x, y, source, target)
 
         pred, _ = self.sr_UNet(source)
-
-        # Calculate L1
-        loss = self.loss(target, pred)
-
-        # Calculate VQ loss
-        if self._use_vq:
-            vq_loss = sum(self.sr_UNet.losses)
-        else:
-            vq_loss = 0
+        _, loss, vq_loss = self.calc_distributed_loss(target, pred, self.sr_UNet)
 
         self.sr_loss_metric.update_state(loss)
         self.sr_vq_metric.update_state(vq_loss)
@@ -468,15 +490,7 @@ class JointModel(tf.keras.Model):
             source, target = self._sample_patches(x, y, source, target)
 
         pred, _ = self.ce_UNet(source)
-
-        # Calculate L1
-        loss = self.loss(target, pred)
-
-        # Calculate VQ loss
-        if self._use_vq:
-            vq_loss = sum(self.ce_UNet.losses)
-        else:
-            vq_loss = 0
+        _, loss, vq_loss = self.calc_distributed_loss(target, pred, self.ce_UNet)
 
         self.ce_loss_metric.update_state(loss)
         self.ce_vq_metric.update_state(vq_loss)
