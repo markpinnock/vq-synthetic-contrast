@@ -48,7 +48,8 @@ def build_model_train(
                 raise ValueError(scales, expt_type)
 
             model.compile(config["hyperparameters"]["opt"], run_eagerly=dev)
-            model.build_model()
+
+        model.build_model()
 
     return model
 
