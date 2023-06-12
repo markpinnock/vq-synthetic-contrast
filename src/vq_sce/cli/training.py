@@ -89,6 +89,8 @@ def main() -> None:
     config["paths"]["expt_path"] = arguments.path
 
     # Set GPU
+    tf.keras.mixed_precision.set_global_policy("mixed_float16")
+
     if arguments.gpu is not None:
         gpu_numbers = [int(gpu) for gpu in arguments.gpu.split(",")]
         os.environ["LD_LIBRARY_PATH"] = config["paths"]["cuda_path"]
