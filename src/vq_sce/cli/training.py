@@ -32,6 +32,7 @@ def train(config: dict[str, Any], dev: bool) -> None:
     # Set distributed training strategy
     strategy = tf.distribute.MirroredStrategy()
     print(f"\nUsing {strategy.num_replicas_in_sync} devices\n")  # noqa: T201
+    config["expt"]["local_mb_size"] = config["expt"]["mb_size"]
     config["expt"]["mb_size"] *= strategy.num_replicas_in_sync
 
     # Get model

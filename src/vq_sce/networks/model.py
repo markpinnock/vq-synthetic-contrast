@@ -34,6 +34,9 @@ class Model(tf.keras.Model):
         super().__init__(name=f"{expt_type}_model")
         self._initialiser = tf.keras.initializers.HeNormal()
 
+        self._local_batch_size = config["expt"]["local_mb_size"]
+        self._global_batch_size = config["expt"]["mb_size"]
+
         self._source_dims = config["data"]["source_dims"]
         self._target_dims = config["data"]["target_dims"]
         config["augmentation"]["source_dims"] = self._source_dims
@@ -95,18 +98,21 @@ class Model(tf.keras.Model):
         """Calculate loss using distributed training strategy."""
         # Calculate L1
         loss = self.loss_object(targets, preds) / tf.cast(
-            tf.reduce_prod(self._ce_target_dims),
+            tf.reduce_prod(self._target_dims),
             tf.float32,
         )
-        loss = loss / self._global_batch_size
+        local_loss = loss / self._local_batch_size
+        global_loss = loss / self._global_batch_size
 
         # Calculate VQ loss
         if self._use_vq:
-            vq_loss = tf.nn.scale_regularization_loss(tf.add_n(model.losses))
+            local_vq_loss = tf.add_n(model.losses)
+            global_vq_loss = tf.nn.scale_regularization_loss(local_vq_loss)
         else:
-            vq_loss = 0
+            local_vq_loss = 0
+            global_vq_loss = 0
 
-        return loss + vq_loss, loss, vq_loss
+        return global_loss + global_vq_loss, local_loss, local_vq_loss
 
     @property
     def metrics(self) -> list[tf.keras.metrics.Metric]:
@@ -262,6 +268,8 @@ class JointModel(tf.keras.Model):
         assert (
             self._sr_config["expt"]["mb_size"] == self._ce_config["expt"]["mb_size"]
         ), (self._sr_config["expt"]["mb_size"], self._ce_config["expt"]["mb_size"])
+
+        self._local_batch_size = self._sr_config["expt"]["local_mb_size"]
         self._global_batch_size = self._sr_config["expt"]["mb_size"]
 
         self._sr_source_dims = config["data"]["source_dims"]
@@ -382,15 +390,18 @@ class JointModel(tf.keras.Model):
             tf.reduce_prod(self._ce_target_dims),
             tf.float32,
         )
-        loss = loss / self._global_batch_size
+        local_loss = loss / self._local_batch_size
+        global_loss = loss / self._global_batch_size
 
         # Calculate VQ loss
         if self._use_vq:
-            vq_loss = tf.nn.scale_regularization_loss(tf.add_n(model.losses))
+            local_vq_loss = tf.add_n(model.losses)
+            global_vq_loss = tf.nn.scale_regularization_loss(local_vq_loss)
         else:
-            vq_loss = 0
+            local_vq_loss = 0
+            global_vq_loss = 0
 
-        return loss + vq_loss, loss, vq_loss
+        return global_loss + global_vq_loss, local_loss, local_vq_loss
 
     @property
     def metrics(self) -> list[tf.keras.metrics.Metric]:
