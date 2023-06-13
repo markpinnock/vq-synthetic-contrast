@@ -108,9 +108,12 @@ def main() -> None:
             )
 
         else:
+            visible_gpus = []
             for gpu_number in gpu_numbers:
-                tf.config.set_visible_devices(gpus[gpu_number], "GPU")
-                tf.config.experimental.set_memory_growth(gpus[gpu_number], True)
+                visible_gpus.append(gpus[gpu_number])
+            tf.config.set_visible_devices(visible_gpus, "GPU")
+            for gpu in visible_gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
 
     train(config, arguments.dev)
 
