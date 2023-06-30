@@ -80,7 +80,7 @@ class Model(tf.keras.Model):
         # Set up optimiser and loss
         self.optimiser = tf.keras.optimizers.Adam(**opt_config, name="opt")
         self.optimiser = tf.keras.mixed_precision.LossScaleOptimizer(self.optimiser)
-        self.loss = tf.keras.losses.MeanAbsoluteError(
+        self.loss_object = tf.keras.losses.MeanAbsoluteError(
             reduction=tf.keras.losses.Reduction.SUM,
         )
 
