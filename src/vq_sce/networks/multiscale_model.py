@@ -117,7 +117,7 @@ class MultiscaleModel(tf.keras.Model):
         return [self.loss_metric, self.vq_metric]
 
     def build_model(self) -> None:
-        _, _ = self(tf.keras.Input(shape=self._source_dims + [1]))
+        _ = self(tf.keras.Input(shape=self._source_dims + [1]))
 
     def summary(self) -> None:
         source = tf.keras.Input(shape=self._source_dims + [1])
@@ -508,7 +508,7 @@ class JointMultiscaleModel(tf.keras.Model):
         ]
 
     def build_model(self) -> None:
-        _, _ = self(tf.keras.Input(shape=self._sr_source_dims + [1]))
+        _ = self(tf.keras.Input(shape=self._sr_source_dims + [1]))
 
     def summary(self) -> None:
         source = tf.keras.Input(shape=self._sr_source_dims + [1])
