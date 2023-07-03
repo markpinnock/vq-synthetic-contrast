@@ -68,9 +68,11 @@ class MultiscaleModel(tf.keras.Model):
             name="unet",
         )
 
-    def compile(
-        self, opt_config: dict[str, float], run_eagerly: bool = False,
-    ) -> None:  # noqa: A003
+    def compile(  # noqa: A003
+        self,
+        opt_config: dict[str, float],
+        run_eagerly: bool = False,
+    ) -> None:
         super().compile(run_eagerly=run_eagerly)
 
         # Set up optimiser and loss
@@ -221,7 +223,9 @@ class MultiscaleModel(tf.keras.Model):
 
                 pred, _ = self._sample_patches(x[-1], y[-1], pred)
                 _, loss, vq_loss = self.calc_distributed_loss(
-                    target_patch, pred, self.UNet,
+                    target_patch,
+                    pred,
+                    self.UNet,
                 )
 
                 self.loss_metric.update_state(loss)
@@ -336,7 +340,8 @@ class MultiscaleModel(tf.keras.Model):
             metric.reset_states()
 
     def call(self, x: tf.Tensor) -> tf.Tensor:
-        return self.UNet(x)
+        x, _ = self.UNet(x)
+        return
 
 
 # -------------------------------------------------------------------------
@@ -442,9 +447,11 @@ class JointMultiscaleModel(tf.keras.Model):
         )
         return shared_vq
 
-    def compile(
-        self, opt_config: dict[str, float], run_eagerly: bool = False,
-    ) -> None:  # noqa: A003
+    def compile(  # noqa: A003
+        self,
+        opt_config: dict[str, float],
+        run_eagerly: bool = False,
+    ) -> None:
         super().compile(run_eagerly=run_eagerly)
 
         # Set up optimiser and loss
@@ -654,7 +661,9 @@ class JointMultiscaleModel(tf.keras.Model):
 
                 pred, _ = self._sample_patches(x[-1], y[-1], pred)
                 _, loss, vq_loss = self.calc_distributed_loss(
-                    target_patch, pred, self.sr_UNet,
+                    target_patch,
+                    pred,
+                    self.sr_UNet,
                 )
 
                 self.sr_loss_metric.update_state(loss)
@@ -687,10 +696,12 @@ class JointMultiscaleModel(tf.keras.Model):
 
                 pred, _ = self._sample_patches(x[-1], y[-1], pred)
                 _, loss, vq_loss = self.calc_distributed_loss(
-                    target_patch, pred, self.ce_UNet,
+                    target_patch,
+                    pred,
+                    self.ce_UNet,
                 )
 
-                self.ce_L1_metric.update_state(loss)
+                self.ce_loss_metric.update_state(loss)
                 self.ce_vq_metric.update_state(vq_loss)
 
     def test_step(
@@ -839,6 +850,16 @@ class JointMultiscaleModel(tf.keras.Model):
         for metric in self.metrics:
             metric.reset_states()
 
-    def call(self, x: tf.Tensor) -> tf.Tensor:
-        x, _ = self.sr_UNet(x)
-        return self.ce_UNet(x)
+    def call(self, x: tf.Tensor, task: str = Task.JOINT) -> tf.Tensor:
+        if task == Task.CONTRAST:
+            x, _ = self.ce_UNet(x)
+            return x
+
+        elif task == Task.SUPER_RES:
+            x, _ = self.sr_UNet(x)
+            return x
+
+        else:
+            x, _ = self.sr_UNet(x)
+            x, _ = self.ce_UNet(x)
+            return x
