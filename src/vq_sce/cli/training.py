@@ -34,6 +34,11 @@ def train(config: dict[str, Any], dev: bool) -> None:
     print(f"\nUsing {strategy.num_replicas_in_sync} devices\n")  # noqa: T201
     config["expt"]["local_mb_size"] = config["expt"]["mb_size"]
     config["expt"]["mb_size"] *= strategy.num_replicas_in_sync
+    config["hyperparameters"]["opt"]["learning_rate"] *= strategy.num_replicas_in_sync
+    if "alpha_opt" in config["hyperparameters"].keys():
+        config["hyperparameters"]["alpha_opt"][
+            "learning_rate"
+        ] *= strategy.num_replicas_in_sync
 
     # Get model
     model = build_model_train(config, strategy=strategy, dev=dev)
