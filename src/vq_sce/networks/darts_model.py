@@ -143,10 +143,10 @@ class DARTSJointModel(JointModel):
                 model,
             )
             total_loss *= self.architect(alpha_index)
-            # total_loss = optimiser.get_scaled_loss(total_loss)
+            total_loss = optimiser.get_scaled_loss(total_loss)
 
         grads = tape.gradient(total_loss, model.trainable_variables)
-        # grads = optimiser.get_unscaled_gradients(grads)
+        grads = optimiser.get_unscaled_gradients(grads)
         optimiser.apply_gradients(zip(grads, virtual_model.trainable_variables))
 
     def unrolled_backward(
