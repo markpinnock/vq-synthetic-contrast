@@ -347,6 +347,7 @@ class JointModel(tf.keras.Model):
         shared_vq = VQBlock(
             num_embeddings=embeddings,
             embedding_dim=MAX_CHANNELS,
+            alpha=0.5,  # Halve VQ learning rate as training twice each step
             beta=config["hyperparameters"]["vq_beta"],
             name="shared_vq",
         )

@@ -20,6 +20,7 @@ class VQBlock(tf.keras.layers.Layer):
         self,
         num_embeddings: int,
         embedding_dim: int,
+        alpha: float = 1.0,
         beta: float = 0.25,
         name: str | None = None,
     ) -> None:
@@ -36,11 +37,11 @@ class VQBlock(tf.keras.layers.Layer):
             trainable=True,
         )
 
-        # Alpha, learning rate for this block (set to constant 0.5 if not DARTS)
+        # Alpha, learning rate for this block (set to constant if not DARTS)
         self.vq_alpha = self.add_weight(
             "alpha",
             shape=(),
-            initializer=tf.keras.initializers.Constant(0.5),
+            initializer=tf.keras.initializers.Constant(alpha),
             trainable=False,
         )
 
