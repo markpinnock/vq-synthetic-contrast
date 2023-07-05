@@ -35,13 +35,23 @@ def train(config: dict[str, Any], dev: bool) -> None:
     config["expt"]["local_mb_size"] = config["expt"]["mb_size"]
     config["expt"]["mb_size"] *= strategy.num_replicas_in_sync
     config["hyperparameters"]["opt"]["learning_rate"] *= strategy.num_replicas_in_sync
-    if "alpha_opt" in config["hyperparameters"].keys():
+
+    if config["expt"]["optimisation_type"] == "DARTS":
         config["hyperparameters"]["alpha_opt"][
             "learning_rate"
         ] *= strategy.num_replicas_in_sync
 
     # Get model
     model = build_model_train(config, strategy=strategy, dev=dev)
+    initial_epoch = config["expt"]["initial_epoch"]
+
+    if initial_epoch is None or initial_epoch == 1:
+        config["expt"]["initial_epoch"] = 1
+    else:
+        assert initial_epoch != 0, f"Initial epoch: {initial_epoch}"
+        expt_path = Path(config["paths"]["expt_path"])
+        ckpt_path = expt_path / "models" / f"ckpt-{initial_epoch - 1}"
+        model.load_weights(ckpt_path)
 
     if config["expt"]["verbose"]:
         model.summary()
@@ -60,7 +70,7 @@ def train(config: dict[str, Any], dev: bool) -> None:
         epochs=config["expt"]["epochs"],
         callbacks=callbacks_and_datasets["callbacks"],
         validation_data=callbacks_and_datasets["valid_ds"],
-        initial_epoch=0,
+        initial_epoch=initial_epoch - 1,
         steps_per_epoch=callbacks_and_datasets["train_steps"],
         validation_steps=callbacks_and_datasets["valid_steps"],
     )

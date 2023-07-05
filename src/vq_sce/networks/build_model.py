@@ -76,7 +76,6 @@ def build_model_inference(
                     list((path / "models").glob("*")),
                     key=lambda x: int(str(x.stem).split("-")[-1]),
                 )
-                assert len(ckpts) == 1, ckpts
                 ckpt_path = ckpts[-1]
 
             else:
@@ -95,11 +94,10 @@ def build_model_inference(
                 list((expt_path / "models").glob("*")),
                 key=lambda x: int(str(x.stem).split("-")[-1]),
             )
-            assert len(ckpts) == 1, ckpts
             ckpt_path = ckpts[-1]
 
         else:
-            ckpts = list(expt_path / "models" / f"ckpt-{epoch}")
+            ckpts = list((path / "models" / f"ckpt-{epoch}").glob("*"))
             assert len(ckpts) == 1, ckpts
             ckpt_path = ckpts[0]
 
