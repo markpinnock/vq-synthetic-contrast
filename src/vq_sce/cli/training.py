@@ -9,7 +9,7 @@ import yaml
 
 from vq_sce import RANDOM_SEED
 from vq_sce.callbacks.build_callbacks import build_callbacks_and_datasets
-from vq_sce.networks.build_model import build_model
+from vq_sce.networks.build_model import build_model_train
 
 # -------------------------------------------------------------------------
 
@@ -29,13 +29,34 @@ def train(config: dict[str, Any], dev: bool) -> None:
     else:
         config["data"]["down_sample"] = 1
 
+    # Set distributed training strategy
+    strategy = tf.distribute.MirroredStrategy()
+    print(f"\nUsing {strategy.num_replicas_in_sync} devices\n")  # noqa: T201
+    config["expt"]["local_mb_size"] = config["expt"]["mb_size"]
+    config["expt"]["mb_size"] *= strategy.num_replicas_in_sync
+    config["hyperparameters"]["opt"]["learning_rate"] *= strategy.num_replicas_in_sync
+
+    if config["expt"]["optimisation_type"] == "DARTS":
+        config["hyperparameters"]["alpha_opt"][
+            "learning_rate"
+        ] *= strategy.num_replicas_in_sync
+
     # Get model
-    model = build_model(config, dev=dev)
+    model = build_model_train(config, strategy=strategy, dev=dev)
+    initial_epoch = config["expt"]["initial_epoch"]
+
+    if initial_epoch is None or initial_epoch == 1:
+        config["expt"]["initial_epoch"] = 1
+    else:
+        assert initial_epoch != 0, f"Initial epoch: {initial_epoch}"
+        expt_path = Path(config["paths"]["expt_path"])
+        ckpt_path = expt_path / "models" / f"ckpt-{initial_epoch - 1}"
+        model.load_weights(ckpt_path)
 
     if config["expt"]["verbose"]:
         model.summary()
 
-    callbacks_and_datasets = build_callbacks_and_datasets(config, dev)
+    callbacks_and_datasets = build_callbacks_and_datasets(config, dev=dev)
 
     # If DARTS model, need to supply both train and validation data in training
     if config["expt"]["optimisation_type"] == "DARTS":
@@ -49,7 +70,7 @@ def train(config: dict[str, Any], dev: bool) -> None:
         epochs=config["expt"]["epochs"],
         callbacks=callbacks_and_datasets["callbacks"],
         validation_data=callbacks_and_datasets["valid_ds"],
-        initial_epoch=0,
+        initial_epoch=initial_epoch - 1,
         steps_per_epoch=callbacks_and_datasets["train_steps"],
         validation_steps=callbacks_and_datasets["valid_steps"],
     )
@@ -62,7 +83,7 @@ def main() -> None:
     # Handle arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", "-p", help="Expt path", type=str)
-    parser.add_argument("--gpu", "-g", help="GPU number", type=int)
+    parser.add_argument("--gpu", "-g", help="GPU number", type=str)
     parser.add_argument("--dev", "-d", help="Development mode", action="store_true")
     arguments = parser.parse_args()
 
@@ -84,12 +105,31 @@ def main() -> None:
     config["paths"]["expt_path"] = arguments.path
 
     # Set GPU
+    tf.keras.mixed_precision.set_global_policy("float32")
+
     if arguments.gpu is not None:
-        gpu_number = arguments.gpu
+        gpu_numbers = [int(gpu) for gpu in arguments.gpu.split(",")]
         os.environ["LD_LIBRARY_PATH"] = config["paths"]["cuda_path"]
-        gpus = tf.config.experimental.list_physical_devices("GPU")
-        tf.config.set_visible_devices(gpus[gpu_number], "GPU")
-        tf.config.experimental.set_memory_growth(gpus[gpu_number], True)
+        gpus = tf.config.list_physical_devices("GPU")
+
+        if arguments.dev:
+            tf.config.set_logical_device_configuration(
+                gpus[0],
+                [
+                    tf.config.LogicalDeviceConfiguration(
+                        memory_limit=15360 // len(gpu_numbers),
+                    )
+                    for _ in gpu_numbers
+                ],
+            )
+
+        else:
+            visible_gpus = []
+            for gpu_number in gpu_numbers:
+                visible_gpus.append(gpus[gpu_number])
+            tf.config.set_visible_devices(visible_gpus, "GPU")
+            for gpu in visible_gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
 
     train(config, arguments.dev)
 

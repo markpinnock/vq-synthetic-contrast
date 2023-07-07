@@ -75,9 +75,9 @@ class ContrastDataloader(BaseDataloader):
         for target_id, source_id in zip(ex_targets_ids, ex_sources_ids):
             ce_coords = self._calc_coords(target_id)
 
-            target = np.load(self._target_path / f"{target_id}.npy")
+            target = np.load(self._target_path / f"{target_id}.npy").astype("float32")
             target = self._preprocess_image(target, None, None)
-            source = np.load(self._source_path / f"{source_id}.npy")
+            source = np.load(self._source_path / f"{source_id}.npy").astype("float32")
             source = self._preprocess_image(source, ce_coords[0], ce_coords[1])
 
             lower = target.shape[0] // 3
@@ -101,12 +101,12 @@ class ContrastDataloader(BaseDataloader):
             np.random.shuffle(self._target_ids)
 
         for target_id in self._target_ids[0 : self.N]:
-            target = np.load(self._target_path / f"{target_id}.npy")
+            target = np.load(self._target_path / f"{target_id}.npy").astype("float32")
             target = self._preprocess_image(target, None, None)
 
             source_id = self._target_source_map[target_id]
             ce_coords = self._calc_coords(target_id)
-            source = np.load(self._source_path / f"{source_id}.npy")
+            source = np.load(self._source_path / f"{source_id}.npy").astype("float32")
             source = self._preprocess_image(source, ce_coords[0], ce_coords[1])
             total_depth = target.shape[0]
             num_iter = total_depth // MIN_HQ_DEPTH
@@ -144,8 +144,8 @@ class ContrastDataloader(BaseDataloader):
                 source_id = self._target_source_map[target_id]
             else:
                 source_id = sort_by_closest[0]
-            source = np.load(self._source_path / f"{source_id}.npy")
-            target = np.load(self._target_path / f"{target_id}.npy")
+            source = np.load(self._source_path / f"{source_id}.npy").astype("float32")
+            target = np.load(self._target_path / f"{target_id}.npy").astype("float32")
 
             # If target is initial CE image
             if source_id == self._target_source_map[target_id]:

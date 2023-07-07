@@ -4,7 +4,12 @@ from typing import Any
 
 import tensorflow as tf
 
-from vq_sce.callbacks.callbacks import SaveExamples, SaveModel, SaveResults
+from vq_sce.callbacks.callbacks import (
+    SaveExamples,
+    SaveModel,
+    SaveMultiScaleExamples,
+    SaveResults,
+)
 from vq_sce.networks.model import Task
 from vq_sce.utils.dataloaders.build_dataloader import get_train_dataloader
 from vq_sce.utils.dataloaders.joint_dataset import JointDataset
@@ -85,12 +90,20 @@ def build_callbacks_and_datasets(config: dict[str, Any], dev: bool) -> dict[str,
         save_freq=save_freq,
     )
 
-    save_examples = SaveExamples(
-        filepath=expt_path / "images",
-        save_freq=save_freq,
-        train_generator=train_gen,
-        valid_generator=valid_gen,
-    )
+    if len(config["hyperparameters"]["scales"]) == 1:
+        save_examples = SaveExamples(
+            filepath=expt_path / "images",
+            save_freq=save_freq,
+            train_generator=train_gen,
+            valid_generator=valid_gen,
+        )
+    else:
+        save_examples = SaveMultiScaleExamples(
+            filepath=expt_path / "images",
+            save_freq=save_freq,
+            train_generator=train_gen,
+            valid_generator=valid_gen,
+        )
 
     callbacks = [model_checkpoint, tensorboard, save_results, save_examples]
 

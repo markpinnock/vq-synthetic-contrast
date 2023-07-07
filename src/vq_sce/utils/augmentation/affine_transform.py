@@ -17,7 +17,7 @@ class AffineTransform(tf.keras.layers.Layer, abc.ABC):
     _mb_size: int
 
     def __init__(self, img_dims: list[int], name: str):
-        super().__init__(name=name)
+        super().__init__(name=name, dtype="float32")
 
         if len(img_dims) == 2:
             self._depth = 1

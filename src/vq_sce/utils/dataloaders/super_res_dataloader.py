@@ -86,9 +86,9 @@ class SuperResDataloader(BaseDataloader):
             target_id = self._source_target_map[source_id]
             _, hq_coords = self._calc_coords(source_id, target_id)
 
-            target = np.load(self._target_path / f"{target_id}.npy")
+            target = np.load(self._target_path / f"{target_id}.npy").astype("float32")
             target = self._preprocess_image(target, hq_coords[0], hq_coords[1])
-            source = np.load(self._source_path / f"{source_id}.npy")
+            source = np.load(self._source_path / f"{source_id}.npy").astype("float32")
             source = self._preprocess_image(source, None, None)
 
             ex_targets.append(target)
@@ -106,13 +106,13 @@ class SuperResDataloader(BaseDataloader):
             np.random.shuffle(self._source_ids)
 
         for source_id in self._source_ids[0 : self.N]:
-            source = np.load(self._source_path / f"{source_id}.npy")
+            source = np.load(self._source_path / f"{source_id}.npy").astype("float32")
             source = self._preprocess_image(source, None, None)
 
             target_id = self._source_target_map[source_id]
             _, hq_coords = self._calc_coords(source_id, target_id)
 
-            target = np.load(self._target_path / f"{target_id}.npy")
+            target = np.load(self._target_path / f"{target_id}.npy").astype("float32")
             target = self._preprocess_image(target, hq_coords[0], hq_coords[1])
 
             data_dict: DataDictType = {
@@ -124,13 +124,13 @@ class SuperResDataloader(BaseDataloader):
 
     def inference_generator(self) -> Iterator[dict[str, Any]]:
         for source_id in self._source_ids:
-            source = np.load(self._source_path / f"{source_id}.npy")
+            source = np.load(self._source_path / f"{source_id}.npy").astype("float32")
             source = self._preprocess_image(source, None, None)
 
             target_id = self._source_target_map[source_id]
             _, hq_coords = self._calc_coords(source_id, target_id)
 
-            target = np.load(self._target_path / f"{target_id}.npy")
+            target = np.load(self._target_path / f"{target_id}.npy").astype("float32")
             target = self._preprocess_image(target, hq_coords[0], hq_coords[1])
 
             yield {

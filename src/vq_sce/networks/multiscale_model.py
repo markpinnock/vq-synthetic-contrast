@@ -18,9 +18,13 @@ class MultiscaleModel(tf.keras.Model):
     """Wrapper for multi-scale U-Net."""
 
     def __init__(self, config: dict[str, Any], name: str = "Model") -> None:
-        super().__init__(name=name)
-        self._initialiser = tf.keras.initializers.HeNormal()
         self._config = config
+        expt_type = config["expt"]["expt_type"]
+        super().__init__(name=f"{expt_type}_model")
+        self._initialiser = tf.keras.initializers.HeNormal()
+
+        self._local_batch_size = config["expt"]["local_mb_size"]
+        self._global_batch_size = config["expt"]["mb_size"]
 
         self._source_dims = config["data"]["source_dims"]
         self._target_dims = config["data"]["target_dims"]
@@ -48,9 +52,9 @@ class MultiscaleModel(tf.keras.Model):
             self.intermediate_vq = False
 
         if config["hyperparameters"]["vq_layers"] is None:
-            self.use_vq = False
+            self._use_vq = False
         else:
-            self.use_vq = True
+            self._use_vq = True
 
         # Set up augmentation
         if config["augmentation"]["use"]:
@@ -64,24 +68,56 @@ class MultiscaleModel(tf.keras.Model):
             name="unet",
         )
 
-    def compile(self, opt_config: dict[str, float]) -> None:  # noqa: A003
-        super().compile()
+    def compile(  # noqa: A003
+        self,
+        opt_config: dict[str, float],
+        run_eagerly: bool = False,
+    ) -> None:
+        super().compile(run_eagerly=run_eagerly)
 
         # Set up optimiser and loss
         self.optimiser = tf.keras.optimizers.Adam(**opt_config, name="opt")
-        self.loss = tf.keras.losses.MeanAbsoluteError()
+        self.optimiser = tf.keras.mixed_precision.LossScaleOptimizer(self.optimiser)
+        self.loss_object = tf.keras.losses.MeanAbsoluteError(
+            reduction=tf.keras.losses.Reduction.SUM,
+        )
 
         # Set up metrics
         prefix = "ce" if self._config["data"]["type"] == "contrast" else "sr"
         self.loss_metric = tf.keras.metrics.Mean(name=f"{prefix}_L1")
         self.vq_metric = tf.keras.metrics.Mean(name=f"{prefix}_vq")
 
+    def calc_distributed_loss(
+        self,
+        targets: tf.Tensor,
+        preds: tf.Tensor,
+        model: tf.keras.Model,
+    ) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+        """Calculate loss using distributed training strategy."""
+        # Calculate L1
+        loss = self.loss_object(targets, preds) / tf.cast(
+            tf.reduce_prod(self._target_dims),
+            tf.float32,
+        )
+        local_loss = loss / self._local_batch_size
+        global_loss = loss / self._global_batch_size
+
+        # Calculate VQ loss
+        if self._use_vq:
+            local_vq_loss = tf.add_n(model.losses)
+            global_vq_loss = tf.nn.scale_regularization_loss(local_vq_loss)
+        else:
+            local_vq_loss = 0
+            global_vq_loss = 0
+
+        return global_loss + global_vq_loss, local_loss, local_vq_loss
+
     @property
     def metrics(self) -> list[tf.keras.metrics.Metric]:
         return [self.loss_metric, self.vq_metric]
 
     def build_model(self) -> None:
-        _, _ = self(tf.keras.Input(shape=self._source_dims + [1]))
+        _ = self(tf.keras.Input(shape=self._source_dims + [1]))
 
     def summary(self) -> None:
         source = tf.keras.Input(shape=self._source_dims + [1])
@@ -132,22 +168,19 @@ class MultiscaleModel(tf.keras.Model):
                             pred, vq = self(pred)
 
                     pred, _ = self._sample_patches(x[-1], y[-1], pred)
+                    total_loss, loss, vq_loss = self.calc_distributed_loss(
+                        target_patch,
+                        pred,
+                        self.UNet,
+                    )
+                    total_loss = self.optimiser.get_scaled_loss(total_loss)
 
-                    # Calculate L1
-                    loss = self.loss(target_patch, pred)
-
-                    # Calculate VQ loss
-                    if self.use_vq:
-                        vq_loss = sum(self.UNet.losses)
-                    else:
-                        vq_loss = 0
-
-                    total_loss = loss + vq_loss
-                    self.loss_metric.update_state(loss)
-                    self.vq_metric.update_state(vq_loss)
+                self.loss_metric.update_state(loss)
+                self.vq_metric.update_state(vq_loss)
 
                 # Get gradients and update weights
                 grads = tape.gradient(total_loss, self.UNet.trainable_variables)
+                grads = self.optimiser.get_unscaled_gradients(grads)
                 self.optimiser.apply_gradients(
                     zip(grads, self.UNet.trainable_variables),
                 )
@@ -189,15 +222,11 @@ class MultiscaleModel(tf.keras.Model):
                         pred, vq = self(pred)
 
                 pred, _ = self._sample_patches(x[-1], y[-1], pred)
-
-                # Calculate L1
-                loss = self.loss(target_patch, pred)
-
-                # Calculate VQ loss
-                if self.use_vq:
-                    vq_loss = sum(self.UNet.losses)
-                else:
-                    vq_loss = 0
+                _, loss, vq_loss = self.calc_distributed_loss(
+                    target_patch,
+                    pred,
+                    self.UNet,
+                )
 
                 self.loss_metric.update_state(loss)
                 self.vq_metric.update_state(vq_loss)
@@ -311,7 +340,8 @@ class MultiscaleModel(tf.keras.Model):
             metric.reset_states()
 
     def call(self, x: tf.Tensor) -> tf.Tensor:
-        return self.UNet(x)
+        x, _ = self.UNet(x)
+        return
 
 
 # -------------------------------------------------------------------------
@@ -325,6 +355,13 @@ class JointMultiscaleModel(tf.keras.Model):
         self._initialiser = tf.keras.initializers.HeNormal()
         self._sr_config = copy.deepcopy(config)
         self._ce_config = copy.deepcopy(config)
+
+        assert (
+            self._sr_config["expt"]["mb_size"] == self._ce_config["expt"]["mb_size"]
+        ), (self._sr_config["expt"]["mb_size"], self._ce_config["expt"]["mb_size"])
+
+        self._local_batch_size = self._sr_config["expt"]["local_mb_size"]
+        self._global_batch_size = self._sr_config["expt"]["mb_size"]
 
         self._sr_source_dims = config["data"]["source_dims"]
         self._sr_target_dims = config["data"]["target_dims"]
@@ -365,6 +402,7 @@ class JointMultiscaleModel(tf.keras.Model):
         assert config["hyperparameters"]["vq_layers"]["bottom"] is not None, config[
             "hyperparameters"
         ]["vq_layers"]
+        self._use_vq = True
 
         if config["hyperparameters"]["vq_layers"] is not None:
             self.intermediate_vq = "output" in config["hyperparameters"]["vq_layers"]
@@ -383,6 +421,23 @@ class JointMultiscaleModel(tf.keras.Model):
             self.ce_Aug = None
 
         # Get shared VQ layer
+        self.shared_vq = self._get_vq_block(config)
+
+        self.sr_UNet = MultiscaleUNet(
+            self._initialiser,
+            self._sr_config["hyperparameters"],
+            shared_vq=self.shared_vq,
+            name="sr_unet",
+        )
+
+        self.ce_UNet = MultiscaleUNet(
+            self._initialiser,
+            self._ce_config["hyperparameters"],
+            shared_vq=self.shared_vq,
+            name="ce_unet",
+        )
+
+    def _get_vq_block(self, config: dict[str, Any]) -> VQBlock:
         embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
         shared_vq = VQBlock(
             num_embeddings=embeddings,
@@ -390,34 +445,58 @@ class JointMultiscaleModel(tf.keras.Model):
             beta=config["hyperparameters"]["vq_beta"],
             name="shared_vq",
         )
+        return shared_vq
 
-        self.sr_UNet = MultiscaleUNet(
-            self._initialiser,
-            self._sr_config["hyperparameters"],
-            shared_vq=shared_vq,
-            name="sr_unet",
-        )
-
-        self.ce_UNet = MultiscaleUNet(
-            self._initialiser,
-            self._ce_config["hyperparameters"],
-            shared_vq=shared_vq,
-            name="ce_unet",
-        )
-
-    def compile(self, opt_config: dict[str, float]) -> None:  # noqa: A003
-        super().compile()
+    def compile(  # noqa: A003
+        self,
+        opt_config: dict[str, float],
+        run_eagerly: bool = False,
+    ) -> None:
+        super().compile(run_eagerly=run_eagerly)
 
         # Set up optimiser and loss
         self.sr_optimiser = tf.keras.optimizers.Adam(**opt_config, name="sr_opt")
+        self.sr_optimiser = tf.keras.mixed_precision.LossScaleOptimizer(
+            self.sr_optimiser,
+        )
         self.ce_optimiser = tf.keras.optimizers.Adam(**opt_config, name="ce_opt")
-        self.loss = tf.keras.losses.MeanAbsoluteError()
+        self.ce_optimiser = tf.keras.mixed_precision.LossScaleOptimizer(
+            self.ce_optimiser,
+        )
+        self.loss_object = tf.keras.losses.MeanAbsoluteError(
+            reduction=tf.keras.losses.Reduction.SUM,
+        )
 
         # Set up metrics
         self.sr_loss_metric = tf.keras.metrics.Mean(name="sr_L1")
         self.sr_vq_metric = tf.keras.metrics.Mean(name="sr_vq")
         self.ce_loss_metric = tf.keras.metrics.Mean(name="ce_L1")
         self.ce_vq_metric = tf.keras.metrics.Mean(name="ce_vq")
+
+    def calc_distributed_loss(
+        self,
+        targets: tf.Tensor,
+        preds: tf.Tensor,
+        model: tf.keras.Model,
+    ) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+        """Calculate loss using distributed training strategy."""
+        # Calculate L1
+        loss = self.loss_object(targets, preds) / tf.cast(
+            tf.reduce_prod(self._ce_target_dims),
+            tf.float32,
+        )
+        local_loss = loss / self._local_batch_size
+        global_loss = loss / self._global_batch_size
+
+        # Calculate VQ loss
+        if self._use_vq:
+            local_vq_loss = tf.add_n(model.losses)
+            global_vq_loss = tf.nn.scale_regularization_loss(local_vq_loss)
+        else:
+            local_vq_loss = 0
+            global_vq_loss = 0
+
+        return global_loss + global_vq_loss, local_loss, local_vq_loss
 
     @property
     def metrics(self) -> list[tf.keras.metrics.Metric]:
@@ -429,7 +508,7 @@ class JointMultiscaleModel(tf.keras.Model):
         ]
 
     def build_model(self) -> None:
-        _, _ = self(tf.keras.Input(shape=self._sr_source_dims + [1]))
+        _ = self(tf.keras.Input(shape=self._sr_source_dims + [1]))
 
     def summary(self) -> None:
         source = tf.keras.Input(shape=self._sr_source_dims + [1])
@@ -480,19 +559,19 @@ class JointMultiscaleModel(tf.keras.Model):
                             pred, vq = self.sr_UNet(pred)
 
                     pred, _ = self._sample_patches(x[-1], y[-1], pred)
+                    total_loss, loss, vq_loss = self.calc_distributed_loss(
+                        target_patch,
+                        pred,
+                        self.sr_UNet,
+                    )
+                    total_loss = self.sr_optimiser.get_scaled_loss(total_loss)
 
-                    # Calculate L1
-                    loss = self.loss(target_patch, pred)
-
-                    # Calculate VQ loss
-                    vq_loss = sum(self.sr_UNet.losses)
-
-                    total_loss = loss + vq_loss
-                    self.sr_loss_metric.update_state(loss)
-                    self.sr_vq_metric.update_state(vq_loss)
+                self.sr_loss_metric.update_state(loss)
+                self.sr_vq_metric.update_state(vq_loss)
 
                 # Get gradients and update weights
                 grads = tape.gradient(total_loss, self.sr_UNet.trainable_variables)
+                grads = self.sr_optimiser.get_unscaled_gradients(grads)
                 self.sr_optimiser.apply_gradients(
                     zip(grads, self.sr_UNet.trainable_variables),
                 )
@@ -528,19 +607,19 @@ class JointMultiscaleModel(tf.keras.Model):
                             pred, vq = self.ce_UNet(pred)
 
                     pred, _ = self._sample_patches(x[-1], y[-1], pred)
+                    total_loss, loss, vq_loss = self.calc_distributed_loss(
+                        target_patch,
+                        pred,
+                        self.ce_UNet,
+                    )
+                    total_loss = self.ce_optimiser.get_scaled_loss(total_loss)
 
-                    # Calculate L1
-                    loss = self.loss(target_patch, pred)
-
-                    # Calculate VQ loss
-                    vq_loss = sum(self.ce_UNet.losses)
-
-                    total_loss = loss + vq_loss
-                    self.ce_loss_metric.update_state(loss)
-                    self.ce_vq_metric.update_state(vq_loss)
+                self.ce_loss_metric.update_state(loss)
+                self.ce_vq_metric.update_state(vq_loss)
 
                 # Get gradients and update weights
                 grads = tape.gradient(total_loss, self.ce_UNet.trainable_variables)
+                grads = self.ce_optimiser.get_unscaled_gradients(grads)
                 self.ce_optimiser.apply_gradients(
                     zip(grads, self.ce_UNet.trainable_variables),
                 )
@@ -581,12 +660,11 @@ class JointMultiscaleModel(tf.keras.Model):
                         pred, vq = self.sr_UNet(pred)
 
                 pred, _ = self._sample_patches(x[-1], y[-1], pred)
-
-                # Calculate L1
-                loss = self.loss(target_patch, pred)
-
-                # Calculate VQ loss
-                vq_loss = sum(self.sr_UNet.losses)
+                _, loss, vq_loss = self.calc_distributed_loss(
+                    target_patch,
+                    pred,
+                    self.sr_UNet,
+                )
 
                 self.sr_loss_metric.update_state(loss)
                 self.sr_vq_metric.update_state(vq_loss)
@@ -617,14 +695,13 @@ class JointMultiscaleModel(tf.keras.Model):
                         pred, vq = self.ce_UNet(pred)
 
                 pred, _ = self._sample_patches(x[-1], y[-1], pred)
+                _, loss, vq_loss = self.calc_distributed_loss(
+                    target_patch,
+                    pred,
+                    self.ce_UNet,
+                )
 
-                # Calculate L1
-                loss = self.loss(target_patch, pred)
-
-                # Calculate VQ loss
-                vq_loss = sum(self.ce_UNet.losses)
-
-                self.ce_L1_metric.update_state(loss)
+                self.ce_loss_metric.update_state(loss)
                 self.ce_vq_metric.update_state(vq_loss)
 
     def test_step(
@@ -773,6 +850,16 @@ class JointMultiscaleModel(tf.keras.Model):
         for metric in self.metrics:
             metric.reset_states()
 
-    def call(self, x: tf.Tensor) -> tf.Tensor:
-        x, _ = self.sr_UNet(x)
-        return self.ce_UNet(x)
+    def call(self, x: tf.Tensor, task: str = Task.JOINT) -> tf.Tensor:
+        if task == Task.CONTRAST:
+            x, _ = self.ce_UNet(x)
+            return x
+
+        elif task == Task.SUPER_RES:
+            x, _ = self.sr_UNet(x)
+            return x
+
+        else:
+            x, _ = self.sr_UNet(x)
+            x, _ = self.ce_UNet(x)
+            return x

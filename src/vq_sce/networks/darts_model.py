@@ -17,17 +17,19 @@ class Alpha(int, enum.Enum):
 
 class Architect(tf.keras.layers.Layer):
     def __init__(self, name: str = "architect"):
-        super().__init__(name=name)
-
+        super().__init__(name=name, dtype="float32")
+        self.softmax = tf.keras.layers.Activation("softmax", dtype="float32")
         self.alphas = self.add_weight(
             name=f"{name}/alphas",
             shape=[1, 2],
             initializer=tf.keras.initializers.Zeros(),
             trainable=True,
+            dtype="float32",
         )
 
     def call(self, alpha_index: int) -> tf.Tensor:
-        return tf.keras.activations.softmax(self.alphas)[0][alpha_index]
+        alpha = self.softmax(self.alphas)
+        return alpha[0][alpha_index]
 
 
 # -------------------------------------------------------------------------
@@ -39,8 +41,7 @@ class DARTSJointModel(JointModel):
     def __init__(
         self,
         config: dict[str, Any],
-        name: str = "DARTSModel",
-        dev: bool = False,
+        name: str = "darts_model",
     ) -> None:
         super().__init__(config=config, name=name)
 
@@ -51,14 +52,14 @@ class DARTSJointModel(JointModel):
 
         # Create virtual models to update during architecture search
         self.virtual_sr_UNet = UNet(
-            tf.keras.initializers.Zeros(),
+            tf.keras.initializers.Ones(),
             self._sr_config["hyperparameters"],
             shared_vq=self.virtual_shared_vq,
             name="virtual_sr_unet",
         )
 
         self.virtual_ce_UNet = UNet(
-            tf.keras.initializers.Zeros(),
+            tf.keras.initializers.Ones(),
             self._ce_config["hyperparameters"],
             shared_vq=self.virtual_shared_vq,
             name="virtual_ce_unet",
@@ -76,11 +77,24 @@ class DARTSJointModel(JointModel):
 
         # Set up optimiser and loss
         self.sr_optimiser = tf.keras.optimizers.Adam(**w_opt_config, name="sr_opt")
+        self.sr_optimiser = tf.keras.mixed_precision.LossScaleOptimizer(
+            self.sr_optimiser,
+        )
         self.ce_optimiser = tf.keras.optimizers.Adam(**w_opt_config, name="ce_opt")
+        self.ce_optimiser = tf.keras.mixed_precision.LossScaleOptimizer(
+            self.ce_optimiser,
+        )
+
         self.alpha_optimiser = tf.keras.optimizers.Adam(
             **a_opt_config, name="alpha_opt"
         )
-        self.loss = tf.keras.losses.MeanAbsoluteError()
+        self.alpha_optimiser = tf.keras.mixed_precision.LossScaleOptimizer(
+            self.alpha_optimiser,
+        )
+
+        self.loss_object = tf.keras.losses.MeanAbsoluteError(
+            reduction=tf.keras.losses.Reduction.SUM,
+        )
 
         # Set up metrics
         self.sr_loss_metric = tf.keras.metrics.Mean(name="sr_L1")
@@ -123,11 +137,16 @@ class DARTSJointModel(JointModel):
         """
         with tf.GradientTape() as tape:
             pred, _ = model(source)
-            vq_loss = sum(model.losses)
-            loss = self.loss(target, pred) + vq_loss
-            loss *= self.architect(alpha_index)
+            total_loss, _, _ = self.calc_distributed_loss(
+                target,
+                pred,
+                model,
+            )
+            total_loss *= self.architect(alpha_index)
+            total_loss = optimiser.get_scaled_loss(total_loss)
 
-        grads = tape.gradient(loss, model.trainable_variables)
+        grads = tape.gradient(total_loss, model.trainable_variables)
+        grads = optimiser.get_unscaled_gradients(grads)
         optimiser.apply_gradients(zip(grads, virtual_model.trainable_variables))
 
     def unrolled_backward(
@@ -143,16 +162,22 @@ class DARTSJointModel(JointModel):
         :param source: validation source images
         :param target: validation target images
         """
-        with tf.GradientTape(persistent=True) as tape:
+        with tf.GradientTape() as tape:
             pred, _ = virtual_model(source)
-            vq_loss = sum(virtual_model.losses)
-            loss = self.loss(target, pred) + vq_loss
-            loss *= self.architect(alpha_index)
+            total_loss, _, _ = self.calc_distributed_loss(
+                target,
+                pred,
+                virtual_model,
+            )
+            total_loss *= self.architect(alpha_index)
+            total_loss = self.alpha_optimiser.get_scaled_loss(total_loss)
 
         grads = tape.gradient(
-            loss,
+            total_loss,
             virtual_model.trainable_variables + self.architect.trainable_variables,
         )
+        grads = self.alpha_optimiser.get_unscaled_gradients(grads)
+
         d_weights = grads[:-1]
         d_alpha = grads[-1:]
         mask = tf.constant([[1.0 - alpha_index, alpha_index]])
@@ -186,20 +211,32 @@ class DARTSJointModel(JointModel):
             weight.assign_add(epsilon * grad)
         with tf.GradientTape() as tape:
             pred, _ = model(source)
-            vq_loss = sum(model.losses)
-            loss = self.loss(target, pred) + vq_loss
-            loss *= self.architect(alpha_index)
-        d_alpha_pos = tape.gradient(loss, self.architect.trainable_variables)
+            total_loss, _, _ = self.calc_distributed_loss(
+                target,
+                pred,
+                model,
+            )
+            total_loss *= self.architect(alpha_index)
+            total_loss = self.alpha_optimiser.get_scaled_loss(total_loss)
+
+        d_alpha_pos = tape.gradient(total_loss, self.architect.trainable_variables)
+        d_alpha_pos = self.alpha_optimiser.get_unscaled_gradients(d_alpha_pos)
         d_alpha_pos[0] *= mask  # Set non-active alpha gradient to 0
 
         for weight, grad in zip(model.trainable_variables, d_weights):
             weight.assign_add(-2.0 * epsilon * grad)
         with tf.GradientTape() as tape:
             pred, _ = model(source)
-            vq_loss = sum(model.losses)
-            loss = self.loss(target, pred) + vq_loss
-            loss *= self.architect(alpha_index)
-        d_alpha_neg = tape.gradient(loss, self.architect.trainable_variables)
+            total_loss, _, _ = self.calc_distributed_loss(
+                target,
+                pred,
+                model,
+            )
+            total_loss *= self.architect(alpha_index)
+            total_loss = self.alpha_optimiser.get_scaled_loss(total_loss)
+
+        d_alpha_neg = tape.gradient(total_loss, self.architect.trainable_variables)
+        d_alpha_neg = self.alpha_optimiser.get_unscaled_gradients(d_alpha_neg)
         d_alpha_neg[0] *= mask  # Set non-active alpha gradient to 0
 
         for weight, grad in zip(model.trainable_variables, d_weights):
