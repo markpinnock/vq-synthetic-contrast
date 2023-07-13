@@ -15,7 +15,9 @@ data:
     cv_folds: 5
     fold: 4
 expt:
+    initial_epoch: 1
     expt_type: single
+    optimisation_type: simple
     mb_size: 2
     save_every: 20
     epochs: 500

@@ -15,7 +15,9 @@ data:
     cv_folds: 5
     fold: 4
 expt:
+    initial_epoch: 1
     expt_type: joint
+    optimisation_type: simple
     mb_size: 2
     save_every: 20
     epochs: 500
@@ -28,9 +30,9 @@ hyperparameters:
     scales:
         - 1
     opt:
-        - 1.0e-4
-        - 0.5
-        - 0.999
+        learning_rate: 1.0e-4
+        beta_1: 0.5
+        beta_2: 0.999
     nc: 16
     layers: 6
     vq_layers:
