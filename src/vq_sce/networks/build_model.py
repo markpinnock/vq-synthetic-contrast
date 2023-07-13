@@ -3,7 +3,7 @@ from typing import Any
 
 import tensorflow as tf
 
-from .darts_model import DARTSJointModel
+from .darts_model import DARTSJointModel, DARTSModel
 from .model import JointModel, Model
 from .multiscale_model import JointMultiscaleModel, MultiscaleModel
 
@@ -25,13 +25,17 @@ def build_model_train(
     optimisation_type = config["expt"]["optimisation_type"]
 
     with strategy.scope():
-        if optimisation_type == "DARTS":
-            assert len(scales) == 1 and expt_type == "joint", (scales, expt_type)
+        if "darts" in optimisation_type:
+            assert len(scales) == 1, scales
 
-            model = DARTSJointModel(config)
+            if expt_type == "single":
+                model = DARTSModel(config)
+            else:
+                model = DARTSJointModel(config)
+
             model.compile(  # type: ignore
                 config["hyperparameters"]["opt"],
-                config["hyperparameters"]["alpha_opt"],
+                config["hyperparameters"]["darts_opt"],
                 run_eagerly=dev,
             )
 
