@@ -3,8 +3,8 @@ from typing import Any, TypedDict
 import numpy as np
 import tensorflow as tf
 
-from .layers.conv_layers import BottomBlock, DownBlock, UpBlock, VQConfigType
-from .layers.vq_layers import VQBlock
+from .layers.conv_layers import DownBlock, UpBlock, VQConfigType
+from .layers.vq_layers import DARTSVQBlock, VQBlock
 
 MAX_CHANNELS = 512
 
@@ -32,7 +32,7 @@ class UNet(tf.keras.layers.Layer):
         self,
         initialiser: tf.keras.initializers.Initializer,
         config: dict[str, Any],
-        shared_vq: VQBlock | None = None,
+        vq_block: VQBlock | DARTSVQBlock | None = None,
         name: str | None = None,
     ) -> None:
         super().__init__(name=name)
@@ -46,10 +46,8 @@ class UNet(tf.keras.layers.Layer):
 
         if config["vq_layers"] is not None:
             self._vq_layers = config["vq_layers"].keys()
-            self._vq_config = {"vq_beta": config["vq_beta"]}  # type: ignore[assignment]
         else:
             self._vq_layers = []
-            self._vq_config = None
 
         self._initialiser = initialiser
         max_num_layers = int(
@@ -59,7 +57,7 @@ class UNet(tf.keras.layers.Layer):
             config["layers"] <= max_num_layers and config["layers"] >= 0
         ), f"Maximum number of generator layers: {max_num_layers}"
 
-        self.shared_vq = shared_vq
+        self.vq_block = vq_block
         self.encoder: list[tf.keras.layers.Layer] = []
         self.decoder: list[tf.keras.layers.Layer] = []
         cache = self.get_encoder()
@@ -113,34 +111,21 @@ class UNet(tf.keras.layers.Layer):
             strides = cache["encode_strides"][i]
             kernel = cache["encode_kernels"][i]
 
-            use_vq = f"down_{i}" in self._vq_layers
-            if use_vq:
-                self._vq_config["embeddings"] = self._config["vq_layers"][f"down_{i}"]
-
             self.encoder.append(
                 DownBlock(
                     channels,
                     kernel,
                     strides,
                     initialiser=self._initialiser,
-                    use_vq=use_vq,
-                    vq_config=self._vq_config,
                     name=f"down_{i}",
                 ),
             )
 
-        use_vq = "bottom" in self._vq_layers
-        if use_vq:
-            self._vq_config["embeddings"] = self._config["vq_layers"]["bottom"]
-
-        self.bottom_layer = BottomBlock(
+        self.bottom_layer = DownBlock(
             channels,
             kernel,
             (1, 1, 1),
             initialiser=self._initialiser,
-            use_vq=use_vq,
-            vq_config=self._vq_config,
-            shared_vq=self.shared_vq,
             name="bottom",
         )
 
@@ -154,10 +139,6 @@ class UNet(tf.keras.layers.Layer):
             kernel = cache["decode_kernels"][i]
             upsamp_factor = cache["upsamp_factor"][i]
 
-            use_vq = f"up_{i}" in self._vq_layers
-            if use_vq:
-                self._vq_config["embeddings"] = self._config["vq_layers"][f"up_{i}"]
-
             self.decoder.append(
                 UpBlock(
                     channels,
@@ -165,8 +146,6 @@ class UNet(tf.keras.layers.Layer):
                     strides,
                     upsamp_factor=upsamp_factor,
                     initialiser=self._initialiser,
-                    use_vq=use_vq,
-                    vq_config=self._vq_config,
                     name=f"up_{i}",
                 ),
             )
@@ -201,8 +180,11 @@ class UNet(tf.keras.layers.Layer):
             x, skip = layer(x, training=True)
             skip_layers.append(skip)
 
-        x = self.bottom_layer(x, training=True)
+        x, _ = self.bottom_layer(x, training=True)
         skip_layers.reverse()
+
+        if self.vq_block:
+            x = self.vq_block(x)
 
         for skip, tconv in zip(skip_layers, self.decoder):
             x = tconv(x, skip, training=True)
@@ -249,18 +231,12 @@ class MultiscaleUNet(UNet):
         """Create multi-scale U-Net decoder."""
         super().get_decoder(cache)
 
-        use_vq = "upsamp" in self._vq_layers
-        if use_vq:
-            self._vq_config["embeddings"] = self._config["vq_layers"]["upsamp"]
-
         self.upsample_out = UpBlock(
             cache["channels"][0],
             (2, 4, 4),
             (1, 2, 2),
             upsamp_factor=1,
             initialiser=self._initialiser,
-            use_vq=use_vq,
-            vq_config=self._vq_config,
             name="upsamp",
         )
 
@@ -273,8 +249,11 @@ class MultiscaleUNet(UNet):
             x, skip = layer(x, training=True)
             skip_layers.append(skip)
 
-        x = self.bottom_layer(x, training=True)
+        x, _ = self.bottom_layer(x, training=True)
         skip_layers.reverse()
+
+        if self.vq_block:
+            x = self.vq_block(x)
 
         for skip, tconv in zip(skip_layers, self.decoder):
             x = tconv(x, skip, training=True)
