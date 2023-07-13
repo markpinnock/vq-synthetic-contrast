@@ -27,11 +27,9 @@ class Task(str, enum.Enum):
 class Model(tf.keras.Model):
     """Wrapper for model."""
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(self, config: dict[str, Any], name: str = "single_model") -> None:
+        super().__init__(name=name)
         self._config = config
-        expt_type = config["expt"]["expt_type"]
-
-        super().__init__(name=f"{expt_type}_model")
         self._initialiser = tf.keras.initializers.HeNormal()
 
         self._local_batch_size = config["expt"]["local_mb_size"]
@@ -68,7 +66,24 @@ class Model(tf.keras.Model):
         else:
             self.Aug = None
 
-        self.UNet = UNet(self._initialiser, config["hyperparameters"], name="unet")
+        vq_block = self._get_vq_block(config)
+        self.UNet = UNet(
+            self._initialiser,
+            config["hyperparameters"],
+            vq_block=vq_block,
+            name="unet",
+        )
+
+    def _get_vq_block(self, config: dict[str, Any]) -> VQBlock:
+        embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
+        vq = VQBlock(
+            num_embeddings=embeddings,
+            embedding_dim=MAX_CHANNELS,
+            alpha=1.0,
+            beta=config["hyperparameters"]["vq_beta"],
+            name="shared_vq",
+        )
+        return vq
 
     def compile(  # noqa: A003
         self,
@@ -132,7 +147,7 @@ class Model(tf.keras.Model):
 
     def train_step(
         self,
-        data: dict[str, dict[str, tf.Tensor]],
+        data: dict[str, tf.Tensor],
     ) -> dict[str, tf.Tensor]:
         source = data["source"]
         target = data["target"]
@@ -167,7 +182,7 @@ class Model(tf.keras.Model):
 
     def test_step(
         self,
-        data: dict[str, dict[str, tf.Tensor]],
+        data: dict[str, tf.Tensor],
     ) -> dict[str, tf.Tensor]:
         source = data["source"]
         target = data["target"]
@@ -326,19 +341,19 @@ class JointModel(tf.keras.Model):
             self.ce_Aug = None
 
         # Get shared VQ layer
-        self.shared_vq = self._get_vq_block(config)
+        shared_vq = self._get_vq_block(config)
 
         self.sr_UNet = UNet(
             self._initialiser,
             self._sr_config["hyperparameters"],
-            shared_vq=self.shared_vq,
+            vq_block=shared_vq,
             name="sr_unet",
         )
 
         self.ce_UNet = UNet(
             self._initialiser,
             self._ce_config["hyperparameters"],
-            shared_vq=self.shared_vq,
+            vq_block=shared_vq,
             name="ce_unet",
         )
 
