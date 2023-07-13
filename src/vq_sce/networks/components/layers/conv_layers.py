@@ -2,14 +2,12 @@ from typing import TypedDict
 
 import tensorflow as tf
 
-from .vq_layers import VQBlock
-
 # -------------------------------------------------------------------------
 
 
 class VQConfigType(TypedDict):
     vq_beta: float
-    embeddings: int
+    embeddings: int | list
 
 
 # -------------------------------------------------------------------------
@@ -55,8 +53,6 @@ class DownBlock(tf.keras.layers.Layer):
         weights: tuple[int, int, int],
         strides: tuple[int, int, int],
         initialiser: tf.keras.initializers.Initializer,
-        use_vq: bool,
-        vq_config: VQConfigType | None,
         name: str | None = None,
     ) -> None:
         super().__init__(name=name)
@@ -76,14 +72,6 @@ class DownBlock(tf.keras.layers.Layer):
             kernel_initializer=initialiser,
             name="conv2",
         )
-        self.use_vq = use_vq
-        if use_vq and vq_config is not None:
-            self.vq = VQBlock(
-                vq_config["embeddings"],
-                nc,
-                vq_config["vq_beta"],
-                name=f"{name}_vq",
-            )
 
         # Normalisation
         self.inst_norm_1 = InstanceNorm(name="instancenorm1")
@@ -100,79 +88,7 @@ class DownBlock(tf.keras.layers.Layer):
         x = self.conv2(x)
         x = self.inst_norm_2(x, training)
 
-        # Perform vector quantization if necessary
-        if self.use_vq:
-            x = self.vq(x)
-
         return tf.nn.relu(x), skip
-
-
-# -------------------------------------------------------------------------
-
-
-class BottomBlock(tf.keras.layers.Layer):
-    """Bottom convolutional block."""
-
-    def __init__(
-        self,
-        nc: int,
-        weights: tuple[int, int, int],
-        strides: tuple[int, int, int],
-        initialiser: tf.keras.initializers.Initializer,
-        use_vq: bool,
-        vq_config: VQConfigType | None,
-        shared_vq: VQBlock | None,
-        name: str | None = None,
-    ) -> None:
-        super().__init__(name=name)
-        self.conv1 = tf.keras.layers.Conv3D(
-            nc,
-            weights,
-            strides=strides,
-            padding="same",
-            kernel_initializer=initialiser,
-            name="conv1",
-        )
-        self.conv2 = tf.keras.layers.Conv3D(
-            nc,
-            weights,
-            strides=strides,
-            padding="same",
-            kernel_initializer=initialiser,
-            name="conv2",
-        )
-        self.use_vq = use_vq
-        if use_vq and shared_vq is None and vq_config is not None:
-            self.vq = VQBlock(
-                vq_config["embeddings"],
-                nc,
-                vq_config["vq_beta"],
-                name=f"{name}_vq",
-            )
-        elif use_vq and shared_vq is not None and vq_config is not None:
-            self.vq = shared_vq
-        else:
-            pass
-
-        # Normalisation
-        self.inst_norm_1 = InstanceNorm(name="instancenorm1")
-        self.inst_norm_2 = InstanceNorm(name="instancenorm2")
-
-    def call(self, x: tf.Tensor, training: bool) -> tf.Tensor:
-        # 1st convolution
-        x = self.conv1(x)
-        x = self.inst_norm_1(x, training)
-        x = tf.nn.relu(x)
-
-        # 2nd convolution
-        x = self.conv2(x)
-        x = self.inst_norm_2(x, training)
-
-        # Perform vector quantization if necessary
-        if self.use_vq:
-            x = self.vq(x)
-
-        return tf.nn.relu(x)
 
 
 # -------------------------------------------------------------------------
@@ -188,8 +104,6 @@ class UpBlock(tf.keras.layers.Layer):
         strides: tuple[int, int, int],
         upsamp_factor: int,
         initialiser: tf.keras.initializers.Initializer,
-        use_vq: bool,
-        vq_config: VQConfigType | None,
         name: str | None = None,
     ) -> None:
         super().__init__(name=name)
@@ -218,15 +132,6 @@ class UpBlock(tf.keras.layers.Layer):
             kernel_initializer=initialiser,
             name="conv2",
         )
-
-        self.use_vq = use_vq
-        if use_vq and vq_config is not None:
-            self.vq = VQBlock(
-                vq_config["embeddings"],
-                nc,
-                vq_config["vq_beta"],
-                name=f"{name}_vq",
-            )
 
         # Instance normalisation
         self.inst_norm_t = InstanceNorm(name="instancenormt")
@@ -262,10 +167,6 @@ class UpBlock(tf.keras.layers.Layer):
         x = tf.nn.relu(x)
         x = self.conv2(x)
         x = self.inst_norm_2(x, training)
-
-        # Perform vector quantization if necessary
-        if self.use_vq:
-            x = self.vq(x)
 
         return tf.nn.relu(x)
 
