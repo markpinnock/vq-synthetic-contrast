@@ -3,8 +3,9 @@ from typing import Any
 
 import tensorflow as tf
 
-from vq_sce.networks.components.unet import UNet
-from vq_sce.networks.model import JointModel, Task
+from vq_sce.networks.components.layers.vq_layers import DARTSVQBlock
+from vq_sce.networks.components.unet import MAX_CHANNELS, UNet
+from vq_sce.networks.model import JointModel, Model, Task
 
 # -------------------------------------------------------------------------
 
@@ -15,10 +16,14 @@ class Alpha(int, enum.Enum):
     CONTRAST = 1
 
 
-class Architect(tf.keras.layers.Layer):
-    def __init__(self, name: str = "architect"):
+# -------------------------------------------------------------------------
+
+
+class TaskArchitect(tf.keras.layers.Layer):
+    def __init__(self, name: str = "task_architect"):
         super().__init__(name=name, dtype="float32")
         self.softmax = tf.keras.layers.Activation("softmax", dtype="float32")
+
         self.alphas = self.add_weight(
             name=f"{name}/alphas",
             shape=[1, 2],
@@ -35,6 +40,235 @@ class Architect(tf.keras.layers.Layer):
 # -------------------------------------------------------------------------
 
 
+class VQArchitect(tf.keras.layers.Layer):
+    def __init__(self, num_dictionaries: int = 0, name: str = "vq_architect"):
+        super().__init__(name=name, dtype="float32")
+        self.softmax = tf.keras.layers.Activation("softmax", dtype="float32")
+        self.num_dictionaries = num_dictionaries
+
+        self.gammas = self.add_weight(
+            name=f"{name}/gammas",
+            shape=(self.num_dictionaries,),
+            initializer=tf.keras.initializers.Zeros(),
+            trainable=True,
+            dtype="float32",
+        )
+
+    def call(self) -> tf.Tensor:
+        gammas = self.softmax(self.gammas)
+        return gammas
+
+
+# -------------------------------------------------------------------------
+
+
+class DARTSModel(Model):
+    """Wrapper for super-res/contrast enhancement model."""
+
+    def __init__(
+        self,
+        config: dict[str, Any],
+        name: str = "darts_model",
+    ) -> None:
+        super().__init__(config=config, name=name)
+
+        self.vq_architect = VQArchitect(name=f"{name}/vq_architect")
+
+        # Get virtual VQ layer
+        virtual_vq = self._get_vq_block(config)
+
+        # Create virtual model to update during architecture search
+        self.virtual_UNet = UNet(
+            tf.keras.initializers.Ones(),
+            config["hyperparameters"],
+            vq_block=virtual_vq,
+            name="virtual_unet",
+        )
+
+    def _get_vq_block(self, config: dict[str, Any]) -> DARTSVQBlock:
+        embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
+        shared_vq = DARTSVQBlock(
+            num_embeddings=embeddings,
+            embedding_dim=MAX_CHANNELS,
+            alpha=1.0,
+            beta=config["hyperparameters"]["vq_beta"],
+            name="shared_vq",
+        )
+        return shared_vq
+
+    def compile(  # type: ignore[override] # noqa: A003
+        self,
+        model_opt_config: dict[str, float],
+        darts_opt_config: dict[str, float],
+        run_eagerly: bool = False,
+    ) -> None:
+        super(Model, self).compile(run_eagerly=run_eagerly)
+        self.weights_lr = model_opt_config["learning_rate"]
+        self.run_eagerly = run_eagerly
+
+        # Set up optimiser and loss
+        self.optimiser = tf.keras.optimizers.Adam(**model_opt_config, name="model_opt")
+        self.optimiser = tf.keras.mixed_precision.LossScaleOptimizer(
+            self.optimiser,
+        )
+
+        self.darts_optimiser = tf.keras.optimizers.Adam(
+            **darts_opt_config, name="darts_opt"
+        )
+        self.darts_optimiser = tf.keras.mixed_precision.LossScaleOptimizer(
+            self.darts_optimiser,
+        )
+
+        self.loss_object = tf.keras.losses.MeanAbsoluteError(
+            reduction=tf.keras.losses.Reduction.SUM,
+        )
+
+        # Set up metrics
+        prefix = "ce" if self._config["data"]["type"] == "contrast" else "sr"
+        self.loss_metric = tf.keras.metrics.Mean(name=f"{prefix}_L1")
+        self.vq_metric = tf.keras.metrics.Mean(name=f"{prefix}_vq")
+
+    def build_model(self) -> None:
+        super().build_model()
+        _ = self.virtual_UNet(tf.keras.Input(shape=self._source_dims + [1]))
+
+    def virtual_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
+        """Get weights that model would have after one training step.
+        :param source: training source images
+        :param target: training target images
+        """
+        with tf.GradientTape() as tape:
+            pred, _ = self.UNet(source)
+            total_loss, _, _ = self.calc_distributed_loss(target, pred, self.UNet)
+            total_loss = self.optimiser.get_scaled_loss(total_loss)
+
+        grads = tape.gradient(total_loss, self.UNet.trainable_variables)
+        grads = self.optimiser.get_unscaled_gradients(grads)
+        self.optimiser.apply_gradients(
+            zip(grads, self.virtual_UNet.trainable_variables),
+        )
+
+    def unrolled_backward(
+        self,
+        source: tf.Tensor,
+        target: tf.Tensor,
+    ) -> tuple[list[tf.Tensor], list[tf.Tensor]]:
+        """Calculate gradients for unrolled model on validation data.
+        :param source: validation source images
+        :param target: validation target images
+        """
+        with tf.GradientTape() as tape:
+            pred, _ = self.virtual_UNet(source)
+            total_loss, _, _ = self.calc_distributed_loss(target, pred, self.UNet)
+            total_loss = self.darts_optimiser.get_scaled_loss(total_loss)
+
+        grads = tape.gradient(
+            total_loss,
+            self.virtual_UNet.trainable_variables
+            + self.vq_architect.trainable_variables,
+        )
+        grads = self.darts_optimiser.get_unscaled_gradients(grads)
+        num_dict = self.vq_architect.num_dictionaries
+
+        d_weights = grads[:-num_dict]
+        d_alpha = grads[-num_dict:]
+
+        return d_weights, d_alpha
+
+    def calculate_hessian(
+        self,
+        d_weights: list[tf.Tensor],
+        source: tf.Tensor,
+        target: tf.Tensor,
+    ) -> list[tf.Tensor]:
+        """Calculate Hessian matrix approximation on training data.
+        :param d_weights: gradients of model weights
+        :param source: training source images
+        :param target: training target images
+        """
+        grad_norm = tf.sqrt(
+            tf.reduce_sum([tf.reduce_sum(tf.square(g)) for g in d_weights]),
+        )
+        epsilon = 0.01 / grad_norm
+
+        for weight, grad in zip(self.UNet.trainable_variables, d_weights):
+            weight.assign_add(epsilon * grad)
+        with tf.GradientTape() as tape:
+            pred, _ = self.UNet(source)
+            total_loss, _, _ = self.calc_distributed_loss(target, pred, self.UNet)
+            total_loss = self.darts_optimiser.get_scaled_loss(total_loss)
+
+        d_alpha_pos = tape.gradient(total_loss, self.vq_architect.trainable_variables)
+        d_alpha_pos = self.darts_optimiser.get_unscaled_gradients(d_alpha_pos)
+
+        for weight, grad in zip(self.UNet.trainable_variables, d_weights):
+            weight.assign_add(-2.0 * epsilon * grad)
+        with tf.GradientTape() as tape:
+            pred, _ = self.UNet(source)
+            total_loss, _, _ = self.calc_distributed_loss(target, pred, self.UNet)
+            total_loss = self.darts_optimiser.get_scaled_loss(total_loss)
+
+        d_alpha_neg = tape.gradient(total_loss, self.vq_architect.trainable_variables)
+        d_alpha_neg = self.darts_optimiser.get_unscaled_gradients(d_alpha_neg)
+
+        for weight, grad in zip(self.UNet.trainable_variables, d_weights):
+            weight.assign_add(epsilon * grad)
+
+        hessian = [
+            (pos - neg) / (2.0 * epsilon) for pos, neg in zip(d_alpha_pos, d_alpha_neg)
+        ]
+
+        return hessian
+
+    def architecture_step(
+        self,
+        train_data: dict[str, tf.Tensor],
+        val_data: dict[str, tf.Tensor],
+    ) -> None:
+        # Sample patch if needed
+        if self._scales[0] > 1:
+            x, y = self._get_scale_indices()
+            train_data["source"], train_data["target"] = self._sample_patches(
+                x,
+                y,
+                train_data["source"],
+                train_data["target"],
+            )
+            val_data["source"], val_data["target"] = self._sample_patches(
+                x,
+                y,
+                val_data["source"],
+                val_data["target"],
+            )
+
+        self.virtual_step(**train_data)
+        d_weights, d_alpha = self.unrolled_backward(**val_data)
+        hessian = self.calculate_hessian(d_weights=d_weights, **train_data)
+
+        arch_grads = []
+        for d, h in zip(d_alpha, hessian):
+            arch_grads.append(d - self.weights_lr * h)
+
+        self.darts_optimiser.apply_gradients(
+            zip(arch_grads, self.vq_architect.trainable_variables),
+        )
+
+    def train_step(  # type: ignore[override]
+        self,
+        data: tuple[dict[str, tf.Tensor], dict[str, tf.Tensor]],
+    ) -> dict[str, tf.Tensor]:
+        train_batch, valid_batch = data
+        self.architecture_step(train_batch, valid_batch)
+
+        self.UNet.bottom_layer.vq.vq_gamma.assign(self.vq_architect())
+        self.train_step(**train_batch)
+
+        return {metric.name: metric.result() for metric in self.metrics}
+
+
+# -------------------------------------------------------------------------
+
+
 class DARTSJointModel(JointModel):
     """Wrapper for joint super-res/contrast enhancement model."""
 
@@ -45,23 +279,33 @@ class DARTSJointModel(JointModel):
     ) -> None:
         super().__init__(config=config, name=name)
 
-        self.architect = Architect(name=f"{name}/architect")
+        if config["expt"]["optimisation_type"] in ["darts-task", "darts-both"]:
+            self.task_architect = TaskArchitect(name=f"{name}/task_architect")
+        else:
+            self.task_architect = None
+
+        if config["expt"]["optimisation_type"] in ["darts-vq", "darts-both"]:
+            self.vq_architect = VQArchitect(name=f"{name}/vq_architect")
+        else:
+            self.vq_architect = None
+
+        assert self.task_architect and self.vq_architect
 
         # Get shared VQ layer
-        self.virtual_shared_vq = self._get_vq_block(config)
+        virtual_shared_vq = self._get_vq_block(config)
 
         # Create virtual models to update during architecture search
         self.virtual_sr_UNet = UNet(
             tf.keras.initializers.Ones(),
             self._sr_config["hyperparameters"],
-            shared_vq=self.virtual_shared_vq,
+            vq_block=virtual_shared_vq,
             name="virtual_sr_unet",
         )
 
         self.virtual_ce_UNet = UNet(
             tf.keras.initializers.Ones(),
             self._ce_config["hyperparameters"],
-            shared_vq=self.virtual_shared_vq,
+            vq_block=virtual_shared_vq,
             name="virtual_ce_unet",
         )
 
