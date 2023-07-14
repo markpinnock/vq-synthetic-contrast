@@ -41,22 +41,25 @@ class TaskArchitect(tf.keras.layers.Layer):
 
 
 class VQArchitect(tf.keras.layers.Layer):
-    def __init__(self, num_dictionaries: int = 0, name: str = "vq_architect"):
+    def __init__(self, num_dictionaries: int, name: str = "vq_architect"):
         super().__init__(name=name, dtype="float32")
         self.softmax = tf.keras.layers.Activation("softmax", dtype="float32")
         self.num_dictionaries = num_dictionaries
 
         self.gammas = self.add_weight(
             name=f"{name}/gammas",
-            shape=(self.num_dictionaries,),
+            shape=(
+                1,
+                self.num_dictionaries,
+            ),
             initializer=tf.keras.initializers.Zeros(),
             trainable=True,
             dtype="float32",
         )
 
-    def call(self) -> tf.Tensor:
-        gammas = self.softmax(self.gammas)
-        return gammas
+    def call(self, x) -> tf.Tensor:
+        # gammas = self.softmax(self.gammas)
+        return self.gammas  # [0, :]
 
 
 # -------------------------------------------------------------------------
@@ -65,14 +68,23 @@ class VQArchitect(tf.keras.layers.Layer):
 class DARTSModel(Model):
     """Wrapper for super-res/contrast enhancement model."""
 
+    unet_variables: list[tf.Variable]
+    virtual_unet_variables: list[tf.Variable]
+
     def __init__(
         self,
         config: dict[str, Any],
         name: str = "darts_model",
     ) -> None:
         super().__init__(config=config, name=name)
+        self.num_dict = self.UNet.vq_block.num_dictionaries
 
-        self.vq_architect = VQArchitect(name=f"{name}/vq_architect")
+        # Gamma: weights for candidate VQ dictionaries
+        self.alpha_vq = tf.Variable(
+            tf.zeros((1, self.num_dict)),
+            name=f"{name}/alpha_vq",
+        )
+        self.UNet.vq_block.alpha_vq = self.alpha_vq
 
         # Get virtual VQ layer
         virtual_vq = self._get_vq_block(config)
@@ -84,17 +96,18 @@ class DARTSModel(Model):
             vq_block=virtual_vq,
             name="virtual_unet",
         )
+        self.virtual_UNet.vq_block.alpha_vq = self.alpha_vq
 
     def _get_vq_block(self, config: dict[str, Any]) -> DARTSVQBlock:
         embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
-        shared_vq = DARTSVQBlock(
+        vq = DARTSVQBlock(
             num_embeddings=embeddings,
             embedding_dim=MAX_CHANNELS,
             alpha=1.0,
             beta=config["hyperparameters"]["vq_beta"],
-            name="shared_vq",
+            name="virtual_vq",
         )
-        return shared_vq
+        return vq
 
     def compile(  # type: ignore[override] # noqa: A003
         self,
@@ -129,8 +142,19 @@ class DARTSModel(Model):
         self.vq_metric = tf.keras.metrics.Mean(name=f"{prefix}_vq")
 
     def build_model(self) -> None:
+        """Initialise variables in models.
+        This sub-class also ensures that the DARTS parameters
+        are not included in the model trainable variables.
+        """
         super().build_model()
+        self.unet_variables = [
+            v for v in self.UNet.trainable_variables if "alpha_vq" not in v.name
+        ]
+
         _ = self.virtual_UNet(tf.keras.Input(shape=self._source_dims + [1]))
+        self.virtual_unet_variables = [
+            v for v in self.virtual_UNet.trainable_variables if "alpha_vq" not in v.name
+        ]
 
     def virtual_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
         """Get weights that model would have after one training step.
@@ -142,10 +166,10 @@ class DARTSModel(Model):
             total_loss, _, _ = self.calc_distributed_loss(target, pred, self.UNet)
             total_loss = self.optimiser.get_scaled_loss(total_loss)
 
-        grads = tape.gradient(total_loss, self.UNet.trainable_variables)
+        grads = tape.gradient(total_loss, self.unet_variables)
         grads = self.optimiser.get_unscaled_gradients(grads)
         self.optimiser.apply_gradients(
-            zip(grads, self.virtual_UNet.trainable_variables),
+            zip(grads, self.virtual_unet_variables),
         )
 
     def unrolled_backward(
@@ -159,19 +183,21 @@ class DARTSModel(Model):
         """
         with tf.GradientTape() as tape:
             pred, _ = self.virtual_UNet(source)
-            total_loss, _, _ = self.calc_distributed_loss(target, pred, self.UNet)
+            total_loss, _, _ = self.calc_distributed_loss(
+                target,
+                pred,
+                self.virtual_UNet,
+            )
             total_loss = self.darts_optimiser.get_scaled_loss(total_loss)
 
         grads = tape.gradient(
             total_loss,
-            self.virtual_UNet.trainable_variables
-            + self.vq_architect.trainable_variables,
+            self.virtual_unet_variables + [self.alpha_vq],
         )
         grads = self.darts_optimiser.get_unscaled_gradients(grads)
-        num_dict = self.vq_architect.num_dictionaries
 
-        d_weights = grads[:-num_dict]
-        d_alpha = grads[-num_dict:]
+        d_weights = grads[:-1]
+        d_alpha = grads[-1:]
 
         return d_weights, d_alpha
 
@@ -191,27 +217,27 @@ class DARTSModel(Model):
         )
         epsilon = 0.01 / grad_norm
 
-        for weight, grad in zip(self.UNet.trainable_variables, d_weights):
+        for weight, grad in zip(self.unet_variables, d_weights):
             weight.assign_add(epsilon * grad)
         with tf.GradientTape() as tape:
             pred, _ = self.UNet(source)
             total_loss, _, _ = self.calc_distributed_loss(target, pred, self.UNet)
             total_loss = self.darts_optimiser.get_scaled_loss(total_loss)
 
-        d_alpha_pos = tape.gradient(total_loss, self.vq_architect.trainable_variables)
+        d_alpha_pos = tape.gradient(total_loss, self.alpha_vq)
         d_alpha_pos = self.darts_optimiser.get_unscaled_gradients(d_alpha_pos)
 
-        for weight, grad in zip(self.UNet.trainable_variables, d_weights):
+        for weight, grad in zip(self.unet_variables, d_weights):
             weight.assign_add(-2.0 * epsilon * grad)
         with tf.GradientTape() as tape:
             pred, _ = self.UNet(source)
             total_loss, _, _ = self.calc_distributed_loss(target, pred, self.UNet)
             total_loss = self.darts_optimiser.get_scaled_loss(total_loss)
 
-        d_alpha_neg = tape.gradient(total_loss, self.vq_architect.trainable_variables)
+        d_alpha_neg = tape.gradient(total_loss, self.alpha_vq)
         d_alpha_neg = self.darts_optimiser.get_unscaled_gradients(d_alpha_neg)
 
-        for weight, grad in zip(self.UNet.trainable_variables, d_weights):
+        for weight, grad in zip(self.unet_variables, d_weights):
             weight.assign_add(epsilon * grad)
 
         hessian = [
@@ -245,23 +271,20 @@ class DARTSModel(Model):
         d_weights, d_alpha = self.unrolled_backward(**val_data)
         hessian = self.calculate_hessian(d_weights=d_weights, **train_data)
 
-        arch_grads = []
+        alpha_grads = []
         for d, h in zip(d_alpha, hessian):
-            arch_grads.append(d - self.weights_lr * h)
+            alpha_grads.append(d - self.weights_lr * h)
 
-        self.darts_optimiser.apply_gradients(
-            zip(arch_grads, self.vq_architect.trainable_variables),
-        )
+        self.darts_optimiser.apply_gradients(zip(alpha_grads, [self.alpha_vq]))
 
     def train_step(  # type: ignore[override]
         self,
         data: tuple[dict[str, tf.Tensor], dict[str, tf.Tensor]],
     ) -> dict[str, tf.Tensor]:
         train_batch, valid_batch = data
-        self.architecture_step(train_batch, valid_batch)
 
-        self.UNet.bottom_layer.vq.vq_gamma.assign(self.vq_architect())
-        self.train_step(**train_batch)
+        self.architecture_step(train_batch, valid_batch)
+        super().train_step(train_batch)
 
         return {metric.name: metric.result() for metric in self.metrics}
 
@@ -572,7 +595,6 @@ class DARTSJointModel(JointModel):
             Task.CONTRAST,
         )
         self.alpha_metric.update_state(self.architect(Alpha.SUPER_RES))
-
         self.shared_vq.vq_alpha.assign(self.architect(Alpha.SUPER_RES))
         self.sr_train_step(**train_batch[Task.SUPER_RES])
         self.shared_vq.vq_alpha.assign(self.architect(Alpha.CONTRAST))
