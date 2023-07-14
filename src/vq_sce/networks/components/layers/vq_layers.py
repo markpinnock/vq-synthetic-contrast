@@ -108,6 +108,9 @@ class DARTSVQBlock(tf.keras.layers.Layer):
     :param beta: hyper-parameter for commitment loss
     """
 
+    # Gamma: weights for candidate dictionaries in this block
+    alpha_vq: tf.Variable
+
     def __init__(
         self,
         num_embeddings: list[int],
@@ -133,7 +136,7 @@ class DARTSVQBlock(tf.keras.layers.Layer):
         ):
             self.dictionaries.append(
                 self.add_weight(
-                    "VQdict",
+                    f"VQdict_{dim_log2}",
                     shape=[embedding_dim, np.power(2, dim_log2)],
                     initializer=self.initialiser,
                     trainable=True,
@@ -148,25 +151,19 @@ class DARTSVQBlock(tf.keras.layers.Layer):
             trainable=False,
         )
 
-        # Gamma, weights for candidate dictionaries in this block
-        self.vq_gamma = self.add_weight(
-            "gamma",
-            shape=(len(self.dictionaries),),
-            initializer=tf.keras.initializers.Constant(1 / len(self.dictionaries)),
-            trainable=False,
-        )
-
+        self.softmax = tf.keras.layers.Activation("softmax", dtype="float32")
         self.num_dictionaries = len(self.dictionaries)
 
     def call(self, x: tf.Tensor) -> tf.Tensor:
         img_dims = tf.shape(x)
+        alpha_vq = tf.squeeze(self.softmax(self.alpha_vq))
 
         # Flatten img batch into matrix
         flat = tf.reshape(x, [-1, self.embedding_dim])  # NHWD X C
 
-        dictionary_loss = 0
-        commitment_loss = 0
-        weighted_q = tf.zeros(img_dims)
+        dictionary_loss = []
+        commitment_loss = []
+        q = []
 
         for i in range(self.num_dictionaries):
             # Quantization
@@ -180,22 +177,37 @@ class DARTSVQBlock(tf.keras.layers.Layer):
                 transpose_b=True,
             )  # NHWD X C
 
-            # Multiply by block learning rate
-            quantized = self.vq_alpha * quantized
-
-            # Reshape back to normal dims and add to weighted average
-            q = tf.reshape(quantized, img_dims)
-            weighted_q += self.vq_gamma[i] * q
+            q.append(quantized)
 
             # Get losses
-            dictionary_loss += self.vq_gamma[i] * tf.reduce_mean(
-                tf.square(tf.stop_gradient(x) - q),
+            dictionary_loss.append(
+                tf.reduce_mean(
+                    tf.square(tf.stop_gradient(flat) - quantized),
+                ),
             )
-            commitment_loss += self.vq_gamma[i] * tf.reduce_mean(
-                tf.square(x - tf.stop_gradient(q)),
+            commitment_loss.append(
+                tf.reduce_mean(
+                    tf.square(flat - tf.stop_gradient(quantized)),
+                ),
             )
 
-        self.add_loss(dictionary_loss + self.beta * commitment_loss)
+        dictionary_loss_tensor = tf.stack(dictionary_loss, axis=0)
+        commitment_loss_tensor = tf.stack(commitment_loss, axis=0)
+
+        weighted_dictionary_loss = tf.reduce_sum(dictionary_loss_tensor * alpha_vq)
+        weighted_commitment_loss = tf.reduce_sum(commitment_loss_tensor * alpha_vq)
+
+        self.add_loss(weighted_dictionary_loss + self.beta * weighted_commitment_loss)
+
+        # Get weighted average and reshape back to normal dims
+        weighted_q = tf.reduce_sum(
+            tf.stack(q, axis=0) * alpha_vq[:, tf.newaxis, tf.newaxis],
+            axis=0,
+        )
+        weighted_q = tf.reshape(weighted_q, img_dims)
+
+        # Multiply by block learning rate
+        weighted_q = self.vq_alpha * weighted_q
 
         # Straight-through estimator
         weighted_q = x + tf.stop_gradient(weighted_q - x)
