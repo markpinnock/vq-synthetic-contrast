@@ -21,7 +21,7 @@ class VQBlock(tf.keras.layers.Layer):
         self,
         num_embeddings: int,
         embedding_dim: int,
-        alpha: float = 1.0,
+        task_lr: float = 1.0,
         beta: float = 0.25,
         name: str | None = None,
     ) -> None:
@@ -38,13 +38,8 @@ class VQBlock(tf.keras.layers.Layer):
             trainable=True,
         )
 
-        # Alpha, learning rate for this block (set to constant if not DARTS)
-        self.vq_alpha = self.add_weight(
-            "alpha",
-            shape=(),
-            initializer=tf.keras.initializers.Constant(alpha),
-            trainable=False,
-        )
+        # Learning rate for this task
+        self.task_lr = task_lr
 
     def call(self, x: tf.Tensor) -> tf.Tensor:
         img_dims = tf.shape(x)
@@ -66,8 +61,8 @@ class VQBlock(tf.keras.layers.Layer):
                 transpose_b=True,
             )  # NHWD X C
 
-        # Multiply by block learning rate
-        quantized = self.vq_alpha * quantized
+        # Multiply by task learning rate
+        quantized = self.task_lr * quantized
 
         # Reshape back to normal dims
         q = tf.reshape(quantized, img_dims)
@@ -115,7 +110,7 @@ class DARTSVQBlock(tf.keras.layers.Layer):
         self,
         num_embeddings: list[int],
         embedding_dim: int,
-        alpha: float = 1.0,
+        task_lr: float = 1.0,
         beta: float = 0.25,
         name: str | None = None,
     ) -> None:
@@ -143,13 +138,8 @@ class DARTSVQBlock(tf.keras.layers.Layer):
                 ),
             )
 
-        # Alpha, learning rate for this block (set to constant if not DARTS)
-        self.vq_alpha = self.add_weight(
-            "alpha",
-            shape=(),
-            initializer=tf.keras.initializers.Constant(alpha),
-            trainable=False,
-        )
+        # Learning rate for this task
+        self.task_lr = task_lr
 
         self.softmax = tf.keras.layers.Activation("softmax", dtype="float32")
         self.num_dictionaries = len(self.dictionaries)
@@ -206,8 +196,8 @@ class DARTSVQBlock(tf.keras.layers.Layer):
         )
         weighted_q = tf.reshape(weighted_q, img_dims)
 
-        # Multiply by block learning rate
-        weighted_q = self.vq_alpha * weighted_q
+        # Multiply by task learning rate
+        weighted_q = self.task_lr * weighted_q
 
         # Straight-through estimator
         weighted_q = x + tf.stop_gradient(weighted_q - x)
