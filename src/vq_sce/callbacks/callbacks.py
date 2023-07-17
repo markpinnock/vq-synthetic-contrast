@@ -67,8 +67,10 @@ class SaveResults(tf.keras.callbacks.Callback):
         for metric_name, metric in logs.items():
             if metric_name == "alpha":
                 self.results["alpha_task"][epoch + 1] = metric
-            elif "val" in metric_name and metric_name != "alpha":
-                self.results[f"valid_{metric_name.strip('val_')}"][epoch + 1] = metric
+            elif metric_name == "val_alpha":
+                continue
+            elif "val" in metric_name:
+                self.results[f"valid_{metric_name[4:]}"][epoch + 1] = metric
             else:
                 self.results[f"train_{metric_name}"][epoch + 1] = metric
 
