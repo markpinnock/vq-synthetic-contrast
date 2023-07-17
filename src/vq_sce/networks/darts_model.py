@@ -1,4 +1,3 @@
-import enum
 from typing import Any
 
 import tensorflow as tf
@@ -6,61 +5,6 @@ import tensorflow as tf
 from vq_sce.networks.components.layers.vq_layers import DARTSVQBlock
 from vq_sce.networks.components.unet import MAX_CHANNELS, UNet
 from vq_sce.networks.model import JointModel, Model, Task
-
-# -------------------------------------------------------------------------
-
-
-@enum.unique
-class Alpha(int, enum.Enum):
-    SUPER_RES = 0
-    CONTRAST = 1
-
-
-# -------------------------------------------------------------------------
-
-
-class TaskArchitect(tf.keras.layers.Layer):
-    def __init__(self, name: str = "task_architect"):
-        super().__init__(name=name, dtype="float32")
-        self.softmax = tf.keras.layers.Activation("softmax", dtype="float32")
-
-        self.alphas = self.add_weight(
-            name=f"{name}/alphas",
-            shape=[1, 2],
-            initializer=tf.keras.initializers.Zeros(),
-            trainable=True,
-            dtype="float32",
-        )
-
-    def call(self, alpha_index: int) -> tf.Tensor:
-        alpha = self.softmax(self.alphas)
-        return alpha[0][alpha_index]
-
-
-# -------------------------------------------------------------------------
-
-
-class VQArchitect(tf.keras.layers.Layer):
-    def __init__(self, num_dictionaries: int, name: str = "vq_architect"):
-        super().__init__(name=name, dtype="float32")
-        self.softmax = tf.keras.layers.Activation("softmax", dtype="float32")
-        self.num_dictionaries = num_dictionaries
-
-        self.gammas = self.add_weight(
-            name=f"{name}/gammas",
-            shape=(
-                1,
-                self.num_dictionaries,
-            ),
-            initializer=tf.keras.initializers.Zeros(),
-            trainable=True,
-            dtype="float32",
-        )
-
-    def call(self, x) -> tf.Tensor:
-        # gammas = self.softmax(self.gammas)
-        return self.gammas  # [0, :]
-
 
 # -------------------------------------------------------------------------
 
@@ -79,7 +23,7 @@ class DARTSModel(Model):
         super().__init__(config=config, name=name)
         self.num_dict = self.UNet.vq_block.num_dictionaries
 
-        # Gamma: weights for candidate VQ dictionaries
+        # Weights for candidate VQ dictionaries
         self.alpha_vq = tf.Variable(
             tf.zeros((1, self.num_dict)),
             name=f"{name}/alpha_vq",
@@ -103,7 +47,7 @@ class DARTSModel(Model):
         vq = DARTSVQBlock(
             num_embeddings=embeddings,
             embedding_dim=MAX_CHANNELS,
-            alpha=1.0,
+            task_lr=1.0,
             beta=config["hyperparameters"]["vq_beta"],
             name="virtual_vq",
         )
@@ -224,7 +168,7 @@ class DARTSModel(Model):
             total_loss, _, _ = self.calc_distributed_loss(target, pred, self.UNet)
             total_loss = self.darts_optimiser.get_scaled_loss(total_loss)
 
-        d_alpha_pos = tape.gradient(total_loss, self.alpha_vq)
+        d_alpha_pos = tape.gradient(total_loss, [self.alpha_vq])
         d_alpha_pos = self.darts_optimiser.get_unscaled_gradients(d_alpha_pos)
 
         for weight, grad in zip(self.unet_variables, d_weights):
@@ -234,7 +178,7 @@ class DARTSModel(Model):
             total_loss, _, _ = self.calc_distributed_loss(target, pred, self.UNet)
             total_loss = self.darts_optimiser.get_scaled_loss(total_loss)
 
-        d_alpha_neg = tape.gradient(total_loss, self.alpha_vq)
+        d_alpha_neg = tape.gradient(total_loss, [self.alpha_vq])
         d_alpha_neg = self.darts_optimiser.get_unscaled_gradients(d_alpha_neg)
 
         for weight, grad in zip(self.unet_variables, d_weights):
@@ -302,17 +246,30 @@ class DARTSJointModel(JointModel):
     ) -> None:
         super().__init__(config=config, name=name)
 
-        if config["expt"]["optimisation_type"] in ["darts-task", "darts-both"]:
-            self.task_architect = TaskArchitect(name=f"{name}/task_architect")
-        else:
-            self.task_architect = None
+        self.num_alpha_variables = 0
 
-        if config["expt"]["optimisation_type"] in ["darts-vq", "darts-both"]:
-            self.vq_architect = VQArchitect(name=f"{name}/vq_architect")
-        else:
-            self.vq_architect = None
+        # Weights for candidate VQ dictionaries
+        if isinstance(config["hyperparameters"]["vq_layers"]["bottom"], list):
+            self.alpha_vq = [
+                tf.Variable(
+                    tf.zeros((1, self.num_dict)),
+                    name=f"{name}/alpha_vq",
+                ),
+            ]
+            self.sr_UNet.vq_block.alpha_vq = self.alpha_vq
+            self.num_alpha_variables += 1
 
-        assert self.task_architect and self.vq_architect
+        else:
+            self.alpha_vq = []
+
+        # Weights for tasks
+        if config["hyperparameters"]["darts_opt"]["learning_rate"] is not None:
+            self.alpha_task = [tf.Variable(0.0, name=f"{name}/alpha_task")]
+            self.num_alpha_variables += 1
+            # self.sr_UNet.vq_block.alpha_task = self.alpha_task[0]
+
+        else:
+            self.alpha_task = []
 
         # Get shared VQ layer
         virtual_shared_vq = self._get_vq_block(config)
@@ -331,6 +288,12 @@ class DARTSJointModel(JointModel):
             vq_block=virtual_shared_vq,
             name="virtual_ce_unet",
         )
+
+        # if len(self.alpha_task) == 1:
+        #     self.virtual_sr_UNet.vq_block.alpha_task = self.alpha_task[0]
+
+        # if len(self.alpha_vq) == 1:
+        #     self.virtual_sr_UNet.vq_block.alpha_vq = self.alpha_vq[0]
 
     def compile(  # type: ignore[override] # noqa: A003
         self,
@@ -352,11 +315,11 @@ class DARTSJointModel(JointModel):
             self.ce_optimiser,
         )
 
-        self.alpha_optimiser = tf.keras.optimizers.Adam(
+        self.darts_optimiser = tf.keras.optimizers.Adam(
             **a_opt_config, name="alpha_opt"
         )
-        self.alpha_optimiser = tf.keras.mixed_precision.LossScaleOptimizer(
-            self.alpha_optimiser,
+        self.darts_optimiser = tf.keras.mixed_precision.LossScaleOptimizer(
+            self.darts_optimiser,
         )
 
         self.loss_object = tf.keras.losses.MeanAbsoluteError(
@@ -381,16 +344,34 @@ class DARTSJointModel(JointModel):
         ]
 
     def build_model(self) -> None:
+        """Initialise variables in models.
+        This sub-class also ensures that the DARTS parameters
+        are not included in the model trainable variables.
+        """
         super().build_model()
+        self.sr_unet_variables = [
+            v for v in self.sr_UNet.trainable_variables if "alpha" not in v.name
+        ]
+        self.ce_unet_variables = [
+            v for v in self.ce_UNet.trainable_variables if "alpha" not in v.name
+        ]
+
         _ = self.virtual_sr_UNet(tf.keras.Input(shape=self._sr_source_dims + [1]))
         _ = self.virtual_ce_UNet(tf.keras.Input(shape=self._ce_source_dims + [1]))
+        self.virtual_sr_unet_variables = [
+            v for v in self.virtual_sr_UNet.trainable_variables if "alpha" not in v.name
+        ]
+        self.virtual_ce_unet_variables = [
+            v for v in self.virtual_ce_UNet.trainable_variables if "alpha" not in v.name
+        ]
 
     def virtual_step(
         self,
         model: tf.keras.Model,
-        virtual_model: tf.keras.Model,
+        model_variables: list[tf.Tensor],
+        virtual_model_variables: list[tf.Tensor],
         optimiser: tf.keras.optimizers.Optimizer,
-        alpha_index: int,
+        task: str,
         source: tf.Tensor,
         target: tf.Tensor,
     ) -> None:
@@ -409,17 +390,23 @@ class DARTSJointModel(JointModel):
                 pred,
                 model,
             )
-            total_loss *= self.architect(alpha_index)
+            if len(self.alpha_task) == 1:
+                if task == Task.SUPER_RES:
+                    total_loss *= tf.nn.sigmoid(self.alpha_task[0])
+                else:
+                    total_loss *= 1 - tf.nn.sigmoid(self.alpha_task[0])
+
             total_loss = optimiser.get_scaled_loss(total_loss)
 
-        grads = tape.gradient(total_loss, model.trainable_variables)
+        grads = tape.gradient(total_loss, model_variables)
         grads = optimiser.get_unscaled_gradients(grads)
-        optimiser.apply_gradients(zip(grads, virtual_model.trainable_variables))
+        optimiser.apply_gradients(zip(grads, virtual_model_variables))
 
     def unrolled_backward(
         self,
         virtual_model: tf.keras.Model,
-        alpha_index: tf.Tensor,
+        virtual_model_variables: list[tf.Tensor],
+        task: str,
         source: tf.Tensor,
         target: tf.Tensor,
     ) -> tuple[list[tf.Tensor], list[tf.Tensor]]:
@@ -436,27 +423,33 @@ class DARTSJointModel(JointModel):
                 pred,
                 virtual_model,
             )
-            total_loss *= self.architect(alpha_index)
-            total_loss = self.alpha_optimiser.get_scaled_loss(total_loss)
+            if len(self.alpha_task) == 1:
+                if task == Task.SUPER_RES:
+                    total_loss *= tf.nn.sigmoid(self.alpha_task[0])
+                else:
+                    total_loss *= 1 - tf.nn.sigmoid(self.alpha_task[0])
+
+            total_loss = self.darts_optimiser.get_scaled_loss(total_loss)
+
+        vq_variables = self.alpha_vq + self.alpha_task
 
         grads = tape.gradient(
             total_loss,
-            virtual_model.trainable_variables + self.architect.trainable_variables,
+            virtual_model_variables + vq_variables,
         )
-        grads = self.alpha_optimiser.get_unscaled_gradients(grads)
+        grads = self.darts_optimiser.get_unscaled_gradients(grads)
 
-        d_weights = grads[:-1]
-        d_alpha = grads[-1:]
-        mask = tf.constant([[1.0 - alpha_index, alpha_index]])
-        d_alpha[0] *= mask  # Set non-active alpha gradient to 0
+        d_weights = grads[: -self.num_alpha_variables]
+        d_alpha = grads[-self.num_alpha_variables :]
 
         return d_weights, d_alpha
 
     def calculate_hessian(
         self,
         model: tf.keras.Model,
+        model_variables: list[tf.Tensor],
         d_weights: list[tf.Tensor],
-        alpha_index: tf.Tensor,
+        task: str,
         source: tf.Tensor,
         target: tf.Tensor,
     ) -> list[tf.Tensor]:
@@ -467,14 +460,13 @@ class DARTSJointModel(JointModel):
         :param source: training source images
         :param target: training target images
         """
-        mask = tf.constant([[1.0 - alpha_index, alpha_index]])
-
         grad_norm = tf.sqrt(
             tf.reduce_sum([tf.reduce_sum(tf.square(g)) for g in d_weights]),
         )
         epsilon = 0.01 / grad_norm
+        vq_variables = self.alpha_vq + self.alpha_task
 
-        for weight, grad in zip(model.trainable_variables, d_weights):
+        for weight, grad in zip(model_variables, d_weights):
             weight.assign_add(epsilon * grad)
         with tf.GradientTape() as tape:
             pred, _ = model(source)
@@ -483,14 +475,18 @@ class DARTSJointModel(JointModel):
                 pred,
                 model,
             )
-            total_loss *= self.architect(alpha_index)
-            total_loss = self.alpha_optimiser.get_scaled_loss(total_loss)
+            if len(self.alpha_task) == 1:
+                if task == Task.SUPER_RES:
+                    total_loss *= tf.nn.sigmoid(self.alpha_task[0])
+                else:
+                    total_loss *= 1 - tf.nn.sigmoid(self.alpha_task[0])
 
-        d_alpha_pos = tape.gradient(total_loss, self.architect.trainable_variables)
-        d_alpha_pos = self.alpha_optimiser.get_unscaled_gradients(d_alpha_pos)
-        d_alpha_pos[0] *= mask  # Set non-active alpha gradient to 0
+            total_loss = self.darts_optimiser.get_scaled_loss(total_loss)
 
-        for weight, grad in zip(model.trainable_variables, d_weights):
+        d_alpha_pos = tape.gradient(total_loss, vq_variables)
+        d_alpha_pos = self.darts_optimiser.get_unscaled_gradients(d_alpha_pos)
+
+        for weight, grad in zip(model_variables, d_weights):
             weight.assign_add(-2.0 * epsilon * grad)
         with tf.GradientTape() as tape:
             pred, _ = model(source)
@@ -499,14 +495,18 @@ class DARTSJointModel(JointModel):
                 pred,
                 model,
             )
-            total_loss *= self.architect(alpha_index)
-            total_loss = self.alpha_optimiser.get_scaled_loss(total_loss)
+            if len(self.alpha_task) == 1:
+                if task == Task.SUPER_RES:
+                    total_loss *= tf.nn.sigmoid(self.alpha_task[0])
+                else:
+                    total_loss *= 1 - tf.nn.sigmoid(self.alpha_task[0])
 
-        d_alpha_neg = tape.gradient(total_loss, self.architect.trainable_variables)
-        d_alpha_neg = self.alpha_optimiser.get_unscaled_gradients(d_alpha_neg)
-        d_alpha_neg[0] *= mask  # Set non-active alpha gradient to 0
+            total_loss = self.darts_optimiser.get_scaled_loss(total_loss)
 
-        for weight, grad in zip(model.trainable_variables, d_weights):
+        d_alpha_neg = tape.gradient(total_loss, vq_variables)
+        d_alpha_neg = self.darts_optimiser.get_unscaled_gradients(d_alpha_neg)
+
+        for weight, grad in zip(model_variables, d_weights):
             weight.assign_add(epsilon * grad)
 
         hessian = [
@@ -539,45 +539,49 @@ class DARTSJointModel(JointModel):
 
         if task == Task.SUPER_RES:
             model = self.sr_UNet
+            model_variables = self.sr_unet_variables
             virtual_model = self.virtual_sr_UNet
+            virtual_model_variables = self.virtual_sr_unet_variables
             optimiser = self.sr_optimiser
-            alpha_index = Alpha.SUPER_RES
 
         elif task == Task.CONTRAST:
             model = self.ce_UNet
+            model_variables = self.ce_unet_variables
             virtual_model = self.virtual_ce_UNet
+            virtual_model_variables = self.virtual_ce_unet_variables
             optimiser = self.ce_optimiser
-            alpha_index = Alpha.SUPER_RES
 
         else:
             raise ValueError(f"Invalid task: {task}")
 
         self.virtual_step(
             model=model,
-            virtual_model=virtual_model,
-            alpha_index=alpha_index,
+            model_variables=model_variables,
+            virtual_model_variables=virtual_model_variables,
             optimiser=optimiser,
+            task=task,
             **train_data,
         )
         d_weights, d_alpha = self.unrolled_backward(
             virtual_model=virtual_model,
-            alpha_index=alpha_index,
+            virtual_model_variables=virtual_model_variables,
+            task=task,
             **val_data,
         )
         hessian = self.calculate_hessian(
             model=model,
+            model_variables=model_variables,
             d_weights=d_weights,
-            alpha_index=alpha_index,
+            task=task,
             **train_data,
         )
 
         arch_grads = []
+        vq_variables = self.alpha_vq + self.alpha_task
         for d, h in zip(d_alpha, hessian):
             arch_grads.append(d - self.weights_lr * h)
 
-        self.alpha_optimiser.apply_gradients(
-            zip(arch_grads, self.architect.trainable_variables),
-        )
+        self.darts_optimiser.apply_gradients(zip(arch_grads, vq_variables))
 
     def train_step(  # type: ignore[override]
         self,
@@ -594,28 +598,22 @@ class DARTSJointModel(JointModel):
             valid_batch[Task.CONTRAST],
             Task.CONTRAST,
         )
-        self.alpha_metric.update_state(self.architect(Alpha.SUPER_RES))
-        self.shared_vq.vq_alpha.assign(self.architect(Alpha.SUPER_RES))
+        self.alpha_metric.update_state(tf.nn.sigmoid(self.alpha_task))
         self.sr_train_step(**train_batch[Task.SUPER_RES])
-        self.shared_vq.vq_alpha.assign(self.architect(Alpha.CONTRAST))
         self.ce_train_step(**train_batch[Task.CONTRAST])
 
         return {metric.name: metric.result() for metric in self.metrics}
 
     def call(self, x: tf.Tensor, task: str = Task.JOINT) -> tf.Tensor:
-        if task == Task.CONTRAST:
-            self.shared_vq.vq_alpha.assign(self.architect(Alpha.CONTRAST))
+        if task == Task.SUPER_RES:
             x, _ = self.ce_UNet(x)
             return x
 
-        elif task == Task.SUPER_RES:
-            self.shared_vq.vq_alpha.assign(self.architect(Alpha.SUPER_RES))
+        elif task == Task.CONTRAST:
             x, _ = self.sr_UNet(x)
             return x
 
         else:
-            self.shared_vq.vq_alpha.assign(self.architect(Alpha.SUPER_RES))
             x, _ = self.sr_UNet(x)
-            self.shared_vq.vq_alpha.assign(self.architect(Alpha.CONTRAST))
             x, _ = self.ce_UNet(x)
             return x
