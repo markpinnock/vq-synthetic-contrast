@@ -79,7 +79,7 @@ class Model(tf.keras.Model):
         vq = VQBlock(
             num_embeddings=embeddings,
             embedding_dim=MAX_CHANNELS,
-            alpha=1.0,
+            task_lr=1.0,
             beta=config["hyperparameters"]["vq_beta"],
             name="vq",
         )
@@ -359,10 +359,18 @@ class JointModel(tf.keras.Model):
 
     def _get_vq_block(self, config: dict[str, Any]) -> VQBlock:
         embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
+
+        if config["expt"]["optimisation_type"] in ["darts-task", "darts-both"]:
+            # Scale VQ learning rate through DARTS, or...
+            task_lr = 1.0
+        else:
+            # ... halve VQ learning rate as training twice each step
+            task_lr = 0.5
+
         vq = VQBlock(
             num_embeddings=embeddings,
             embedding_dim=MAX_CHANNELS,
-            alpha=0.5,  # Halve VQ learning rate as training twice each step
+            task_lr=task_lr,
             beta=config["hyperparameters"]["vq_beta"],
             name="shared_vq",
         )
