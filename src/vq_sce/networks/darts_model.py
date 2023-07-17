@@ -2,7 +2,7 @@ from typing import Any
 
 import tensorflow as tf
 
-from vq_sce.networks.components.layers.vq_layers import DARTSVQBlock
+from vq_sce.networks.components.layers.vq_layers import DARTSVQBlock, VQBlock
 from vq_sce.networks.components.unet import MAX_CHANNELS, UNet
 from vq_sce.networks.model import JointModel, Model, Task
 
@@ -245,28 +245,27 @@ class DARTSJointModel(JointModel):
         name: str = "darts_model",
     ) -> None:
         super().__init__(config=config, name=name)
-
         self.num_alpha_variables = 0
 
         # Weights for candidate VQ dictionaries
         if isinstance(config["hyperparameters"]["vq_layers"]["bottom"], list):
+            self.num_dict = self.sr_UNet.vq_block.num_dictionaries
             self.alpha_vq = [
                 tf.Variable(
                     tf.zeros((1, self.num_dict)),
                     name=f"{name}/alpha_vq",
                 ),
             ]
-            self.sr_UNet.vq_block.alpha_vq = self.alpha_vq
+            self.sr_UNet.vq_block.alpha_vq = self.alpha_vq[0]
             self.num_alpha_variables += 1
 
         else:
             self.alpha_vq = []
 
         # Weights for tasks
-        if config["hyperparameters"]["darts_opt"]["learning_rate"] is not None:
+        if config["expt"]["optimisation_type"] in ["darts-task", "darts-both"]:
             self.alpha_task = [tf.Variable(0.0, name=f"{name}/alpha_task")]
             self.num_alpha_variables += 1
-            # self.sr_UNet.vq_block.alpha_task = self.alpha_task[0]
 
         else:
             self.alpha_task = []
@@ -289,11 +288,38 @@ class DARTSJointModel(JointModel):
             name="virtual_ce_unet",
         )
 
-        # if len(self.alpha_task) == 1:
-        #     self.virtual_sr_UNet.vq_block.alpha_task = self.alpha_task[0]
+        if isinstance(config["hyperparameters"]["vq_layers"]["bottom"], list):
+            self.virtual_sr_UNet.vq_block.alpha_vq = self.alpha_vq[0]
 
-        # if len(self.alpha_vq) == 1:
-        #     self.virtual_sr_UNet.vq_block.alpha_vq = self.alpha_vq[0]
+    def _get_vq_block(self, config: dict[str, Any]) -> VQBlock | DARTSVQBlock:
+        embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
+
+        if config["expt"]["optimisation_type"] in ["darts-task", "darts-both"]:
+            # Scale VQ learning rate through DARTS, or...
+            task_lr = 1.0
+        else:
+            # ... halve VQ learning rate as training twice each step
+            task_lr = 0.5
+
+        if isinstance(config["hyperparameters"]["vq_layers"]["bottom"], list):
+            vq = DARTSVQBlock(
+                num_embeddings=embeddings,
+                embedding_dim=MAX_CHANNELS,
+                task_lr=task_lr,
+                beta=config["hyperparameters"]["vq_beta"],
+                name="shared_vq",
+            )
+
+        else:
+            vq = VQBlock(
+                num_embeddings=embeddings,
+                embedding_dim=MAX_CHANNELS,
+                task_lr=task_lr,
+                beta=config["hyperparameters"]["vq_beta"],
+                name="shared_vq",
+            )
+
+        return vq
 
     def compile(  # type: ignore[override] # noqa: A003
         self,
