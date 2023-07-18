@@ -1,14 +1,4 @@
-from typing import TypedDict
-
 import tensorflow as tf
-
-# -------------------------------------------------------------------------
-
-
-class VQConfigType(TypedDict):
-    vq_beta: float
-    embeddings: int | list[int]
-
 
 # -------------------------------------------------------------------------
 

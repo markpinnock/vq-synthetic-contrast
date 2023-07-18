@@ -3,7 +3,7 @@ from typing import Any, TypedDict
 import numpy as np
 import tensorflow as tf
 
-from .layers.conv_layers import DownBlock, UpBlock, VQConfigType
+from .layers.conv_layers import DownBlock, UpBlock
 from .layers.vq_layers import DARTSVQBlock, VQBlock
 
 MAX_CHANNELS = 512
@@ -25,9 +25,6 @@ class CacheType(TypedDict):
 
 
 class UNet(tf.keras.layers.Layer):
-    _vq_config: VQConfigType | None
-    _vq_layers: list[str] | None
-
     def __init__(
         self,
         initialiser: tf.keras.initializers.Initializer,
@@ -161,17 +158,7 @@ class UNet(tf.keras.layers.Layer):
             dtype="float32",
         )
 
-        if "final" in self._vq_layers:
-            self.output_vq = VQBlock(
-                num_embeddings=self._vq_config["embeddings"],
-                embedding_dim=1,
-                beta=self._vq_config["vq_beta"],
-                name="output_vq",
-            )
-        else:
-            self.output_vq = None
-
-    def call(self, x: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor]:
+    def call(self, x: tf.Tensor) -> tf.Tensor:
         skip_layers = []
         residual_x = self.upsample(x)
         residual_x = tf.cast(residual_x, "float32")
@@ -191,11 +178,7 @@ class UNet(tf.keras.layers.Layer):
 
         x = self.final_layer(x, training=True)
 
-        if self.output_vq is None:
-            return x + residual_x, residual_x
-
-        else:
-            return x + residual_x, self.output_vq(x) + residual_x
+        return x + residual_x
 
 
 # -------------------------------------------------------------------------

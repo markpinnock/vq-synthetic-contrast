@@ -33,7 +33,7 @@ def build_model_train(
             else:
                 model = DARTSJointModel(config)
 
-            model.compile(  # type: ignore
+            model.compile(
                 config["hyperparameters"]["opt"],
                 config["hyperparameters"]["darts_opt"],
                 run_eagerly=dev,
