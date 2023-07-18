@@ -65,17 +65,21 @@ class SaveResults(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch: int, logs: dict[str, float]) -> None:
         """Save results."""
         for metric_name, metric in logs.items():
-            if metric_name == "alpha":
-                self.results["alpha_task"][epoch + 1] = metric
-            elif metric_name == "val_alpha":
+            if "alpha" in metric_name:
                 continue
             elif "val" in metric_name:
                 self.results[f"valid_{metric_name[4:]}"][epoch + 1] = metric
             else:
                 self.results[f"train_{metric_name}"][epoch + 1] = metric
 
+        if "alpha_task" in self.results.keys():
+            self.results["alpha_task"][epoch + 1] = logs["alpha"]
+
         if "alpha_vq" in self.results.keys():
-            alpha_vq = self.model.UNet.vq_block.softmax(self.model.alpha_vq)
+            try:
+                alpha_vq = self.model.UNet.vq_block.softmax(self.model.alpha_vq)
+            except AttributeError:
+                alpha_vq = self.model.sr_UNet.vq_block.softmax(self.model.alpha_vq[0])
             self.results["alpha_vq"][epoch + 1] = alpha_vq.numpy().tolist()[0]
 
         if (epoch + 1) % self.save_freq == 0:
