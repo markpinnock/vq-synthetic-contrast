@@ -59,7 +59,7 @@ def train(config: dict[str, Any], dev: bool) -> None:
     callbacks_and_datasets = build_callbacks_and_datasets(config, dev=dev)
 
     # If DARTS model, need to supply both train and validation data in training
-    if config["expt"]["optimisation_type"] == "DARTS":
+    if "darts" in config["expt"]["optimisation_type"]:
         train_ds = callbacks_and_datasets["train_ds"]
         valid_ds = callbacks_and_datasets["valid_ds"]
         callbacks_and_datasets["train_ds"] = tf.data.Dataset.zip((train_ds, valid_ds))

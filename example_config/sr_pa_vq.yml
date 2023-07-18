@@ -15,7 +15,9 @@ data:
     cv_folds: 5
     fold: 4
 expt:
+    initial_epoch: 1
     expt_type: single
+    optimisation_type: darts-vq
     mb_size: 2
     save_every: 20
     epochs: 500
@@ -31,10 +33,17 @@ hyperparameters:
         - 1.0e-4
         - 0.5
         - 0.999
+    darts_opt:
+        learning_rate: 3.0e-4
+        beta_1: 0.5
+        beta_2: 0.999
+        weight_decay: 1.0e-3
     nc: 16
     layers: 6
     vq_layers:
-        bottom: 512
+        bottom:
+            - 32
+            - 512
     vq_beta: 0.25
 augmentation:
     use: true

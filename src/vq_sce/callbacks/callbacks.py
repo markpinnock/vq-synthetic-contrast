@@ -37,36 +37,50 @@ class SaveResults(tf.keras.callbacks.Callback):
         except FileNotFoundError:
             if expt_type == Task.JOINT:
                 self.results = {
-                    "train_sr_L1": [],
-                    "valid_sr_L1": [],
-                    "train_sr_vq": [],
-                    "valid_sr_vq": [],
-                    "train_ce_L1": [],
-                    "valid_ce_L1": [],
-                    "train_ce_vq": [],
-                    "valid_ce_vq": [],
+                    "train_sr_L1": {},
+                    "valid_sr_L1": {},
+                    "train_sr_vq": {},
+                    "valid_sr_vq": {},
+                    "train_ce_L1": {},
+                    "valid_ce_L1": {},
+                    "train_ce_vq": {},
+                    "valid_ce_vq": {},
                 }
-                if opt_type == "DARTS":
-                    self.results["train_alpha"] = []
 
             else:
                 prefix = "ce" if data_type == Task.CONTRAST else "sr"
                 self.results = {
-                    f"train_{prefix}_L1": [],
-                    f"valid_{prefix}_L1": [],
-                    f"train_{prefix}_vq": [],
-                    f"valid_{prefix}_vq": [],
+                    f"train_{prefix}_L1": {},
+                    f"valid_{prefix}_L1": {},
+                    f"train_{prefix}_vq": {},
+                    f"valid_{prefix}_vq": {},
                 }
+
+            if opt_type in ["darts-task", "darts-both"]:
+                self.results["alpha_task"] = {}
+
+            if opt_type in ["darts-vq", "darts-both"]:
+                self.results["alpha_vq"] = {}
 
     def on_epoch_end(self, epoch: int, logs: dict[str, float]) -> None:
         """Save results."""
         for metric_name, metric in logs.items():
             if "alpha" in metric_name:
-                self.results["train_alpha"].append(metric)
-            elif "val" in metric_name and metric_name != "alpha":
-                self.results[f"valid_{metric_name.strip('val_')}"].append(metric)
+                continue
+            elif "val" in metric_name:
+                self.results[f"valid_{metric_name[4:]}"][epoch + 1] = metric
             else:
-                self.results[f"train_{metric_name}"].append(metric)
+                self.results[f"train_{metric_name}"][epoch + 1] = metric
+
+        if "alpha_task" in self.results.keys():
+            self.results["alpha_task"][epoch + 1] = logs["alpha"]
+
+        if "alpha_vq" in self.results.keys():
+            try:
+                alpha_vq = self.model.UNet.vq_block.softmax(self.model.alpha_vq)
+            except AttributeError:
+                alpha_vq = self.model.sr_UNet.vq_block.softmax(self.model.alpha_vq[0])
+            self.results["alpha_vq"][epoch + 1] = alpha_vq.numpy().tolist()[0]
 
         if (epoch + 1) % self.save_freq == 0:
             with open(self.log_path / "results.json", "w") as fp:
