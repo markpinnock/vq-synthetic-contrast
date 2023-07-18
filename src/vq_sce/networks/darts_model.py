@@ -106,7 +106,7 @@ class DARTSModel(Model):
         :param target: training target images
         """
         with tf.GradientTape() as tape:
-            pred, _ = self.UNet(source)
+            pred = self.UNet(source)
             total_loss, _, _ = self.calc_distributed_loss(target, pred, self.UNet)
             total_loss = self.optimiser.get_scaled_loss(total_loss)
 
@@ -126,7 +126,7 @@ class DARTSModel(Model):
         :param target: validation target images
         """
         with tf.GradientTape() as tape:
-            pred, _ = self.virtual_UNet(source)
+            pred = self.virtual_UNet(source)
             total_loss, _, _ = self.calc_distributed_loss(
                 target,
                 pred,
@@ -164,7 +164,7 @@ class DARTSModel(Model):
         for weight, grad in zip(self.unet_variables, d_weights):
             weight.assign_add(epsilon * grad)
         with tf.GradientTape() as tape:
-            pred, _ = self.UNet(source)
+            pred = self.UNet(source)
             total_loss, _, _ = self.calc_distributed_loss(target, pred, self.UNet)
             total_loss = self.darts_optimiser.get_scaled_loss(total_loss)
 
@@ -174,7 +174,7 @@ class DARTSModel(Model):
         for weight, grad in zip(self.unet_variables, d_weights):
             weight.assign_add(-2.0 * epsilon * grad)
         with tf.GradientTape() as tape:
-            pred, _ = self.UNet(source)
+            pred = self.UNet(source)
             total_loss, _, _ = self.calc_distributed_loss(target, pred, self.UNet)
             total_loss = self.darts_optimiser.get_scaled_loss(total_loss)
 
@@ -410,7 +410,7 @@ class DARTSJointModel(JointModel):
         :param target: training target images
         """
         with tf.GradientTape() as tape:
-            pred, _ = model(source)
+            pred = model(source)
             total_loss, _, _ = self.calc_distributed_loss(
                 target,
                 pred,
@@ -443,7 +443,7 @@ class DARTSJointModel(JointModel):
         :param target: validation target images
         """
         with tf.GradientTape() as tape:
-            pred, _ = virtual_model(source)
+            pred = virtual_model(source)
             total_loss, _, _ = self.calc_distributed_loss(
                 target,
                 pred,
@@ -495,7 +495,7 @@ class DARTSJointModel(JointModel):
         for weight, grad in zip(model_variables, d_weights):
             weight.assign_add(epsilon * grad)
         with tf.GradientTape() as tape:
-            pred, _ = model(source)
+            pred = model(source)
             total_loss, _, _ = self.calc_distributed_loss(
                 target,
                 pred,
@@ -515,7 +515,7 @@ class DARTSJointModel(JointModel):
         for weight, grad in zip(model_variables, d_weights):
             weight.assign_add(-2.0 * epsilon * grad)
         with tf.GradientTape() as tape:
-            pred, _ = model(source)
+            pred = model(source)
             total_loss, _, _ = self.calc_distributed_loss(
                 target,
                 pred,
@@ -632,14 +632,14 @@ class DARTSJointModel(JointModel):
 
     def call(self, x: tf.Tensor, task: str = Task.JOINT) -> tf.Tensor:
         if task == Task.SUPER_RES:
-            x, _ = self.ce_UNet(x)
+            x = self.ce_UNet(x)
             return x
 
         elif task == Task.CONTRAST:
-            x, _ = self.sr_UNet(x)
+            x = self.sr_UNet(x)
             return x
 
         else:
-            x, _ = self.sr_UNet(x)
-            x, _ = self.ce_UNet(x)
+            x = self.sr_UNet(x)
+            x = self.ce_UNet(x)
             return x

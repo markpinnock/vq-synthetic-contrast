@@ -138,12 +138,8 @@ class Model(tf.keras.Model):
 
     def summary(self) -> None:
         source = tf.keras.Input(shape=self._source_dims + [1])
-        pred, vq = self.UNet.call(source)
-
-        if vq is None:
-            tf.keras.Model(inputs=source, outputs=pred).summary()
-        else:
-            tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
+        pred = self.UNet.call(source)
+        tf.keras.Model(inputs=source, outputs=pred).summary()
 
     def train_step(
         self,
@@ -264,7 +260,7 @@ class Model(tf.keras.Model):
             metric.reset_states()
 
     def call(self, x: tf.Tensor) -> tf.Tensor:
-        x, _ = self.UNet(x)
+        x = self.UNet(x)
         return x
 
 
@@ -441,20 +437,12 @@ class JointModel(tf.keras.Model):
 
     def summary(self) -> None:
         source = tf.keras.Input(shape=self._sr_source_dims + [1])
-        pred, vq = self.sr_UNet.call(source)
-
-        if vq is None:
-            tf.keras.Model(inputs=source, outputs=pred).summary()
-        else:
-            tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
+        pred = self.sr_UNet.call(source)
+        tf.keras.Model(inputs=source, outputs=pred).summary()
 
         source = tf.keras.Input(shape=self._ce_source_dims + [1])
-        pred, vq = self.ce_UNet.call(source)
-
-        if vq is None:
-            tf.keras.Model(inputs=source, outputs=pred).summary()
-        else:
-            tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
+        pred = self.ce_UNet.call(source)
+        tf.keras.Model(inputs=source, outputs=pred).summary()
 
     def sr_train_step(self, source: tf.Tensor, target: tf.Tensor) -> None:
         # Augmentation if required
@@ -467,7 +455,7 @@ class JointModel(tf.keras.Model):
             source, target = self._sample_patches(x, y, source, target)
 
         with tf.GradientTape() as tape:
-            pred, _ = self.sr_UNet(source)
+            pred = self.sr_UNet(source)
             total_loss, loss, vq_loss = self.calc_distributed_loss(
                 target,
                 pred,
@@ -494,7 +482,7 @@ class JointModel(tf.keras.Model):
             source, target = self._sample_patches(x, y, source, target)
 
         with tf.GradientTape() as tape:
-            pred, _ = self.ce_UNet(source)
+            pred = self.ce_UNet(source)
             total_loss, loss, vq_loss = self.calc_distributed_loss(
                 target,
                 pred,
@@ -525,7 +513,7 @@ class JointModel(tf.keras.Model):
             x, y = self._get_scale_indices()
             source, target = self._sample_patches(x, y, source, target)
 
-        pred, _ = self.sr_UNet(source)
+        pred = self.sr_UNet(source)
         _, loss, vq_loss = self.calc_distributed_loss(target, pred, self.sr_UNet)
 
         self.sr_loss_metric.update_state(loss)
@@ -537,7 +525,7 @@ class JointModel(tf.keras.Model):
             x, y = self._get_scale_indices()
             source, target = self._sample_patches(x, y, source, target)
 
-        pred, _ = self.ce_UNet(source)
+        pred = self.ce_UNet(source)
         _, loss, vq_loss = self.calc_distributed_loss(target, pred, self.ce_UNet)
 
         self.ce_loss_metric.update_state(loss)
@@ -617,16 +605,16 @@ class JointModel(tf.keras.Model):
 
     def call(self, x: tf.Tensor, task: str = Task.JOINT) -> tf.Tensor:
         if task == Task.CONTRAST:
-            x, _ = self.ce_UNet(x)
+            x = self.ce_UNet(x)
             return x
 
         elif task == Task.SUPER_RES:
-            x, _ = self.sr_UNet(x)
+            x = self.sr_UNet(x)
             return x
 
         else:
-            x, _ = self.sr_UNet(x)
-            x, _ = self.ce_UNet(x)
+            x = self.sr_UNet(x)
+            x = self.ce_UNet(x)
             return x
 
 
@@ -695,35 +683,27 @@ class DualModel(tf.keras.Model):
         )
 
     def build_model(self) -> None:
-        _, _ = self(tf.keras.Input(shape=self._sr_source_dims + [1]))
+        _ = self(tf.keras.Input(shape=self._sr_source_dims + [1]))
 
     def summary(self) -> None:
         source = tf.keras.Input(shape=self._sr_source_dims + [1])
-        pred, vq = self.sr_UNet.call(source)
-
-        if vq is None:
-            tf.keras.Model(inputs=source, outputs=pred).summary()
-        else:
-            tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
+        pred = self.sr_UNet.call(source)
+        tf.keras.Model(inputs=source, outputs=pred).summary()
 
         source = tf.keras.Input(shape=self._ce_source_dims + [1])
-        pred, vq = self.ce_UNet.call(source)
-
-        if vq is None:
-            tf.keras.Model(inputs=source, outputs=pred).summary()
-        else:
-            tf.keras.Model(inputs=source, outputs=[pred, vq]).summary()
+        pred = self.ce_UNet.call(source)
+        tf.keras.Model(inputs=source, outputs=pred).summary()
 
     def call(self, x: tf.Tensor, task: str = Task.DUAL) -> tuple[tf.Tensor, None]:
         if task == Task.CONTRAST:
-            x, _ = self.ce_UNet(x)
+            x = self.ce_UNet(x)
             return x, None
 
         elif task == Task.SUPER_RES:
-            x, _ = self.sr_UNet(x)
+            x = self.sr_UNet(x)
             return x, None
 
         else:
-            x, _ = self.sr_UNet(x)
-            x, _ = self.ce_UNet(x)
+            x = self.sr_UNet(x)
+            x = self.ce_UNet(x)
             return x, None
