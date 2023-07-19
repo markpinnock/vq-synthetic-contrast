@@ -323,26 +323,26 @@ class DARTSJointModel(JointModel):
 
     def compile(  # type: ignore[override] # noqa: A003
         self,
-        w_opt_config: dict[str, float],
-        a_opt_config: dict[str, float],
+        model_opt_config: dict[str, float],
+        darts_opt_config: dict[str, float],
         run_eagerly: bool = False,
     ) -> None:
         super(JointModel, self).compile(run_eagerly=run_eagerly)
-        self.weights_lr = w_opt_config["learning_rate"]
+        self.weights_lr = model_opt_config["learning_rate"]
         self.run_eagerly = run_eagerly
 
         # Set up optimiser and loss
-        self.sr_optimiser = tf.keras.optimizers.Adam(**w_opt_config, name="sr_opt")
+        self.sr_optimiser = tf.keras.optimizers.Adam(**model_opt_config, name="sr_opt")
         self.sr_optimiser = tf.keras.mixed_precision.LossScaleOptimizer(
             self.sr_optimiser,
         )
-        self.ce_optimiser = tf.keras.optimizers.Adam(**w_opt_config, name="ce_opt")
+        self.ce_optimiser = tf.keras.optimizers.Adam(**model_opt_config, name="ce_opt")
         self.ce_optimiser = tf.keras.mixed_precision.LossScaleOptimizer(
             self.ce_optimiser,
         )
 
         self.darts_optimiser = tf.keras.optimizers.Adam(
-            **a_opt_config, name="alpha_opt"
+            **darts_opt_config, name="darts_opt"
         )
         self.darts_optimiser = tf.keras.mixed_precision.LossScaleOptimizer(
             self.darts_optimiser,
@@ -607,6 +607,10 @@ class DARTSJointModel(JointModel):
         for d, h in zip(d_alpha, hessian):
             arch_grads.append(d - self.weights_lr * h)
 
+        # Scale task learning rate
+        if len(self.alpha_task) == 1:
+            arch_grads[1] *= 10
+
         self.darts_optimiser.apply_gradients(zip(arch_grads, vq_variables))
 
     def train_step(  # type: ignore[override]
@@ -624,9 +628,20 @@ class DARTSJointModel(JointModel):
             valid_batch[Task.CONTRAST],
             Task.CONTRAST,
         )
-        self.alpha_metric.update_state(tf.nn.sigmoid(self.alpha_task))
+
+        if len(self.alpha_task) == 1:
+            self.alpha_metric.update_state(tf.nn.sigmoid(self.alpha_task))
+            self.sr_UNet.vq_block.task_lr = tf.nn.sigmoid(self.alpha_task)
+
         self.sr_train_step(**train_batch[Task.SUPER_RES])
+
+        if len(self.alpha_task) == 1:
+            self.sr_UNet.vq_block.task_lr = 1 - tf.nn.sigmoid(self.alpha_task)
+
         self.ce_train_step(**train_batch[Task.CONTRAST])
+
+        if len(self.alpha_task) == 1:
+            self.sr_UNet.vq_block.task_lr = tf.constant(1.0)
 
         return {metric.name: metric.result() for metric in self.metrics}
 

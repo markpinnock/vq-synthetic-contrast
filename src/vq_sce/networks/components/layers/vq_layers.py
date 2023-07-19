@@ -103,7 +103,7 @@ class DARTSVQBlock(tf.keras.layers.Layer):
     :param beta: hyper-parameter for commitment loss
     """
 
-    # Gamma: weights for candidate dictionaries in this block
+    # Weights for candidate dictionaries in this block
     alpha_vq: tf.Variable
 
     def __init__(
@@ -139,7 +139,7 @@ class DARTSVQBlock(tf.keras.layers.Layer):
             )
 
         # Learning rate for this task
-        self.task_lr = task_lr
+        self.task_lr = tf.constant(task_lr)
 
         self.softmax = tf.keras.layers.Activation("softmax", dtype="float32")
         self.num_dictionaries = len(self.dictionaries)
