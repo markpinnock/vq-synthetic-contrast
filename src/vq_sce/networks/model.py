@@ -66,7 +66,11 @@ class Model(tf.keras.Model):
         else:
             self.Aug = None
 
-        vq_block = self._get_vq_block(config)
+        if config["hyperparameters"]["vq_layers"] is not None:
+            vq_block = self._get_vq_block(config)
+        else:
+            vq_block = None
+
         self.UNet = UNet(
             self._initialiser,
             config["hyperparameters"],
