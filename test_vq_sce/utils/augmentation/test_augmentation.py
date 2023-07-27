@@ -10,29 +10,17 @@ PCT_CORRECT_THRESHOLD = 0.6
 DEFAULT_IMG_SIZE = [4, 6, 8]
 NUM_HOMOGENOUS_DIMS = 3
 
-TEST_CE_DIMS = [
-    [2, 32, 128, 128, 1],
-    [4, 32, 128, 128, 1],
-    [4, 64, 256, 256, 1]
-]
+TEST_CE_DIMS = [[2, 32, 128, 128, 1], [4, 32, 128, 128, 1], [4, 64, 256, 256, 1]]
 
-TEST_HQ_DIMS = [
-    [2, 12, 64, 64, 1],
-    [4, 12, 64, 64, 1],
-    [4, 12, 128, 128, 1]
-]
+TEST_HQ_DIMS = [[2, 12, 64, 64, 1], [4, 12, 64, 64, 1], [4, 12, 128, 128, 1]]
 
-TEST_LQ_DIMS = [
-    [2, 3, 64, 64, 1],
-    [4, 3, 64, 64, 1],
-    [4, 3, 128, 128, 1]
-]
+TEST_LQ_DIMS = [[2, 3, 64, 64, 1], [4, 3, 64, 64, 1], [4, 3, 128, 128, 1]]
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
+
 
 class TestAffine2D(tf.test.TestCase):
-
     def setUp(self) -> None:
         super().setUp()
 
@@ -41,21 +29,21 @@ class TestAffine2D(tf.test.TestCase):
             "rotation": 45.0,
             "scale": [0.8, 1.6],
             "shear": 15.0,
-            "translate": [0.25, 0.25]
+            "translate": [0.25, 0.25],
         }
-    
+
     def tearDown(self) -> None:
         super().tearDown()
 
     def create_test_img(self, img_dims: list[int]) -> tf.Tensor:
         img = np.zeros(img_dims)
-        img[:, :, 0:img.shape[2] // 2, 0:img.shape[3] // 2, :] = 1
-        img[:, :, -img.shape[2] // 2:, -img.shape[3] // 2:, :] = 1
+        img[:, :, 0 : img.shape[2] // 2, 0 : img.shape[3] // 2, :] = 1
+        img[:, :, -img.shape[2] // 2 :, -img.shape[3] // 2 :, :] = 1
 
         return tf.convert_to_tensor(img)
 
     def test_source_target_same(self) -> None:
-        """ Test that source and targets are augmented identically """
+        """Test that source and targets are augmented identically"""
 
         for CE_dim in TEST_CE_DIMS:
             with self.subTest():
@@ -63,14 +51,8 @@ class TestAffine2D(tf.test.TestCase):
                 self.config["target_dims"] = CE_dim[1:-1]
                 std_aug = StdAug(self.config)
 
-                source = [
-                    self.create_test_img(CE_dim),
-                    self.create_test_img(CE_dim)
-                ]
-                target = [
-                    self.create_test_img(CE_dim),
-                    self.create_test_img(CE_dim)
-                ]
+                source = [self.create_test_img(CE_dim), self.create_test_img(CE_dim)]
+                target = [self.create_test_img(CE_dim), self.create_test_img(CE_dim)]
 
                 aug_source, aug_target = std_aug(source, target)
 
@@ -78,7 +60,7 @@ class TestAffine2D(tf.test.TestCase):
                     self.assertAllEqual(s, t)
 
     def test_mb_transforms_different(self) -> None:
-        """ Test augmentations within minibatch are different """
+        """Test augmentations within minibatch are different"""
 
         for CE_dim in TEST_CE_DIMS:
             with self.subTest():
@@ -92,17 +74,11 @@ class TestAffine2D(tf.test.TestCase):
                 (aug_source,), (aug_target,) = std_aug(source, target)
 
                 for i in range(1, CE_dim[0]):
-                    self.assertNotAllEqual(
-                        aug_source[i - 1, ...],
-                        aug_source[i, ...]
-                    )
-                    self.assertNotAllEqual(
-                        aug_target[i - 1, ...],
-                        aug_target[i, ...]
-                    )
+                    self.assertNotAllEqual(aug_source[i - 1, ...], aug_source[i, ...])
+                    self.assertNotAllEqual(aug_target[i - 1, ...], aug_target[i, ...])
 
     def test_rpt_transforms_different(self) -> None:
-        """ Test sequential augmentations are different """
+        """Test sequential augmentations are different"""
 
         self.config["source_dims"] = TEST_CE_DIMS[1][1:-1]
         self.config["target_dims"] = TEST_CE_DIMS[1][1:-1]
@@ -118,7 +94,7 @@ class TestAffine2D(tf.test.TestCase):
         self.assertNotAllEqual(aug_target, new_target)
 
     def test_differing_source_target(self) -> None:
-        """ Test different sized source and target augmented correctly """
+        """Test different sized source and target augmented correctly"""
 
         for LQ_dim, HQ_dim in zip(TEST_LQ_DIMS, TEST_HQ_DIMS):
             with self.subTest():
@@ -126,14 +102,8 @@ class TestAffine2D(tf.test.TestCase):
                 self.config["target_dims"] = HQ_dim[1:-1]
                 std_aug = StdAug(self.config)
 
-                source = [
-                    self.create_test_img(LQ_dim),
-                    self.create_test_img(LQ_dim)
-                ]
-                target = [
-                    self.create_test_img(HQ_dim),
-                    self.create_test_img(HQ_dim)
-                ]
+                source = [self.create_test_img(LQ_dim), self.create_test_img(LQ_dim)]
+                target = [self.create_test_img(HQ_dim), self.create_test_img(HQ_dim)]
 
                 aug_source, aug_target = std_aug(source, target)
 
