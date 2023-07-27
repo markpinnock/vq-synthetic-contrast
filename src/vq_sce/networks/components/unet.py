@@ -244,8 +244,4 @@ class MultiscaleUNet(UNet):
         x = self.upsample_out(x, residual_x)
         x = self.final_layer(x, training=True)
 
-        if self.output_vq is None:
-            return x + residual_x, None
-
-        else:
-            return x + residual_x, self.output_vq(x) + residual_x
+        return x + residual_x, None

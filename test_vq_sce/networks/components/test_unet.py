@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import tensorflow as tf
 
-from vq_sce.networks.components.unet import UNet
+from vq_sce.networks.components.unet import UNet, MultiscaleUNet
 
 CONFIG = {
     "source_dims": [4, 16, 16],
@@ -12,11 +12,12 @@ CONFIG = {
     "upsample_layer": False,
     "residual": False,
     "vq_layers": None,
-    "vq_beta:": None
+    "vq_beta:": None,
 }
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     "depth,img_dims",
@@ -26,11 +27,11 @@ CONFIG = {
         (4, [2, 4, 16, 16, 1]),
         (3, [4, 16, 32, 32, 1]),
         (4, [4, 8, 32, 32, 1]),
-        (5, [4, 4, 32, 32, 1])
-    ]
+        (5, [4, 4, 32, 32, 1]),
+    ],
 )
 def test_unet_output(depth: int, img_dims: list[int]) -> None:
-    """ Test UNet output is correct size """
+    """Test UNet output is correct size"""
 
     config = dict(CONFIG)
     config["layers"] = depth
@@ -40,52 +41,31 @@ def test_unet_output(depth: int, img_dims: list[int]) -> None:
 
     model = UNet(init, config)
     img = tf.zeros(img_dims)
-    out, _ = model(img)
+    out = model(img)
 
     assert img.shape == out.shape
 
 
-#-------------------------------------------------------------------------
-
-def test_residual_unet() -> None:
-    """ Test residual UNet """
-
-    config = dict(CONFIG)
-    config["residual"] = True
-    init = tf.keras.initializers.Zeros()
-
-    model = UNet(init, config)
-    img = tf.ones([2] + config["source_dims"] + [1])
-    out, _ = model(img)
-
-    assert np.equal(img.numpy(), out.numpy()).all()
+# -------------------------------------------------------------------------
 
 
-#-------------------------------------------------------------------------
-
-@pytest.mark.parametrize("residual", [False, True])
-def test_upsample_unet(residual: bool) -> None:
-    """ Test UNet up-sampling layer """
+def test_multiscale_unet() -> None:
+    """Test UNet up-sampling layer"""
 
     config = dict(CONFIG)
-    config["residual"] = residual
-    config["upsample_layer"] = True
     init = tf.keras.initializers.Zeros()
     dims = config["source_dims"]
 
-    model = UNet(init, config)
+    model = MultiscaleUNet(init, config)
     img = tf.ones([2] + dims + [1])
     exp_out_dims = [2] + [dims[0], dims[1] * 2, dims[2] * 2] + [1]
     out, _ = model(img)
 
     assert out.shape == exp_out_dims
 
-    if residual:
-        res = tf.ones(exp_out_dims)
-        assert np.equal(res.numpy(), out.numpy()).all()
 
+# -------------------------------------------------------------------------
 
-#-------------------------------------------------------------------------
 
 @pytest.mark.parametrize(
     "depth,in_dims,out_dims",
@@ -95,15 +75,14 @@ def test_upsample_unet(residual: bool) -> None:
         (4, [2, 4, 16, 16, 1], [2, 8, 16, 16, 1]),
         (3, [4, 16, 32, 32, 1], [4, 32, 32, 32, 1]),
         (4, [4, 5, 32, 32, 1], [4, 20, 32, 32, 1]),
-        (5, [4, 6, 32, 32, 1], [4, 48, 32, 32, 1])
-    ]
+        (5, [4, 6, 32, 32, 1], [4, 48, 32, 32, 1]),
+    ],
 )
 def test_asymmetric_unet_output(
-    depth: int,
-    in_dims: list[int],
-    out_dims: list[int]) -> None:
-    """ Test UNet output is correct size with different
-        input and output depths
+    depth: int, in_dims: list[int], out_dims: list[int]
+) -> None:
+    """Test UNet output is correct size with different
+    input and output depths
     """
 
     config = dict(CONFIG)
@@ -114,7 +93,6 @@ def test_asymmetric_unet_output(
 
     model = UNet(init, config)
     img = tf.zeros(in_dims)
-    out, _ = model(img)
+    out = model(img)
 
     assert out.shape == out_dims
-    
