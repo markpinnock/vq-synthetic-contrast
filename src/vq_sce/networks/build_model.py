@@ -101,7 +101,7 @@ def build_model_inference(
             ckpt_path = ckpts[-1]
 
         else:
-            ckpts = list((path / "models" / f"ckpt-{epoch}").glob("*"))
+            ckpts = list((expt_path / "models" / f"ckpt-{epoch}").glob("*"))
             assert len(ckpts) == 1, ckpts
             ckpt_path = ckpts[0]
 

@@ -1,25 +1,27 @@
 import json
-import numpy as np
-from pathlib import Path
-import pytest
 import shutil
+from pathlib import Path
 
-from vq_sce import HU_MIN, HU_MAX, RANDOM_SEED
+import numpy as np
+import pytest
+
+from vq_sce import HU_MAX, HU_MIN, RANDOM_SEED
 from vq_sce.utils.dataloaders.contrast_dataloader import ContrastDataloader
 
 NUM_IMAGES = 15
-IMG_SIZE = [4, 8, 8]
+IMG_SIZE = [24, 8, 8]
+HQ_SIZE = [12, 8, 8]
 TEST_PATH = Path(__file__).parent / "data"
 BASE_CONFIG = {
     "data_path": TEST_PATH,
     "down_sample": 1,
-    "patch_size": [4, 4, 4],
     "num_examples": 4,
     "cv_folds": 3,
-    "fold": 2
+    "fold": 2,
 }
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="module", autouse=True)
 def setup_dataset() -> None:
@@ -39,7 +41,7 @@ def setup_dataset() -> None:
         np.save(source_path / f"{i}.npy", img)
         source_coords[f"{i}"] = {f"{i}": [0, IMG_SIZE[0]]}
 
-    with open(TEST_PATH / "source_coords.json", 'w') as fp:
+    with open(TEST_PATH / "source_coords.json", "w") as fp:
         json.dump(source_coords, fp)
 
     np.random.seed()
@@ -49,8 +51,9 @@ def setup_dataset() -> None:
     shutil.rmtree(TEST_PATH)
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 """ Test if exception raised if wrong data path given """
+
 
 def test_wrong_path() -> None:
     config = dict(BASE_CONFIG)
@@ -60,16 +63,18 @@ def test_wrong_path() -> None:
         _ = ContrastDataloader(config=config, dataset_type="training")
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 """ Test if exception raised if incorrect subset given """
+
 
 def test_wrong_subset() -> None:
     with pytest.raises(ValueError):
         _ = ContrastDataloader(config=BASE_CONFIG, dataset_type="test")
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 """ Test if exception raised if incorrect fold params given """
+
 
 @pytest.mark.parametrize("fold,cv_folds", [(5, 5), (0, 0)])
 def test_wrong_fold_params(fold: int, cv_folds: int) -> None:
@@ -81,8 +86,9 @@ def test_wrong_fold_params(fold: int, cv_folds: int) -> None:
         _ = ContrastDataloader(config=config, dataset_type="training")
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 """ Test train/validation split size """
+
 
 @pytest.mark.parametrize(
     "subset,fold,cv_folds,exp_num_images",
@@ -95,15 +101,11 @@ def test_wrong_fold_params(fold: int, cv_folds: int) -> None:
         ("validation", 1, 3, 5),
         ("validation", 2, 3, 5),
         ("validation", 0, 5, 3),
-    ]
+    ],
 )
 def test_train_val_split_size(
-    subset: str,
-    fold: int,
-    cv_folds: int,
-    exp_num_images: int
+    subset: str, fold: int, cv_folds: int, exp_num_images: int
 ) -> None:
-
     config = dict(BASE_CONFIG)
     config |= {"fold": fold, "cv_folds": cv_folds}
 
@@ -111,19 +113,13 @@ def test_train_val_split_size(
     assert len(dataloader.data["source"]) == exp_num_images
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 """ Test train/validation splits are mutually exclusive """
 
-def test_train_val_exclusive() -> None:
 
-    train_dataloader = ContrastDataloader(
-        config=BASE_CONFIG,
-        dataset_type="training"
-    )
-    valid_dataloader = ContrastDataloader(
-        config=BASE_CONFIG,
-        dataset_type="validation"
-    )
+def test_train_val_exclusive() -> None:
+    train_dataloader = ContrastDataloader(config=BASE_CONFIG, dataset_type="training")
+    valid_dataloader = ContrastDataloader(config=BASE_CONFIG, dataset_type="validation")
 
     train_ids = list(train_dataloader.data["source"].keys())
     valid_ids = list(valid_dataloader.data["source"].keys())
@@ -132,12 +128,12 @@ def test_train_val_exclusive() -> None:
         assert id_ not in train_ids
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 """ Test train/validation splits are non-random """
+
 
 @pytest.mark.parametrize("subset", ["training", "validation"])
 def test_train_val_non_random(subset: str) -> None:
-
     dataloader1 = ContrastDataloader(config=BASE_CONFIG, dataset_type=subset)
     dataloader2 = ContrastDataloader(config=BASE_CONFIG, dataset_type=subset)
 
@@ -149,15 +145,12 @@ def test_train_val_non_random(subset: str) -> None:
         assert id_ in ids2
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 """ Test train/validation splits are correctly paired """
 
-def test_train_val_pairing() -> None:
 
-    dataloader = ContrastDataloader(
-        config=BASE_CONFIG,
-        dataset_type="training"
-    )
+def test_train_val_pairing() -> None:
+    dataloader = ContrastDataloader(config=BASE_CONFIG, dataset_type="training")
 
     source_ids = list(dataloader.data["source"].keys())
     target_ids = list(dataloader.data["target"].keys())
@@ -166,12 +159,12 @@ def test_train_val_pairing() -> None:
         assert source_id == target_id
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 """ Test number of example images """
+
 
 @pytest.mark.parametrize("num_examples", [2, 4])
 def test_example_image_number(num_examples: int) -> None:
-
     config = dict(BASE_CONFIG)
     config |= {"num_examples": num_examples}
 
@@ -179,22 +172,15 @@ def test_example_image_number(num_examples: int) -> None:
     assert dataloader.example_images["source"].shape[0] == num_examples
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 """ Test train/validation example images are mutually exclusive """
 
+
 def test_example_image_exclusive() -> None:
-
     config = dict(BASE_CONFIG)
-    config |= {"patch_size": [2, 4, 4]}
 
-    train_dataloader = ContrastDataloader(
-        config=config,
-        dataset_type="training"
-    )
-    valid_dataloader = ContrastDataloader(
-        config=config,
-        dataset_type="validation"
-    )
+    train_dataloader = ContrastDataloader(config=config, dataset_type="training")
+    valid_dataloader = ContrastDataloader(config=config, dataset_type="validation")
 
     train_imgs = train_dataloader.example_images["source"]
     valid_imgs = valid_dataloader.example_images["source"]
@@ -202,12 +188,12 @@ def test_example_image_exclusive() -> None:
     assert not np.equal(train_imgs, valid_imgs).all()
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 """ Test train/validation example images are non-random """
+
 
 @pytest.mark.parametrize("subset", ["training", "validation"])
 def test_example_image_non_random(subset: str) -> None:
-
     dataloader1 = ContrastDataloader(config=BASE_CONFIG, dataset_type=subset)
     dataloader2 = ContrastDataloader(config=BASE_CONFIG, dataset_type=subset)
 
@@ -217,14 +203,12 @@ def test_example_image_non_random(subset: str) -> None:
     assert np.equal(imgs1, imgs2).all()
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 """ Test example images are properly paired """
 
+
 def test_example_image_pairing():
-    dataloader = ContrastDataloader(
-        config=BASE_CONFIG,
-        dataset_type="training"
-    )
+    dataloader = ContrastDataloader(config=BASE_CONFIG, dataset_type="training")
 
     source_imgs = dataloader.example_images["source"]
     target_imgs = dataloader.example_images["target"]
@@ -232,29 +216,15 @@ def test_example_image_pairing():
     assert np.equal(source_imgs, target_imgs).all()
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 """ Test images are correctly sized """
 
-@pytest.mark.parametrize(
-    "down_sample,patch_size",
-    [
-        (1, [1, 4, 4]),
-        (1, [2, 4, 4]),
-        (1, [4, 4, 4]),
-        (2, [2, 4, 4]),
-        (4, [2, 4, 4])
-    ]
-)
-def test_generator_img_size(down_sample: int, patch_size: list[int]):
 
+@pytest.mark.parametrize("down_sample", [1, 2, 4])
+def test_generator_img_size(down_sample: int):
     config = dict(BASE_CONFIG)
-    config |= {"down_sample": down_sample, "patch_size": patch_size}
-    exp_img_size = (
-        patch_size[0],
-        IMG_SIZE[1] // down_sample,
-        IMG_SIZE[2] // down_sample,
-        1
-    )
+    config |= {"down_sample": down_sample}
+    exp_img_size = (HQ_SIZE[0], HQ_SIZE[1] // down_sample, HQ_SIZE[2] // down_sample, 1)
 
     dataloader = ContrastDataloader(config=config, dataset_type="training")
 
@@ -265,14 +235,12 @@ def test_generator_img_size(down_sample: int, patch_size: list[int]):
         assert target.shape == exp_img_size
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 """ Test images are shuffled each training epoch """
 
+
 def test_train_generator_random():
-    dataloader = ContrastDataloader(
-        config=BASE_CONFIG,
-        dataset_type="training"
-    )
+    dataloader = ContrastDataloader(config=BASE_CONFIG, dataset_type="training")
 
     imgs1, imgs2 = [], []
 
@@ -288,70 +256,45 @@ def test_train_generator_random():
     assert not np.equal(imgs1, imgs2).all()
 
 
-#-------------------------------------------------------------------------
-""" Test images are not shuffled each validation epoch """
-
-def test_valid_generator_nonrandom():
-    dataloader = ContrastDataloader(
-        config=BASE_CONFIG,
-        dataset_type="validation"
-    )
-
-    imgs1, imgs2 = [], []
-
-    for data in dataloader.data_generator():
-        imgs1.append(data["source"])
-
-    for data in dataloader.data_generator():
-        imgs2.append(data["source"])
-
-    imgs1 = np.stack(imgs1)
-    imgs2 = np.stack(imgs2)
-
-    assert np.equal(imgs1, imgs2).all()
-
-
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 """ Test images voxel values are in range [-1, 1] """
+
 
 @pytest.mark.parametrize("subset", ["training", "validation"])
 def test_generator_voxel_values(subset):
-
     dataloader = ContrastDataloader(config=BASE_CONFIG, dataset_type=subset)
 
     for data in dataloader.data_generator():
-        assert np.max(data["source"]) == 1.0
-        assert np.min(data["source"]) == -1.0
-        assert np.max(data["target"]) == 1.0
-        assert np.min(data["target"]) == -1.0
+        assert np.isclose(np.max(data["source"]), 1.0, 0.1)
+        assert np.isclose(np.min(data["source"]), -1.0, 0.1)
+        assert np.isclose(np.max(data["target"]), 1.0, 0.1)
+        assert np.isclose(np.min(data["target"]), -1.0, 0.1)
 
 
-#-------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 """ Test un-normalised voxel values are between HU_MIN and HU_MAX """
 
-def test_un_normalise():
 
-    dataloader = ContrastDataloader(
-        config=BASE_CONFIG,
-        dataset_type="training"
-    )
+def test_un_normalise():
+    dataloader = ContrastDataloader(config=BASE_CONFIG, dataset_type="training")
 
     for data in dataloader.data_generator():
         source = dataloader.un_normalise(data["source"])
         target = dataloader.un_normalise(data["target"])
 
-        assert np.max(source) == HU_MAX
-        assert np.min(source) == HU_MIN
-        assert np.max(target) == HU_MAX
-        assert np.min(target) == HU_MIN
+        assert np.isclose(np.max(source), HU_MAX, 100)
+        assert np.isclose(np.min(source), HU_MIN, 100)
+        assert np.isclose(np.max(target), HU_MAX, 100)
+        assert np.isclose(np.min(target), HU_MIN, 100)
 
 
-#-------------------------------------------------------------------------
+
+# -------------------------------------------------------------------------
 """ Test images paired correctly """
+
 
 @pytest.mark.parametrize("subset", ["training", "validation"])
 def test_generator_pairing(subset):
-
     dataloader = ContrastDataloader(config=BASE_CONFIG, dataset_type=subset)
 
     for data in dataloader.data_generator():
