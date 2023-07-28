@@ -48,7 +48,10 @@ def get_model(
             raise ValueError(scales, expt_type)
 
         if compile_model:
-            model.compile(config["hyperparameters"]["opt"], run_eagerly=dev)
+            model.compile(  # type: ignore[call-arg]
+                config["hyperparameters"]["opt"],
+                run_eagerly=dev,
+            )
 
     return model
 
