@@ -166,8 +166,13 @@ class Inference(ABC):
 class SingleScaleInference(Inference):
     """Perform inference on images with single scale/patch-based models."""
 
-    def __init__(self, config: dict[str, Any], stage: str | None = None):
-        super().__init__(config, stage)
+    def __init__(
+        self,
+        config: dict[str, Any],
+        stage: str | None = None,
+        epoch: int | None = None,
+    ):
+        super().__init__(config, stage, epoch)
 
         self.stage = stage
 
@@ -284,7 +289,7 @@ class SingleScaleInference(Inference):
                 target = self.TestGenerator.un_normalise(data["target"][0, ...].numpy())
 
                 metrics["id"].append(subject_id)
-                metrics["L1"].append(self.calc_L1(target.astype("float32"), pred))
+                metrics["L1"].append(self.calc_l1(target.astype("float32"), pred))
 
                 detailed_metrics = self.calc_metrics(pred, target)
                 for k, v in detailed_metrics.items():
@@ -307,8 +312,13 @@ class SingleScaleInference(Inference):
 class MultiScaleInference(Inference):
     """Perform inference on images with multi-scale models."""
 
-    def __init__(self, config: dict[str, Any], stage: str | None = None):
-        super().__init__(config, stage)
+    def __init__(
+        self,
+        config: dict[str, Any],
+        stage: str | None = None,
+        epoch: int | None = None,
+    ):
+        super().__init__(config, stage, epoch)
 
         depth, height, width = config["data"]["target_dims"]
         scales = config["hyperparameters"]["scales"]
@@ -415,7 +425,7 @@ class MultiScaleInference(Inference):
                 target = self.TestGenerator.un_normalise(data["target"][0, ...].numpy())
 
                 metrics["id"].append(subject_id)
-                metrics["L1"].append(self.calc_L1(target.astype("float32"), pred))
+                metrics["L1"].append(self.calc_l1(target.astype("float32"), pred))
 
                 detailed_metrics = self.calc_metrics(pred, target)
                 for k, v in detailed_metrics.items():

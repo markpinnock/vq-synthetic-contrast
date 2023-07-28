@@ -51,9 +51,17 @@ def main() -> None:
     inference: Inference
 
     if len(config["hyperparameters"]["scales"]) == 1:
-        inference = SingleScaleInference(config_copy, stage=arguments.stage)
+        inference = SingleScaleInference(
+            config_copy,
+            stage=arguments.stage,
+            epoch=arguments.epoch,
+        )
     else:
-        inference = MultiScaleInference(config_copy, stage=arguments.stage)
+        inference = MultiScaleInference(
+            config_copy,
+            stage=arguments.stage,
+            epoch=arguments.epoch,
+        )
 
     if arguments.subset is None:
         subsets = Subsets
@@ -95,12 +103,16 @@ def main() -> None:
 
             except FileNotFoundError:
                 df = pd.DataFrame(index=metric_dict["id"])
-                df[f"{config_copy['paths']['expt_path'].stem}"] = metric_dict[metric]
+                df[
+                    f"{config_copy['paths']['expt_path'].stem}_{arguments.epoch}"
+                ] = metric_dict[metric]
             else:
                 new_df = pd.DataFrame(
                     metric_dict[metric],
                     index=metric_dict["id"],
-                    columns=[f"{config_copy['paths']['expt_path'].stem}"],
+                    columns=[
+                        f"{config_copy['paths']['expt_path'].stem}_{arguments.epoch}",
+                    ],
                 )
                 df = df.join(new_df, how="outer")
 
