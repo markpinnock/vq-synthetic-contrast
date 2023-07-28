@@ -19,7 +19,8 @@ def main() -> None:
     parser.add_argument("--data", "-d", help="Data path", type=str)
     parser.add_argument("--stage", "-st", help="Joint stage", type=str)
     parser.add_argument("--subset", "-su", help="Data subset", type=str)
-    parser.add_argument("--minibatch", "-m", help="Minibatch size", type=int, default=1)
+    parser.add_argument("--epoch", "-ep", help="Model save epoch", type=str)
+    parser.add_argument("--minibatch", "-m", help="Minibatch size", type=int, default=8)
     parser.add_argument("--dev", "-dv", help="Development mode", action="store_true")
     arguments = parser.parse_args()
 
@@ -50,14 +51,22 @@ def main() -> None:
     inference: Inference
 
     if len(config["hyperparameters"]["scales"]) == 1:
-        inference = SingleScaleInference(config_copy, stage=arguments.stage)
+        inference = SingleScaleInference(
+            config_copy,
+            stage=arguments.stage,
+            epoch=arguments.epoch,
+        )
     else:
-        inference = MultiScaleInference(config_copy, stage=arguments.stage)
+        inference = MultiScaleInference(
+            config_copy,
+            stage=arguments.stage,
+            epoch=arguments.epoch,
+        )
 
     if arguments.subset is None:
         subsets = Subsets
     else:
-        assert arguments.subset in list(Subsets)
+        assert arguments.subset in list(Subsets), (arguments.subset, list(Subsets))
         subsets = [arguments.subset]  # type: ignore
 
     for subset in subsets:
@@ -94,12 +103,16 @@ def main() -> None:
 
             except FileNotFoundError:
                 df = pd.DataFrame(index=metric_dict["id"])
-                df[f"{config_copy['paths']['expt_path'].stem}"] = metric_dict[metric]
+                df[
+                    f"{config_copy['paths']['expt_path'].stem}_{arguments.epoch}"
+                ] = metric_dict[metric]
             else:
                 new_df = pd.DataFrame(
                     metric_dict[metric],
                     index=metric_dict["id"],
-                    columns=[f"{config_copy['paths']['expt_path'].stem}"],
+                    columns=[
+                        f"{config_copy['paths']['expt_path'].stem}_{arguments.epoch}",
+                    ],
                 )
                 df = df.join(new_df, how="outer")
 

@@ -14,7 +14,8 @@ def main() -> None:
     parser.add_argument("--data", "-d", help="Data path", type=str)
     parser.add_argument("--original", "-o", help="Original data path", type=str)
     parser.add_argument("--stage", "-s", help="Joint stage", type=str)
-    parser.add_argument("--minibatch", "-m", help="Minibatch size", type=int, default=4)
+    parser.add_argument("--epoch", "-ep", help="Model save epoch", type=str)
+    parser.add_argument("--minibatch", "-m", help="Minibatch size", type=int, default=8)
     parser.add_argument("--option", "-op", help="`save`, `display`", type=str)
     parser.add_argument("--dev", "-dv", help="Development mode", action="store_true")
     arguments = parser.parse_args()
@@ -52,9 +53,17 @@ def main() -> None:
     inference: Inference
 
     if len(config["hyperparameters"]["scales"]) == 1:
-        inference = SingleScaleInference(config, arguments.stage)
+        inference = SingleScaleInference(
+            config,
+            stage=arguments.stage,
+            epoch=arguments.epoch,
+        )
     else:
-        inference = MultiScaleInference(config, arguments.stage)
+        inference = MultiScaleInference(
+            config,
+            stage=arguments.stage,
+            epoch=arguments.epoch,
+        )
 
     if config["expt"]["expt_type"] == Task.JOINT:
         config["data"]["type"] = arguments.stage

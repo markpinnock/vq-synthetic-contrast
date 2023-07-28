@@ -14,10 +14,9 @@ from skimage.metrics import (
 )
 
 from vq_sce import ABDO_WINDOW, HU_MAX, HU_MIN
-from vq_sce.networks.build_model import build_model
+from vq_sce.networks.build_model import build_model_inference
 from vq_sce.networks.model import Task
 from vq_sce.utils.dataloaders.build_dataloader import get_test_dataloader
-from vq_sce.utils.losses import L1
 from vq_sce.utils.patch_utils import CombinePatches, extract_patches, generate_indices
 
 STRIDE_FACTOR = 4
@@ -44,7 +43,12 @@ class Inference(ABC):
     strides: list[int]
     patch_size: list[int]
 
-    def __init__(self, config: dict[str, Any], stage: str | None = None):
+    def __init__(
+        self,
+        config: dict[str, Any],
+        stage: str | None = None,
+        epoch: int | None = None,
+    ):
         self.stage = stage
         self.save_path = config["paths"]["expt_path"] / "predictions"
         self.save_path.mkdir(parents=True, exist_ok=True)
@@ -55,7 +59,10 @@ class Inference(ABC):
 
         self.test_ds, self.TestGenerator = get_test_dataloader(config=config)
 
-        self.model = build_model(config=config, purpose="inference")
+        self.model = build_model_inference(
+            expt_path=config["paths"]["expt_path"],
+            epoch=epoch,
+        )
         self.combine = CombinePatches()
 
     @abstractmethod
@@ -144,6 +151,14 @@ class Inference(ABC):
 
         return metrics
 
+    def calc_l1(
+        self,
+        pred: npt.NDArray[np.float32],
+        target: npt.NDArray[np.float32],
+    ) -> float:
+        """Calculate L1 between predicted and ground truth image."""
+        return float(np.mean(np.abs(target - pred)))
+
 
 # -------------------------------------------------------------------------
 
@@ -151,8 +166,13 @@ class Inference(ABC):
 class SingleScaleInference(Inference):
     """Perform inference on images with single scale/patch-based models."""
 
-    def __init__(self, config: dict[str, Any], stage: str | None = None):
-        super().__init__(config, stage)
+    def __init__(
+        self,
+        config: dict[str, Any],
+        stage: str | None = None,
+        epoch: int | None = None,
+    ):
+        super().__init__(config, stage, epoch)
 
         self.stage = stage
 
@@ -223,12 +243,12 @@ class SingleScaleInference(Inference):
 
                 for j in range(0, stack_depth, self.mb_size):
                     if self.expt_type == Task.JOINT:
-                        pred_mb, _ = self.model(
+                        pred_mb = self.model(
                             patch_stack[j : j + self.mb_size, ...],
                             self.stage,
                         )
                     else:
-                        pred_mb, _ = self.model(patch_stack[j : j + self.mb_size, ...])
+                        pred_mb = self.model(patch_stack[j : j + self.mb_size, ...])
 
                     pred_mb = self.TestGenerator.un_normalise(pred_mb)
 
@@ -266,10 +286,10 @@ class SingleScaleInference(Inference):
                 self.display(pred, subject_id)
 
             elif option == Options.METRICS:
-                target = self.TestGenerator.un_normalise(data["target"][0, ...])
+                target = self.TestGenerator.un_normalise(data["target"][0, ...].numpy())
 
                 metrics["id"].append(subject_id)
-                metrics["L1"].append(float(L1(target.astype("float32"), pred)))
+                metrics["L1"].append(self.calc_l1(target.astype("float32"), pred))
 
                 detailed_metrics = self.calc_metrics(pred, target)
                 for k, v in detailed_metrics.items():
@@ -292,8 +312,13 @@ class SingleScaleInference(Inference):
 class MultiScaleInference(Inference):
     """Perform inference on images with multi-scale models."""
 
-    def __init__(self, config: dict[str, Any], stage: str | None = None):
-        super().__init__(config, stage)
+    def __init__(
+        self,
+        config: dict[str, Any],
+        stage: str | None = None,
+        epoch: int | None = None,
+    ):
+        super().__init__(config, stage, epoch)
 
         depth, height, width = config["data"]["target_dims"]
         scales = config["hyperparameters"]["scales"]
@@ -397,10 +422,10 @@ class MultiScaleInference(Inference):
                 self.display(pred, subject_id)
 
             elif option == Options.METRICS:
-                target = self.TestGenerator.un_normalise(data["target"][0, ...])
+                target = self.TestGenerator.un_normalise(data["target"][0, ...].numpy())
 
                 metrics["id"].append(subject_id)
-                metrics["L1"].append(float(L1(target.astype("float32"), pred)))
+                metrics["L1"].append(self.calc_l1(target.astype("float32"), pred))
 
                 detailed_metrics = self.calc_metrics(pred, target)
                 for k, v in detailed_metrics.items():
