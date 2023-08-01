@@ -1,0 +1,30 @@
+data:
+    source_dims:
+        - 3
+        - 512
+        - 512
+    target_dims:
+        - 12
+        - 512
+        - 512
+    type: contrast
+expt:
+    mb_size: 2
+    local_mb_size: 2
+hyperparameters:
+    scales:
+        - 1
+    opt:
+        learning_rate: 1.0e-4
+        beta_1: 0.5
+        beta_2: 0.999
+    darts_opt:
+        learning_rate: 3.0e-4
+        beta_1: 0.5
+        beta_2: 0.999
+        decay: 1.0e-3
+    nc: 2 # Generator starting channels
+    layers: 4
+    vq_beta: 0.25
+augmentation:
+    use: false
