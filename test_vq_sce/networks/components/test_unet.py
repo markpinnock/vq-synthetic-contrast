@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import tensorflow as tf
 
-from vq_sce.networks.components.unet import UNet, MultiscaleUNet
+from vq_sce.networks.components.unet import MultiscaleUNet, UNet
 
 CONFIG = {
     "source_dims": [4, 16, 16],

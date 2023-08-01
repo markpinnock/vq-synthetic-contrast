@@ -288,7 +288,6 @@ def test_un_normalise():
         assert np.isclose(np.min(target), HU_MIN, 100)
 
 
-
 # -------------------------------------------------------------------------
 """ Test images paired correctly """
 
