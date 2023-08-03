@@ -1,5 +1,6 @@
 from typing import Any
 
+import numpy as np
 import tensorflow as tf
 
 from vq_sce.networks.components.layers.vq_layers import DARTSVQBlock, VQBlock
@@ -43,10 +44,14 @@ class DARTSModel(Model):
         self.virtual_UNet.vq_block.alpha_vq = self.alpha_vq
 
     def _get_vq_block(self, config: dict[str, Any]) -> DARTSVQBlock:
-        embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
+        num_embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
+        nc = config["hyperparameters"]["nc"]
+        layers = config["hyperparameters"]["layers"]
+        embedding_dim = np.min([nc * 2 ** (layers - 1), MAX_CHANNELS])
+
         vq = DARTSVQBlock(
-            num_embeddings=embeddings,
-            embedding_dim=MAX_CHANNELS,
+            num_embeddings=num_embeddings,
+            embedding_dim=embedding_dim,
             task_lr=1.0,
             beta=config["hyperparameters"]["vq_beta"],
             name="virtual_vq",
@@ -292,7 +297,10 @@ class DARTSJointModel(JointModel):
             self.virtual_sr_UNet.vq_block.alpha_vq = self.alpha_vq[0]
 
     def _get_vq_block(self, config: dict[str, Any]) -> VQBlock | DARTSVQBlock:
-        embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
+        num_embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
+        nc = config["hyperparameters"]["nc"]
+        layers = config["hyperparameters"]["layers"]
+        embedding_dim = np.min([nc * 2 ** (layers - 1), MAX_CHANNELS])
 
         if config["expt"]["optimisation_type"] in ["darts-task", "darts-both"]:
             # Scale VQ learning rate through DARTS, or...
@@ -303,8 +311,8 @@ class DARTSJointModel(JointModel):
 
         if isinstance(config["hyperparameters"]["vq_layers"]["bottom"], list):
             vq = DARTSVQBlock(
-                num_embeddings=embeddings,
-                embedding_dim=MAX_CHANNELS,
+                num_embeddings=num_embeddings,
+                embedding_dim=embedding_dim,
                 task_lr=task_lr,
                 beta=config["hyperparameters"]["vq_beta"],
                 name="shared_vq",
@@ -312,8 +320,8 @@ class DARTSJointModel(JointModel):
 
         else:
             vq = VQBlock(
-                num_embeddings=embeddings,
-                embedding_dim=MAX_CHANNELS,
+                num_embeddings=num_embeddings,
+                embedding_dim=embedding_dim,
                 task_lr=task_lr,
                 beta=config["hyperparameters"]["vq_beta"],
                 name="shared_vq",
