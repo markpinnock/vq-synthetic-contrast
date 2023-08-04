@@ -16,7 +16,7 @@ from skimage.metrics import (
 from vq_sce import ABDO_WINDOW, HU_MAX, HU_MIN
 from vq_sce.networks.build_model import build_model_inference
 from vq_sce.networks.model import Task
-from vq_sce.utils.dataloaders.build_dataloader import get_test_dataloader
+from vq_sce.utils.dataloaders.build_dataloader import Subsets, get_test_dataloader
 from vq_sce.utils.patch_utils import CombinePatches, extract_patches, generate_indices
 
 STRIDE_FACTOR = 4
@@ -47,17 +47,21 @@ class Inference(ABC):
         self,
         config: dict[str, Any],
         stage: str | None = None,
+        subset: str | None = Subsets.TEST,
         epoch: int | None = None,
     ):
         self.stage = stage
-        self.save_path = config["paths"]["expt_path"] / "predictions"
+        self.save_path = config["paths"]["expt_path"] / f"predictions-{epoch}"
         self.save_path.mkdir(parents=True, exist_ok=True)
         self.data_path = config["data"]["data_path"]
         self.original_data_path = config["paths"]["original_path"]
         self.mb_size = config["expt"]["mb_size"]
         self.expt_type = config["expt"]["expt_type"]
 
-        self.test_ds, self.TestGenerator = get_test_dataloader(config=config)
+        self.test_ds, self.TestGenerator = get_test_dataloader(
+            config=config,
+            subset=subset,
+        )
 
         self.model = build_model_inference(
             expt_path=config["paths"]["expt_path"],
@@ -170,9 +174,10 @@ class SingleScaleInference(Inference):
         self,
         config: dict[str, Any],
         stage: str | None = None,
+        subset: str | None = Subsets.TEST,
         epoch: int | None = None,
     ):
-        super().__init__(config, stage, epoch)
+        super().__init__(config, stage, subset, epoch)
 
         self.stage = stage
 
@@ -316,9 +321,10 @@ class MultiScaleInference(Inference):
         self,
         config: dict[str, Any],
         stage: str | None = None,
+        subset: str | None = Subsets.TEST,
         epoch: int | None = None,
     ):
-        super().__init__(config, stage, epoch)
+        super().__init__(config, stage, subset, epoch)
 
         depth, height, width = config["data"]["target_dims"]
         scales = config["hyperparameters"]["scales"]
