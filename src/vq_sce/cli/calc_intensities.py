@@ -115,7 +115,7 @@ def get_bounding_boxes(
 # -------------------------------------------------------------------------
 
 
-def calc_intensities(
+def calc_intensity_diffs(
     ce_sub_volume: dict[str, NDArray[np.int16]],
     pred_sub_volume: dict[str, NDArray[np.int16]],
 ) -> dict[str, float]:
@@ -125,6 +125,18 @@ def calc_intensities(
         results[region] = np.mean(
             np.abs(ce_sub_volume[region] - pred_sub_volume[region]),
         )
+
+    return results
+
+
+# -------------------------------------------------------------------------
+
+
+def calc_intensities(pred_sub_volume: dict[str, NDArray[np.int16]]) -> dict[str, float]:
+    results = {}
+
+    for region in pred_sub_volume.keys():
+        results[region] = float(np.mean(pred_sub_volume[region]))
 
     return results
 
@@ -152,7 +164,14 @@ def main() -> None:
         if img.stem[0:6] not in subject_ids:
             subject_ids.append(img.stem[0:6])
 
-    intensity_results: dict[str, list[str | float]] = {
+    intensity_diffs: dict[str, list[str | float]] = {
+        "id": [],
+        "RK": [],
+        "LK": [],
+        "VC": [],
+        "AO": [],
+    }
+    intensities: dict[str, list[str | float]] = {
         "id": [],
         "RK": [],
         "LK": [],
@@ -168,32 +187,63 @@ def main() -> None:
         ce_img, pred_img = load_and_transform(subject_id, paths)
         ce_sub, pred_sub = get_bounding_boxes(ce_img, pred_img, bounding_box)
 
-        subject_intensity_results = calc_intensities(ce_sub, pred_sub)
-        intensity_results["id"].append(subject_id)
+        subject_intensity_diffs = calc_intensity_diffs(ce_sub, pred_sub)
+        intensity_diffs["id"].append(subject_id)
 
         for region in regions:
             try:
-                intensity_results[region].append(subject_intensity_results[region])
+                intensity_diffs[region].append(subject_intensity_diffs[region])
 
             except KeyError:
-                intensity_results[region].append(None)
+                intensity_diffs[region].append(None)
 
-    # Create dataframe if not present
-    intensity_csv_name = f"contrast_{arguments.subset}_focal_L1"
-    intensity_df_path = paths["predictions"].parents[1] / f"{intensity_csv_name}.csv"
+        subject_intensities = calc_intensities(pred_sub)
+        intensities["id"].append(subject_id)
+
+        for region in regions:
+            try:
+                intensities[region].append(subject_intensities[region])
+
+            except KeyError:
+                intensities[region].append(None)
+
+    # Save intensity L1
     model_name = paths["predictions"].parent.stem
     epochs = paths["predictions"].stem.split("-")[1]
 
+    csv_name = f"contrast_{arguments.subset}_focal_L1"
+    df_path = paths["predictions"].parents[1] / f"{csv_name}.csv"
+
+    # Load or create dataframe if not present
     try:
-        df = pd.read_csv(intensity_df_path, index_col=0, header=[0, 1])
+        df = pd.read_csv(df_path, index_col=0, header=[0, 1])
 
     except FileNotFoundError:
         df = pd.DataFrame(
-            index=intensity_results["id"],
+            index=intensity_diffs["id"],
             columns=pd.MultiIndex.from_product([regions, [f"{model_name}-{epochs}"]]),
         )
     finally:
         for region in regions:
-            df[(region, f"{model_name}-{epochs}")] = intensity_results[region]
+            df[(region, f"{model_name}-{epochs}")] = intensity_diffs[region]
 
-    df.to_csv(intensity_df_path, index=True)
+        df.to_csv(df_path, index=True)
+
+    # Save intensities
+    csv_name = f"contrast_{arguments.subset}_focal_HU"
+    df_path = paths["predictions"].parents[1] / f"{csv_name}.csv"
+
+    # Load or create dataframe if not present
+    try:
+        df = pd.read_csv(df_path, index_col=0, header=[0, 1])
+
+    except FileNotFoundError:
+        df = pd.DataFrame(
+            index=intensities["id"],
+            columns=pd.MultiIndex.from_product([regions, [f"{model_name}-{epochs}"]]),
+        )
+    finally:
+        for region in regions:
+            df[(region, f"{model_name}-{epochs}")] = intensities[region]
+
+        df.to_csv(df_path, index=True)
