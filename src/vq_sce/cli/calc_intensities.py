@@ -6,8 +6,16 @@ import numpy as np
 import pandas as pd
 import SimpleITK as itk  # noqa: N813
 from numpy.typing import NDArray
+from skimage.metrics import (
+    mean_squared_error,
+    peak_signal_noise_ratio,
+    structural_similarity,
+)
 
+from vq_sce import HU_MAX, HU_MIN
 from vq_sce.preproc.preprocess import HU_DEFAULT
+
+METRICS = ["L1", "MSE", "pSNR", "SSIM"]
 
 # -------------------------------------------------------------------------
 
@@ -24,6 +32,12 @@ def load_and_transform(
     assert len(pred_candidates) == 1
     pred_img = itk.ReadImage(str(pred_candidates[0]))
     ce_img = itk.Resample(ce_img, pred_img, defaultPixelValue=HU_DEFAULT)
+
+    hu_filter = itk.ClampImageFilter()
+    hu_filter.SetLowerBound(HU_MIN)
+    hu_filter.SetUpperBound(HU_MAX)
+    pred_img = hu_filter.Execute(pred_img)
+    ce_img = hu_filter.Execute(ce_img)
 
     transform_path = paths["transforms"] / subject_id
     transform_candidates = list(
@@ -115,6 +129,39 @@ def get_bounding_boxes(
 # -------------------------------------------------------------------------
 
 
+def calc_global_metrics(
+    ce_volume: itk.Image,
+    pred_volume: itk.Image,
+) -> dict[str, float]:
+    """Calculate L1, MSE, pSNR, SSIM between predicted and ground truth image."""
+    ce_volume_np = itk.GetArrayFromImage(ce_volume)
+    pred_volume_np = itk.GetArrayFromImage(pred_volume)
+
+    metrics = {
+        "MSE": float(mean_squared_error(ce_volume_np, pred_volume_np)),
+        "pSNR": float(
+            peak_signal_noise_ratio(
+                ce_volume_np,
+                pred_volume_np,
+                data_range=HU_MAX - HU_MIN,
+            ),
+        ),
+        "SSIM": float(
+            structural_similarity(
+                ce_volume_np,
+                pred_volume_np,
+                data_range=HU_MAX - HU_MIN,
+            ),
+        ),
+    }
+    metrics["L1"] = float(np.mean(np.abs(ce_volume_np - pred_volume_np)))
+
+    return metrics
+
+
+# -------------------------------------------------------------------------
+
+
 def calc_intensity_diffs(
     ce_sub_volume: dict[str, NDArray[np.int16]],
     pred_sub_volume: dict[str, NDArray[np.int16]],
@@ -144,6 +191,13 @@ def calc_intensities(pred_sub_volume: dict[str, NDArray[np.int16]]) -> dict[str,
 # -------------------------------------------------------------------------
 
 
+def calc_glcm(pred_sub_volume: dict[str, NDArray[np.int16]]) -> dict[str, float]:
+    pass
+
+
+# -------------------------------------------------------------------------
+
+
 def main() -> None:
     # Handle arguments
     parser = argparse.ArgumentParser()
@@ -158,11 +212,22 @@ def main() -> None:
     paths["transforms"] = Path(arguments.data) / "Transforms"
     paths["bounding_boxes"] = Path(arguments.data) / "BoundingBoxes"
 
+    model_name = paths["predictions"].parent.stem
+    epochs = paths["predictions"].stem.split("-")[1]
+
     subject_ids = []
 
     for img in paths["predictions"].glob("*"):
         if img.stem[0:6] not in subject_ids:
             subject_ids.append(img.stem[0:6])
+
+    global_metrics: dict[str, list[str | float]] = {
+        "id": [],
+        "L1": [],
+        "MSE": [],
+        "pSNR": [],
+        "SSIM": [],
+    }
 
     intensity_diffs: dict[str, list[str | float]] = {
         "id": [],
@@ -187,6 +252,14 @@ def main() -> None:
         ce_img, pred_img = load_and_transform(subject_id, paths)
         ce_sub, pred_sub = get_bounding_boxes(ce_img, pred_img, bounding_box)
 
+        # Calculate global metrics
+        subject_global_metrics = calc_global_metrics(ce_img, pred_img)
+        global_metrics["id"].append(subject_id)
+
+        for metric in METRICS:
+            global_metrics[metric].append(subject_global_metrics[metric])
+
+        # Calculate bounding box L1
         subject_intensity_diffs = calc_intensity_diffs(ce_sub, pred_sub)
         intensity_diffs["id"].append(subject_id)
 
@@ -197,6 +270,7 @@ def main() -> None:
             except KeyError:
                 intensity_diffs[region].append(None)
 
+        # Calculate bounding box intensities
         subject_intensities = calc_intensities(pred_sub)
         intensities["id"].append(subject_id)
 
@@ -207,14 +281,46 @@ def main() -> None:
             except KeyError:
                 intensities[region].append(None)
 
-    # Save intensity L1
-    model_name = paths["predictions"].parent.stem
-    epochs = paths["predictions"].stem.split("-")[1]
+    # Save global metrics
+    csv_name = f"contrast_{arguments.subset}_global"
 
+    # Create dataframe if not present
+    df_path = paths["predictions"].parents[1] / f"{csv_name}.csv"
+
+    try:
+        df = pd.read_csv(df_path, index_col=0, header=[0, 1])
+
+        # except FileNotFoundError:
+        #     df = pd.DataFrame(index=metric_dict["id"])
+        #     df[
+        #         f"{config_copy['paths']['expt_path'].stem}_{arguments.epoch}"
+        #     ] = metric_dict[metric]
+        # else:
+        #     new_df = pd.DataFrame(
+        #         metric_dict[metric],
+        #         index=metric_dict["id"],
+        #         columns=[
+        #             f"{config_copy['paths']['expt_path'].stem}_{arguments.epoch}",
+        #         ],
+        #     )
+        #     df = df.join(new_df, how="outer")
+
+    except FileNotFoundError:
+        df = pd.DataFrame(
+            index=global_metrics["id"],
+            columns=pd.MultiIndex.from_product([METRICS, [f"{model_name}-{epochs}"]]),
+        )
+
+    finally:
+        for metric in METRICS:
+            df[(metric, f"{model_name}-{epochs}")] = global_metrics[metric]
+
+        df.to_csv(df_path, index=True)
+
+    # Save bounding box L1
     csv_name = f"contrast_{arguments.subset}_focal_L1"
     df_path = paths["predictions"].parents[1] / f"{csv_name}.csv"
 
-    # Load or create dataframe if not present
     try:
         df = pd.read_csv(df_path, index_col=0, header=[0, 1])
 
@@ -223,17 +329,17 @@ def main() -> None:
             index=intensity_diffs["id"],
             columns=pd.MultiIndex.from_product([regions, [f"{model_name}-{epochs}"]]),
         )
+
     finally:
         for region in regions:
             df[(region, f"{model_name}-{epochs}")] = intensity_diffs[region]
 
         df.to_csv(df_path, index=True)
 
-    # Save intensities
+    # Save bounding box intensities
     csv_name = f"contrast_{arguments.subset}_focal_HU"
     df_path = paths["predictions"].parents[1] / f"{csv_name}.csv"
 
-    # Load or create dataframe if not present
     try:
         df = pd.read_csv(df_path, index_col=0, header=[0, 1])
 
