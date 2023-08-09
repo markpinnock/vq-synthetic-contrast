@@ -7,13 +7,8 @@ import numpy as np
 import numpy.typing as npt
 import SimpleITK as itk  # noqa: N813
 import tensorflow as tf
-from skimage.metrics import (
-    mean_squared_error,
-    peak_signal_noise_ratio,
-    structural_similarity,
-)
 
-from vq_sce import ABDO_WINDOW, HU_MAX, HU_MIN
+from vq_sce import ABDO_WINDOW
 from vq_sce.networks.build_model import build_model_inference
 from vq_sce.networks.model import Task
 from vq_sce.utils.dataloaders.build_dataloader import Subsets, get_test_dataloader
@@ -70,7 +65,7 @@ class Inference(ABC):
         self.combine = CombinePatches()
 
     @abstractmethod
-    def run(self, option: str) -> dict[str, list[float]] | None:
+    def run(self, option: str) -> None:
         """Run inference on test data."""
         raise NotImplementedError
 
@@ -141,28 +136,6 @@ class Inference(ABC):
         itk.WriteImage(img_nrrd, str(self.save_path / f"{source_id}.nrrd"))
         print(f"{source_id} saved")  # noqa: T201
 
-    def calc_metrics(
-        self,
-        pred: npt.NDArray[np.float32],
-        target: npt.NDArray[np.float32],
-    ) -> dict[str, float]:
-        """Calculate MSE, pSNR, SSIM between predicted and ground truth image."""
-        metrics = {
-            "MSE": mean_squared_error(target, pred),
-            "pSNR": peak_signal_noise_ratio(target, pred, data_range=HU_MAX - HU_MIN),
-            "SSIM": structural_similarity(target, pred, data_range=HU_MAX - HU_MIN),
-        }
-
-        return metrics
-
-    def calc_l1(
-        self,
-        pred: npt.NDArray[np.float32],
-        target: npt.NDArray[np.float32],
-    ) -> float:
-        """Calculate L1 between predicted and ground truth image."""
-        return float(np.mean(np.abs(target - pred)))
-
 
 # -------------------------------------------------------------------------
 
@@ -210,16 +183,8 @@ class SingleScaleInference(Inference):
 
         self.patches_per_slice = self.calc_patches_per_slice()
 
-    def run(self, option: str) -> dict[str, list[float]] | None:
+    def run(self, option: str) -> None:
         """Run inference on test data."""
-        metrics: dict[str, list[float]] = {
-            "id": [],
-            "L1": [],
-            "MSE": [],
-            "pSNR": [],
-            "SSIM": [],
-        }
-
         for data in self.test_ds:
             source = data["source"][0, ...]
             subject_id = data["source_id"][0].numpy().decode("utf-8")
@@ -290,25 +255,8 @@ class SingleScaleInference(Inference):
             elif option == Options.DISPLAY:
                 self.display(pred, subject_id)
 
-            elif option == Options.METRICS:
-                target = self.TestGenerator.un_normalise(data["target"][0, ...].numpy())
-
-                metrics["id"].append(subject_id)
-                metrics["L1"].append(self.calc_l1(target.astype("float32"), pred))
-
-                detailed_metrics = self.calc_metrics(pred, target)
-                for k, v in detailed_metrics.items():
-                    metrics[k].append(v)
-
-                print(f"{subject_id} metrics processed")  # noqa: T201
-
             else:
                 raise ValueError(f"Option not recognised: {option}")
-
-        if option == Options.METRICS:
-            return metrics
-        else:
-            return None
 
 
 # -------------------------------------------------------------------------
@@ -347,16 +295,8 @@ class MultiScaleInference(Inference):
         self.dn_samp = config["hyperparameters"]["scales"][0]
         self.num_scales = len(config["hyperparameters"]["scales"])
 
-    def run(self, option: str) -> dict[str, list[float]] | None:
+    def run(self, option: str) -> None:
         """Run inference on test data."""
-        metrics: dict[str, list[float]] = {
-            "id": [],
-            "L1": [],
-            "MSE": [],
-            "pSNR": [],
-            "SSIM": [],
-        }
-
         for data in self.test_ds:
             source = data["source"][0, ...]
             source = source[:, :: self.dn_samp, :: self.dn_samp]
@@ -427,22 +367,5 @@ class MultiScaleInference(Inference):
             elif option == Options.DISPLAY:
                 self.display(pred, subject_id)
 
-            elif option == Options.METRICS:
-                target = self.TestGenerator.un_normalise(data["target"][0, ...].numpy())
-
-                metrics["id"].append(subject_id)
-                metrics["L1"].append(self.calc_l1(target.astype("float32"), pred))
-
-                detailed_metrics = self.calc_metrics(pred, target)
-                for k, v in detailed_metrics.items():
-                    metrics[k].append(v)
-
-                print(f"{subject_id} metrics processed")  # noqa: T201
-
             else:
                 raise ValueError(f"Option not recognised: {option}")
-
-        if option == Options.METRICS:
-            return metrics
-        else:
-            return None
