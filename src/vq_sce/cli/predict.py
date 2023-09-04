@@ -62,12 +62,14 @@ def main() -> None:
         inference = SingleScaleInference(
             config,
             stage=arguments.stage,
+            subset=arguments.subset,
             epoch=arguments.epoch,
         )
     else:
         inference = MultiScaleInference(
             config,
             stage=arguments.stage,
+            subset=arguments.subset,
             epoch=arguments.epoch,
         )
 
