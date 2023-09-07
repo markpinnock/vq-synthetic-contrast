@@ -67,31 +67,38 @@ class Model(tf.keras.Model):
             self.Aug = None
 
         if config["hyperparameters"]["vq_layers"] is not None:
-            vq_block = self._get_vq_block(config)
+            vq_blocks = self._get_vq_blocks(config)
         else:
-            vq_block = None
+            vq_blocks = {}
 
         self.UNet = UNet(
             self._initialiser,
             config["hyperparameters"],
-            vq_block=vq_block,
+            vq_blocks=vq_blocks,
             name="unet",
         )
 
-    def _get_vq_block(self, config: dict[str, Any]) -> VQBlock:
-        num_embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
+    def _get_vq_blocks(self, config: dict[str, Any]) -> dict[str, VQBlock]:
         nc = config["hyperparameters"]["nc"]
-        layers = config["hyperparameters"]["layers"]
-        embedding_dim = np.min([nc * 2 ** (layers - 1), MAX_CHANNELS])
+        vq_layers = config["hyperparameters"]["vq_layers"]
+        num_layers = config["hyperparameters"]["layers"]
+        vq_blocks = {}
 
-        vq = VQBlock(
-            num_embeddings=num_embeddings,
-            embedding_dim=embedding_dim,
-            task_lr=1.0,
-            beta=config["hyperparameters"]["vq_beta"],
-            name="vq",
-        )
-        return vq
+        for layer_name, num_embeddings in vq_layers.items():
+            if layer_name == "bottom":
+                embedding_dim = np.min([nc * 2 ** (num_layers - 1), MAX_CHANNELS])
+            else:
+                embedding_dim = np.min([nc * 2 ** (int(layer_name[-1])), MAX_CHANNELS])
+
+            vq_blocks[layer_name] = VQBlock(
+                num_embeddings=num_embeddings,
+                embedding_dim=embedding_dim,
+                task_lr=1.0,
+                beta=config["hyperparameters"]["vq_beta"],
+                name=f"vq_{layer_name}",
+            )
+
+        return vq_blocks
 
     def compile(  # noqa: A003
         self,
@@ -345,27 +352,27 @@ class JointModel(tf.keras.Model):
             self.ce_Aug = None
 
         # Get shared VQ layer
-        shared_vq = self._get_vq_block(config)
+        shared_vq = self._get_vq_blocks(config)
 
         self.sr_UNet = UNet(
             self._initialiser,
             self._sr_config["hyperparameters"],
-            vq_block=shared_vq,
+            vq_blocks=shared_vq,
             name="sr_unet",
         )
 
         self.ce_UNet = UNet(
             self._initialiser,
             self._ce_config["hyperparameters"],
-            vq_block=shared_vq,
+            vq_blocks=shared_vq,
             name="ce_unet",
         )
 
-    def _get_vq_block(self, config: dict[str, Any]) -> VQBlock:
-        num_embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
+    def _get_vq_blocks(self, config: dict[str, Any]) -> dict[str, VQBlock]:
         nc = config["hyperparameters"]["nc"]
-        layers = config["hyperparameters"]["layers"]
-        embedding_dim = np.min([nc * 2 ** (layers - 1), MAX_CHANNELS])
+        vq_layers = config["hyperparameters"]["vq_layers"]
+        num_layers = config["hyperparameters"]["layers"]
+        vq_blocks = {}
 
         if config["expt"]["optimisation_type"] in ["darts-task", "darts-both"]:
             # Scale VQ learning rate through DARTS, or...
@@ -374,14 +381,21 @@ class JointModel(tf.keras.Model):
             # ... halve VQ learning rate as training twice each step
             task_lr = 0.5
 
-        vq = VQBlock(
-            num_embeddings=num_embeddings,
-            embedding_dim=embedding_dim,
-            task_lr=task_lr,
-            beta=config["hyperparameters"]["vq_beta"],
-            name="shared_vq",
-        )
-        return vq
+        for layer_name, num_embeddings in vq_layers.items():
+            if layer_name == "bottom":
+                embedding_dim = np.min([nc * 2 ** (num_layers - 1), MAX_CHANNELS])
+            else:
+                embedding_dim = np.min([nc * 2 ** (int(layer_name[-1])), MAX_CHANNELS])
+
+            vq_blocks[layer_name] = VQBlock(
+                num_embeddings=num_embeddings,
+                embedding_dim=embedding_dim,
+                task_lr=task_lr,
+                beta=config["hyperparameters"]["vq_beta"],
+                name=f"vq_{layer_name}",
+            )
+
+        return vq_blocks
 
     def compile(  # noqa: A003
         self,
@@ -685,12 +699,14 @@ class DualModel(tf.keras.Model):
             self._initialiser,
             self._sr_config["hyperparameters"],
             name="sr_unet",
+            vq_blocks={},
         )
 
         self.ce_UNet = UNet(
             self._initialiser,
             self._ce_config["hyperparameters"],
             name="ce_unet",
+            vq_blocks={},
         )
 
     def build_model(self) -> None:

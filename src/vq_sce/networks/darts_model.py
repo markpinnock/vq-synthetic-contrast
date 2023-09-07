@@ -22,41 +22,54 @@ class DARTSModel(Model):
         name: str = "darts_model",
     ) -> None:
         super().__init__(config=config, name=name)
-        self.num_dict = self.UNet.vq_block.num_dictionaries
+        self.alpha_vq = []
 
-        # Weights for candidate VQ dictionaries
-        self.alpha_vq = tf.Variable(
-            tf.zeros((1, self.num_dict)),
-            name=f"{name}/alpha_vq",
-        )
-        self.UNet.vq_block.alpha_vq = self.alpha_vq
+        for vq_name, vq_block in self.UNet.vq_blocks.items():
+            num_dict = vq_block.num_dictionaries
+
+            # Weights for candidate VQ dictionaries
+            layer_alpha = tf.Variable(
+                tf.zeros((1, num_dict)),
+                name=f"{name}/alpha_vq_{vq_name}",
+            )
+            self.alpha_vq.append(layer_alpha)
+            self.UNet.vq_blocks[vq_name].alpha_vq = layer_alpha
 
         # Get virtual VQ layer
-        virtual_vq = self._get_vq_block(config)
+        virtual_vqs = self._get_vq_blocks(config)
 
         # Create virtual model to update during architecture search
         self.virtual_UNet = UNet(
             tf.keras.initializers.Ones(),
             config["hyperparameters"],
-            vq_block=virtual_vq,
+            vq_blocks=virtual_vqs,
             name="virtual_unet",
         )
-        self.virtual_UNet.vq_block.alpha_vq = self.alpha_vq
 
-    def _get_vq_block(self, config: dict[str, Any]) -> DARTSVQBlock:
-        num_embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
+        for vq_name, layer_alpha in zip(self.UNet.vq_blocks.keys(), self.alpha_vq):
+            self.virtual_UNet.vq_blocks[vq_name].alpha_vq = layer_alpha
+
+    def _get_vq_blocks(self, config: dict[str, Any]) -> dict[str, DARTSVQBlock]:
         nc = config["hyperparameters"]["nc"]
-        layers = config["hyperparameters"]["layers"]
-        embedding_dim = np.min([nc * 2 ** (layers - 1), MAX_CHANNELS])
+        vq_layers = config["hyperparameters"]["vq_layers"]
+        num_layers = config["hyperparameters"]["layers"]
+        vq_blocks = {}
 
-        vq = DARTSVQBlock(
-            num_embeddings=num_embeddings,
-            embedding_dim=embedding_dim,
-            task_lr=1.0,
-            beta=config["hyperparameters"]["vq_beta"],
-            name="virtual_vq",
-        )
-        return vq
+        for layer_name, num_embeddings in vq_layers.items():
+            if layer_name == "bottom":
+                embedding_dim = np.min([nc * 2 ** (num_layers - 1), MAX_CHANNELS])
+            else:
+                embedding_dim = np.min([nc * 2 ** (int(layer_name[-1])), MAX_CHANNELS])
+
+            vq_blocks[layer_name] = DARTSVQBlock(
+                num_embeddings=num_embeddings,
+                embedding_dim=embedding_dim,
+                task_lr=1.0,
+                beta=config["hyperparameters"]["vq_beta"],
+                name=f"vq_{layer_name}",
+            )
+
+        return vq_blocks
 
     def compile(  # type: ignore[override] # noqa: A003
         self,
@@ -141,12 +154,12 @@ class DARTSModel(Model):
 
         grads = tape.gradient(
             total_loss,
-            self.virtual_unet_variables + [self.alpha_vq],
+            self.virtual_unet_variables + self.alpha_vq,
         )
         grads = self.darts_optimiser.get_unscaled_gradients(grads)
 
-        d_weights = grads[:-1]
-        d_alpha = grads[-1:]
+        d_weights = grads[: -len(self.alpha_vq)]
+        d_alpha = grads[-len(self.alpha_vq) :]
 
         return d_weights, d_alpha
 
@@ -173,7 +186,7 @@ class DARTSModel(Model):
             total_loss, _, _ = self.calc_distributed_loss(target, pred, self.UNet)
             total_loss = self.darts_optimiser.get_scaled_loss(total_loss)
 
-        d_alpha_pos = tape.gradient(total_loss, [self.alpha_vq])
+        d_alpha_pos = tape.gradient(total_loss, self.alpha_vq)
         d_alpha_pos = self.darts_optimiser.get_unscaled_gradients(d_alpha_pos)
 
         for weight, grad in zip(self.unet_variables, d_weights):
@@ -183,7 +196,7 @@ class DARTSModel(Model):
             total_loss, _, _ = self.calc_distributed_loss(target, pred, self.UNet)
             total_loss = self.darts_optimiser.get_scaled_loss(total_loss)
 
-        d_alpha_neg = tape.gradient(total_loss, [self.alpha_vq])
+        d_alpha_neg = tape.gradient(total_loss, self.alpha_vq)
         d_alpha_neg = self.darts_optimiser.get_unscaled_gradients(d_alpha_neg)
 
         for weight, grad in zip(self.unet_variables, d_weights):
@@ -224,7 +237,7 @@ class DARTSModel(Model):
         for d, h in zip(d_alpha, hessian):
             alpha_grads.append(d - self.weights_lr * h)
 
-        self.darts_optimiser.apply_gradients(zip(alpha_grads, [self.alpha_vq]))
+        self.darts_optimiser.apply_gradients(zip(alpha_grads, self.alpha_vq))
 
     def train_step(  # type: ignore[override]
         self,
@@ -251,21 +264,20 @@ class DARTSJointModel(JointModel):
     ) -> None:
         super().__init__(config=config, name=name)
         self.num_alpha_variables = 0
+        self.alpha_vq = []
 
-        # Weights for candidate VQ dictionaries
-        if isinstance(config["hyperparameters"]["vq_layers"]["bottom"], list):
-            self.num_dict = self.sr_UNet.vq_block.num_dictionaries
-            self.alpha_vq = [
-                tf.Variable(
-                    tf.zeros((1, self.num_dict)),
-                    name=f"{name}/alpha_vq",
-                ),
-            ]
-            self.sr_UNet.vq_block.alpha_vq = self.alpha_vq[0]
-            self.num_alpha_variables += 1
+        for vq_name, vq_block in self.sr_UNet.vq_blocks.items():
+            if isinstance(config["hyperparameters"]["vq_layers"][vq_name], list):
+                num_dict = vq_block.num_dictionaries
 
-        else:
-            self.alpha_vq = []
+                # Weights for candidate VQ dictionaries
+                layer_alpha = tf.Variable(
+                    tf.zeros((1, num_dict)),
+                    name=f"{name}/alpha_vq_{vq_name}",
+                )
+                self.alpha_vq.append(layer_alpha)
+                self.sr_UNet.vq_blocks[vq_name].alpha_vq = layer_alpha
+                self.num_alpha_variables += 1
 
         # Weights for tasks
         if config["expt"]["optimisation_type"] in ["darts-task", "darts-both"]:
@@ -276,31 +288,35 @@ class DARTSJointModel(JointModel):
             self.alpha_task = []
 
         # Get shared VQ layer
-        virtual_shared_vq = self._get_vq_block(config)
+        virtual_shared_vqs = self._get_vq_blocks(config)
 
         # Create virtual models to update during architecture search
         self.virtual_sr_UNet = UNet(
             tf.keras.initializers.Ones(),
             self._sr_config["hyperparameters"],
-            vq_block=virtual_shared_vq,
+            vq_blocks=virtual_shared_vqs,
             name="virtual_sr_unet",
         )
 
         self.virtual_ce_UNet = UNet(
             tf.keras.initializers.Ones(),
             self._ce_config["hyperparameters"],
-            vq_block=virtual_shared_vq,
+            vq_blocks=virtual_shared_vqs,
             name="virtual_ce_unet",
         )
 
-        if isinstance(config["hyperparameters"]["vq_layers"]["bottom"], list):
-            self.virtual_sr_UNet.vq_block.alpha_vq = self.alpha_vq[0]
+        for vq_name, layer_alpha in zip(self.sr_UNet.vq_blocks.keys(), self.alpha_vq):
+            if isinstance(config["hyperparameters"]["vq_layers"][vq_name], list):
+                self.virtual_sr_UNet.vq_blocks[vq_name].alpha_vq = layer_alpha
 
-    def _get_vq_block(self, config: dict[str, Any]) -> VQBlock | DARTSVQBlock:
-        num_embeddings = config["hyperparameters"]["vq_layers"]["bottom"]
+    def _get_vq_blocks(
+        self,
+        config: dict[str, Any],
+    ) -> dict[str, VQBlock | DARTSVQBlock]:
         nc = config["hyperparameters"]["nc"]
-        layers = config["hyperparameters"]["layers"]
-        embedding_dim = np.min([nc * 2 ** (layers - 1), MAX_CHANNELS])
+        vq_layers = config["hyperparameters"]["vq_layers"]
+        num_layers = config["hyperparameters"]["layers"]
+        vq_blocks = {}
 
         if config["expt"]["optimisation_type"] in ["darts-task", "darts-both"]:
             # Scale VQ learning rate through DARTS, or...
@@ -309,25 +325,31 @@ class DARTSJointModel(JointModel):
             # ... halve VQ learning rate as training twice each step
             task_lr = 0.5
 
-        if isinstance(config["hyperparameters"]["vq_layers"]["bottom"], list):
-            vq = DARTSVQBlock(
-                num_embeddings=num_embeddings,
-                embedding_dim=embedding_dim,
-                task_lr=task_lr,
-                beta=config["hyperparameters"]["vq_beta"],
-                name="shared_vq",
-            )
+        for layer_name, num_embeddings in vq_layers.items():
+            if layer_name == "bottom":
+                embedding_dim = np.min([nc * 2 ** (num_layers - 1), MAX_CHANNELS])
+            else:
+                embedding_dim = np.min([nc * 2 ** (int(layer_name[-1])), MAX_CHANNELS])
 
-        else:
-            vq = VQBlock(
-                num_embeddings=num_embeddings,
-                embedding_dim=embedding_dim,
-                task_lr=task_lr,
-                beta=config["hyperparameters"]["vq_beta"],
-                name="shared_vq",
-            )
+            if isinstance(config["hyperparameters"]["vq_layers"][layer_name], list):
+                vq_blocks[layer_name] = DARTSVQBlock(
+                    num_embeddings=num_embeddings,
+                    embedding_dim=embedding_dim,
+                    task_lr=task_lr,
+                    beta=config["hyperparameters"]["vq_beta"],
+                    name=f"vq_{layer_name}",
+                )
 
-        return vq
+            else:
+                vq_blocks[layer_name] = VQBlock(
+                    num_embeddings=num_embeddings,
+                    embedding_dim=embedding_dim,
+                    task_lr=task_lr,
+                    beta=config["hyperparameters"]["vq_beta"],
+                    name=f"vq_{layer_name}",
+                )
+
+        return vq_blocks
 
     def compile(  # type: ignore[override] # noqa: A003
         self,
@@ -639,17 +661,22 @@ class DARTSJointModel(JointModel):
 
         if len(self.alpha_task) == 1:
             self.alpha_metric.update_state(tf.nn.sigmoid(self.alpha_task))
-            self.sr_UNet.vq_block.task_lr = tf.nn.sigmoid(self.alpha_task)
+            for vq_name in self.sr_UNet.vq_blocks.keys():
+                self.sr_UNet.vq_blocks[vq_name].task_lr = tf.nn.sigmoid(self.alpha_task)
 
         self.sr_train_step(**train_batch[Task.SUPER_RES])
 
         if len(self.alpha_task) == 1:
-            self.sr_UNet.vq_block.task_lr = 1 - tf.nn.sigmoid(self.alpha_task)
+            for vq_name in self.sr_UNet.vq_blocks.keys():
+                self.sr_UNet.vq_blocks[vq_name].task_lr = 1 - tf.nn.sigmoid(
+                    self.alpha_task,
+                )
 
         self.ce_train_step(**train_batch[Task.CONTRAST])
 
         if len(self.alpha_task) == 1:
-            self.sr_UNet.vq_block.task_lr = tf.constant(1.0)
+            for vq_name in self.sr_UNet.vq_blocks.keys():
+                self.sr_UNet.vq_blocks[vq_name].task_lr = tf.constant(1.0)
 
         return {metric.name: metric.result() for metric in self.metrics}
 
