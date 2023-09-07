@@ -29,7 +29,7 @@ class UNet(tf.keras.layers.Layer):
         self,
         initialiser: tf.keras.initializers.Initializer,
         config: dict[str, Any],
-        vq_block: VQBlock | DARTSVQBlock | None = None,
+        vq_blocks: dict[str, VQBlock | DARTSVQBlock | None],
         name: str | None = None,
     ) -> None:
         super().__init__(name=name)
@@ -41,11 +41,6 @@ class UNet(tf.keras.layers.Layer):
         self._config = config
         self._z_upsamp_factor = self._target_dims[0] // self._source_dims[0]
 
-        if config["vq_layers"] is not None:
-            self._vq_layers = config["vq_layers"].keys()
-        else:
-            self._vq_layers = []
-
         self._initialiser = initialiser
         max_num_layers = int(
             np.log2(np.min([self._source_dims[1], self._source_dims[2]])),
@@ -54,7 +49,7 @@ class UNet(tf.keras.layers.Layer):
             config["layers"] <= max_num_layers and config["layers"] >= 0
         ), f"Maximum number of generator layers: {max_num_layers}"
 
-        self.vq_block = vq_block
+        self.vq_blocks = vq_blocks
         self.encoder: list[tf.keras.layers.Layer] = []
         self.decoder: list[tf.keras.layers.Layer] = []
         cache = self.get_encoder()
@@ -170,10 +165,12 @@ class UNet(tf.keras.layers.Layer):
         x, _ = self.bottom_layer(x, training=True)
         skip_layers.reverse()
 
-        if self.vq_block:
-            x = self.vq_block(x)
+        if "bottom" in self.vq_blocks.keys():
+            x = self.vq_blocks["bottom"](x)
 
         for skip, tconv in zip(skip_layers, self.decoder):
+            if tconv.name in self.vq_blocks.keys():
+                skip = self.vq_blocks[tconv.name](skip)
             x = tconv(x, skip, training=True)
 
         x = self.final_layer(x, training=True)
@@ -235,10 +232,12 @@ class MultiscaleUNet(UNet):
         x, _ = self.bottom_layer(x, training=True)
         skip_layers.reverse()
 
-        if self.vq_block:
-            x = self.vq_block(x)
+        if "bottom" in self.vq_blocks.keys():
+            x = self.vq_blocks["bottom"](x)
 
         for skip, tconv in zip(skip_layers, self.decoder):
+            if tconv.name in self.vq_blocks.keys():
+                skip = self.vq_blocks[tconv.name](skip)
             x = tconv(x, skip, training=True)
 
         x = self.upsample_out(x, residual_x)
