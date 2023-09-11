@@ -261,14 +261,17 @@ class Model(tf.keras.Model):
         source: tf.Tensor,
         target: tf.Tensor,
     ) -> tuple[tf.Tensor, ...]:
-        if self._scales[0] == 1:
-            pred = self(source)
+        pred = []
 
-        else:
-            source, target = self._sample_patches(2, 2, source, target)
-            pred = self(source)
+        for i in range(source.shape[0]):
+            if self._scales[0] == 1:
+                pred.append(self(source[i, ...][tf.newaxis, :, :, :, :]))
 
-        return source, target, pred
+            else:
+                source, target = self._sample_patches(2, 2, source, target)
+                pred.append(self(source[i, ...][tf.newaxis, :, :, :, :]))
+
+        return source, target, tf.concat(pred, axis=0)
 
     def reset_train_metrics(self) -> None:
         for metric in self.metrics:
@@ -615,14 +618,17 @@ class JointModel(tf.keras.Model):
         source: tf.Tensor,
         target: tf.Tensor,
     ) -> tuple[tf.Tensor, ...]:
-        if self._scales[0] == 1:
-            pred = self(source)
+        pred = []
 
-        else:
-            source, target = self._sample_patches(2, 2, source, target)
-            pred = self(source)
+        for i in range(source.shape[0]):
+            if self._scales[0] == 1:
+                pred.append(self(source[i, ...][tf.newaxis, :, :, :, :]))
 
-        return source, target, pred
+            else:
+                source, target = self._sample_patches(2, 2, source, target)
+                pred.append(self(source[i, ...][tf.newaxis, :, :, :, :]))
+
+        return source, target, tf.concat(pred, axis=0)
 
     def reset_train_metrics(self) -> None:
         for metric in self.metrics:
