@@ -23,7 +23,7 @@ METRICS = ["L1", "MSE", "pSNR", "SSIM"]
 def load_and_transform(
     lq_id: str,
     paths: dict[str, Path],
-    source_coords: dict[str, list[int, int]],
+    source_coords: dict[str, dict[str, list[int]]],
 ) -> tuple[NDArray[np.float16], NDArray[np.float16]]:
     data_path = paths["data"]
     hq_candidates = [p.stem for p in data_path.glob(f"{lq_id[0:6]}*.npy")]
