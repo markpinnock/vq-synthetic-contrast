@@ -44,6 +44,7 @@ test = [
 train = "vq_sce.cli.training:main"
 predict = "vq_sce.cli.predict:main"
 calc_contrast_metrics = "vq_sce.cli.calc_contrast_metrics:main"
+calc_super_res_metrics = "vq_sce.cli.calc_super_res_metrics:main"
 
 [tool.mypy]
 warn_unused_configs = true
