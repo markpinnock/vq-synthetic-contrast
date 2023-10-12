@@ -74,6 +74,10 @@ def get_bounding_boxes(
         region = fiduciary[11][0:2]
         side = fiduciary[11][-1]
 
+        # Do not use liver ROI
+        if region == "LI":
+            continue
+
         if side == "R":
             fiduciaries[region]["L"][0] = -float(fiduciary[1])
         elif side == "L":
