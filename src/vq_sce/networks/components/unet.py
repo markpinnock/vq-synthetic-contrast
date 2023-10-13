@@ -33,6 +33,10 @@ class UNet(tf.keras.layers.Layer):
         name: str | None = None,
     ) -> None:
         super().__init__(name=name)
+        try:
+            self._residual = config["residual"]
+        except KeyError:
+            self._residual = True
 
         # Check network and image dimensions
         self._source_dims = tuple(config["source_dims"])
@@ -175,7 +179,10 @@ class UNet(tf.keras.layers.Layer):
 
         x = self.final_layer(x, training=True)
 
-        return x + residual_x
+        if self._residual:
+            return x + residual_x
+        else:
+            return x
 
 
 # -------------------------------------------------------------------------
@@ -243,4 +250,7 @@ class MultiscaleUNet(UNet):
         x = self.upsample_out(x, residual_x)
         x = self.final_layer(x, training=True)
 
-        return x + residual_x, None
+        if self._residual:
+            return x + residual_x, None
+        else:
+            return x, None
