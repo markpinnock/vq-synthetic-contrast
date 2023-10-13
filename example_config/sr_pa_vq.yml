@@ -45,6 +45,7 @@ hyperparameters:
             - 32
             - 512
     vq_beta: 0.25
+    residual: true
 augmentation:
     use: true
     flip_prob: 0.5
