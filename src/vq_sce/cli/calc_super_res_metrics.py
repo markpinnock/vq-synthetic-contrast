@@ -112,8 +112,6 @@ def main() -> None:
     paths["data"] /= "HQ"
 
     model_name = paths["predictions"].parent.stem
-    epochs = paths["predictions"].stem.split("-")[1]
-
     metrics: dict[str, list[str | float]] = {
         "id": [],
         "L1": [],
@@ -155,13 +153,13 @@ def main() -> None:
         df = pd.DataFrame(
             index=metrics["id"],
             columns=pd.MultiIndex.from_product(
-                [METRICS + ["focal_L1"], [f"{model_name}-{epochs}"]],
+                [METRICS + ["focal_L1"], [model_name]],
             ),
         )
 
     finally:
         for metric in METRICS:
-            df[(metric, f"{model_name}-{epochs}")] = metrics[metric]
+            df[(metric, model_name)] = metrics[metric]
 
-        df[("focal_L1", f"{model_name}-{epochs}")] = metrics["focal_L1"]
+        df[("focal_L1", model_name)] = metrics["focal_L1"]
         df.to_csv(df_path, index=True)

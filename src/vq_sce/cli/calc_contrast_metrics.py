@@ -213,8 +213,6 @@ def main() -> None:
     paths["bounding_boxes"] = Path(arguments.data) / "BoundingBoxes"
 
     model_name = paths["predictions"].parent.stem
-    epochs = paths["predictions"].stem.split("-")[1]
-
     global_metrics: dict[str, list[str | float]] = {
         "id": [],
         "L1": [],
@@ -289,12 +287,12 @@ def main() -> None:
     except FileNotFoundError:
         df = pd.DataFrame(
             index=global_metrics["id"],
-            columns=pd.MultiIndex.from_product([METRICS, [f"{model_name}-{epochs}"]]),
+            columns=pd.MultiIndex.from_product([METRICS, [model_name]]),
         )
 
     finally:
         for metric in METRICS:
-            df[(metric, f"{model_name}-{epochs}")] = global_metrics[metric]
+            df[(metric, model_name)] = global_metrics[metric]
 
         df.to_csv(df_path, index=True)
 
@@ -308,12 +306,12 @@ def main() -> None:
     except FileNotFoundError:
         df = pd.DataFrame(
             index=intensity_diffs["id"],
-            columns=pd.MultiIndex.from_product([regions, [f"{model_name}-{epochs}"]]),
+            columns=pd.MultiIndex.from_product([regions, [model_name]]),
         )
 
     finally:
         for region in regions:
-            df[(region, f"{model_name}-{epochs}")] = intensity_diffs[region]
+            df[(region, model_name)] = intensity_diffs[region]
 
         df.to_csv(df_path, index=True)
 
@@ -327,10 +325,10 @@ def main() -> None:
     except FileNotFoundError:
         df = pd.DataFrame(
             index=intensities["id"],
-            columns=pd.MultiIndex.from_product([regions, [f"{model_name}-{epochs}"]]),
+            columns=pd.MultiIndex.from_product([regions, [model_name]]),
         )
     finally:
         for region in regions:
-            df[(region, f"{model_name}-{epochs}")] = intensities[region]
+            df[(region, model_name)] = intensities[region]
 
         df.to_csv(df_path, index=True)
