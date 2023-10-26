@@ -46,7 +46,7 @@ class Inference(ABC):
         epoch: int | None = None,
     ):
         self.stage = stage
-        self.save_path = config["paths"]["expt_path"] / f"predictions-{epoch}"
+        self.save_path = config["paths"]["expt_path"] / f"predictions-{stage}"
         self.save_path.mkdir(parents=True, exist_ok=True)
         self.data_path = config["data"]["data_path"]
         self.original_data_path = config["paths"]["original_path"]
