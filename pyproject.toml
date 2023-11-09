@@ -12,6 +12,7 @@ license = {file = "LICENSE"}
 dependencies = [
     "matplotlib>=3.4",
     "pandas>=1.3",
+    "pyradiomics==3.0.1",
     "pyyaml==6.0",
     "scikit-image>=0.18",
     "simpleitk>=2.1",
@@ -45,6 +46,7 @@ train = "vq_sce.cli.training:main"
 predict = "vq_sce.cli.predict:main"
 calc_contrast_metrics = "vq_sce.cli.calc_contrast_metrics:main"
 calc_super_res_metrics = "vq_sce.cli.calc_super_res_metrics:main"
+calc_texture = "vq_sce.cli.calc_texture:main"
 display_contrast_results = "vq_sce.cli.display_contrast_results:main"
 display_super_res_results = "vq_sce.cli.display_super_res_results:main"
 
