@@ -21,16 +21,20 @@ METRICS = ["L1", "MSE", "pSNR", "SSIM"]
 
 
 def load_and_transform(
-    subject_id: str,
+    nce_id: str,
     paths: dict[str, Path],
 ) -> tuple[itk.Image, itk.Image]:
-    ce_candidates = list((paths["contrast"] / subject_id).glob(f"{subject_id}AC*"))
-    assert len(ce_candidates) == 1
-    ce_img = itk.ReadImage(str(ce_candidates[0]))
+    data_path = paths["data"] / nce_id[0:6]
+    ce_candidates = [p.stem for p in data_path.glob(f"{nce_id[0:6]}AC*")]
 
-    pred_candidates = list(paths["predictions"].glob(f"{subject_id}HQ*"))
-    assert len(pred_candidates) == 1
-    pred_img = itk.ReadImage(str(pred_candidates[0]))
+    ce_candidates = sorted(
+        ce_candidates,
+        key=lambda x: abs(int(x[-3:]) - int(nce_id[-3:])),
+    )
+    ce_id = ce_candidates[0]
+
+    ce_img = itk.ReadImage(str(data_path / f"{ce_id}.nrrd"))
+    pred_img = itk.ReadImage(str(paths["predictions"] / f"{nce_id}.nrrd"))
     ce_img = itk.Resample(ce_img, pred_img, defaultPixelValue=HU_DEFAULT)
 
     hu_filter = itk.ClampImageFilter()
@@ -39,16 +43,15 @@ def load_and_transform(
     pred_img = hu_filter.Execute(pred_img)
     ce_img = hu_filter.Execute(ce_img)
 
-    transform_path = paths["transforms"] / subject_id
-    transform_candidates = list(
-        transform_path.glob(
-            f"{ce_candidates[0].stem[-3:]}_to_{pred_candidates[0].stem[-3:]}.h5",
-        ),
-    )
+    transform_path = paths["transforms"] / data_path.stem
 
-    if len(transform_candidates) == 1:
-        transform = itk.ReadTransform(str(transform_candidates[0]))
-        ce_img = itk.Resample(ce_img, transform, defaultPixelValue=HU_DEFAULT)
+    ce_transform_candidates = list(transform_path.glob(f"{ce_id[-3:]}_to_*.h5"))
+    if len(ce_transform_candidates) > 1:
+        raise ValueError(ce_transform_candidates)
+
+    if len(ce_transform_candidates) == 1:
+        ce_transform = itk.ReadTransform(str(ce_transform_candidates[0]))
+        ce_img = itk.Resample(ce_img, ce_transform, defaultPixelValue=HU_DEFAULT)
 
     return ce_img, pred_img
 
@@ -70,6 +73,10 @@ def get_bounding_boxes(
         fiduciary = line.split(",")
         region = fiduciary[11][0:2]
         side = fiduciary[11][-1]
+
+        # Do not use liver ROI
+        if region == "LI":
+            continue
 
         if side == "R":
             fiduciaries[region]["L"][0] = -float(fiduciary[1])
@@ -191,13 +198,6 @@ def calc_intensities(pred_sub_volume: dict[str, NDArray[np.int16]]) -> dict[str,
 # -------------------------------------------------------------------------
 
 
-def calc_glcm(pred_sub_volume: dict[str, NDArray[np.int16]]) -> dict[str, float]:
-    pass
-
-
-# -------------------------------------------------------------------------
-
-
 def main() -> None:
     # Handle arguments
     parser = argparse.ArgumentParser()
@@ -207,20 +207,12 @@ def main() -> None:
     arguments = parser.parse_args()
 
     paths = {}
-    paths["contrast"] = Path(arguments.data) / "Images"
+    paths["data"] = Path(arguments.data) / "Images"
     paths["predictions"] = Path(arguments.path)
     paths["transforms"] = Path(arguments.data) / "Transforms"
     paths["bounding_boxes"] = Path(arguments.data) / "BoundingBoxes"
 
     model_name = paths["predictions"].parent.stem
-    epochs = paths["predictions"].stem.split("-")[1]
-
-    subject_ids = []
-
-    for img in paths["predictions"].glob("*"):
-        if img.stem[0:6] not in subject_ids:
-            subject_ids.append(img.stem[0:6])
-
     global_metrics: dict[str, list[str | float]] = {
         "id": [],
         "L1": [],
@@ -245,23 +237,25 @@ def main() -> None:
     }
     regions = ["RK", "LK", "VC", "AO"]
 
-    for subject_id in subject_ids:
-        with open(paths["bounding_boxes"] / f"{subject_id}.fcsv") as fp:
+    for nce_path in paths["predictions"].glob("*"):
+        nce_id = nce_path.stem
+
+        with open(paths["bounding_boxes"] / f"{nce_id[0:6]}.fcsv") as fp:
             bounding_box = fp.readlines()
 
-        ce_img, pred_img = load_and_transform(subject_id, paths)
+        ce_img, pred_img = load_and_transform(nce_id, paths)
         ce_sub, pred_sub = get_bounding_boxes(ce_img, pred_img, bounding_box)
 
         # Calculate global metrics
         subject_global_metrics = calc_global_metrics(ce_img, pred_img)
-        global_metrics["id"].append(subject_id)
+        global_metrics["id"].append(nce_id)
 
         for metric in METRICS:
             global_metrics[metric].append(subject_global_metrics[metric])
 
         # Calculate bounding box L1
         subject_intensity_diffs = calc_intensity_diffs(ce_sub, pred_sub)
-        intensity_diffs["id"].append(subject_id)
+        intensity_diffs["id"].append(nce_id)
 
         for region in regions:
             try:
@@ -272,7 +266,7 @@ def main() -> None:
 
         # Calculate bounding box intensities
         subject_intensities = calc_intensities(pred_sub)
-        intensities["id"].append(subject_id)
+        intensities["id"].append(nce_id)
 
         for region in regions:
             try:
@@ -290,30 +284,15 @@ def main() -> None:
     try:
         df = pd.read_csv(df_path, index_col=0, header=[0, 1])
 
-        # except FileNotFoundError:
-        #     df = pd.DataFrame(index=metric_dict["id"])
-        #     df[
-        #         f"{config_copy['paths']['expt_path'].stem}_{arguments.epoch}"
-        #     ] = metric_dict[metric]
-        # else:
-        #     new_df = pd.DataFrame(
-        #         metric_dict[metric],
-        #         index=metric_dict["id"],
-        #         columns=[
-        #             f"{config_copy['paths']['expt_path'].stem}_{arguments.epoch}",
-        #         ],
-        #     )
-        #     df = df.join(new_df, how="outer")
-
     except FileNotFoundError:
         df = pd.DataFrame(
             index=global_metrics["id"],
-            columns=pd.MultiIndex.from_product([METRICS, [f"{model_name}-{epochs}"]]),
+            columns=pd.MultiIndex.from_product([METRICS, [model_name]]),
         )
 
     finally:
         for metric in METRICS:
-            df[(metric, f"{model_name}-{epochs}")] = global_metrics[metric]
+            df[(metric, model_name)] = global_metrics[metric]
 
         df.to_csv(df_path, index=True)
 
@@ -327,12 +306,12 @@ def main() -> None:
     except FileNotFoundError:
         df = pd.DataFrame(
             index=intensity_diffs["id"],
-            columns=pd.MultiIndex.from_product([regions, [f"{model_name}-{epochs}"]]),
+            columns=pd.MultiIndex.from_product([regions, [model_name]]),
         )
 
     finally:
         for region in regions:
-            df[(region, f"{model_name}-{epochs}")] = intensity_diffs[region]
+            df[(region, model_name)] = intensity_diffs[region]
 
         df.to_csv(df_path, index=True)
 
@@ -346,10 +325,10 @@ def main() -> None:
     except FileNotFoundError:
         df = pd.DataFrame(
             index=intensities["id"],
-            columns=pd.MultiIndex.from_product([regions, [f"{model_name}-{epochs}"]]),
+            columns=pd.MultiIndex.from_product([regions, [model_name]]),
         )
     finally:
         for region in regions:
-            df[(region, f"{model_name}-{epochs}")] = intensities[region]
+            df[(region, model_name)] = intensities[region]
 
         df.to_csv(df_path, index=True)

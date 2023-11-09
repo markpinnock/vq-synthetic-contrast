@@ -76,11 +76,20 @@ class SaveResults(tf.keras.callbacks.Callback):
             self.results["alpha_task"][epoch + 1] = logs["alpha"]
 
         if "alpha_vq" in self.results.keys():
-            try:
-                alpha_vq = self.model.UNet.vq_block.softmax(self.model.alpha_vq)
-            except AttributeError:
-                alpha_vq = self.model.sr_UNet.vq_block.softmax(self.model.alpha_vq[0])
-            self.results["alpha_vq"][epoch + 1] = alpha_vq.numpy().tolist()[0]
+            self.results["alpha_vq"][epoch + 1] = []
+
+            for alpha_vq in self.model.alpha_vq:
+                try:
+                    alpha_vq_soft = self.model.UNet.vq_blocks["bottom"].softmax(
+                        alpha_vq,
+                    )
+                except AttributeError:
+                    alpha_vq_soft = self.model.sr_UNet.vq_blocks["bottom"].softmax(
+                        alpha_vq,
+                    )
+                self.results["alpha_vq"][epoch + 1].append(
+                    alpha_vq_soft.numpy().tolist()[0],
+                )
 
         if (epoch + 1) % self.save_freq == 0:
             with open(self.log_path / "results.json", "w") as fp:

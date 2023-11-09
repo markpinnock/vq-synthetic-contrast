@@ -39,7 +39,7 @@ def test_unet_output(depth: int, img_dims: list[int]) -> None:
     config["target_dims"] = img_dims[1:-1]
     init = tf.keras.initializers.Zeros()
 
-    model = UNet(init, config)
+    model = UNet(init, config, {})
     img = tf.zeros(img_dims)
     out = model(img)
 
@@ -56,7 +56,7 @@ def test_multiscale_unet() -> None:
     init = tf.keras.initializers.Zeros()
     dims = config["source_dims"]
 
-    model = MultiscaleUNet(init, config)
+    model = MultiscaleUNet(init, config, {})
     img = tf.ones([2] + dims + [1])
     exp_out_dims = [2] + [dims[0], dims[1] * 2, dims[2] * 2] + [1]
     out, _ = model(img)
@@ -91,7 +91,7 @@ def test_asymmetric_unet_output(
     config["target_dims"] = out_dims[1:-1]
     init = tf.keras.initializers.Zeros()
 
-    model = UNet(init, config)
+    model = UNet(init, config, {})
     img = tf.zeros(in_dims)
     out = model(img)
 
