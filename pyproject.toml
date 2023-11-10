@@ -47,6 +47,7 @@ predict = "vq_sce.cli.predict:main"
 calc_contrast_metrics = "vq_sce.cli.calc_contrast_metrics:main"
 calc_super_res_metrics = "vq_sce.cli.calc_super_res_metrics:main"
 calc_texture = "vq_sce.cli.calc_texture:main"
+calc_dice = "vq_sce.cli.calc_dice:main"
 display_contrast_results = "vq_sce.cli.display_contrast_results:main"
 display_super_res_results = "vq_sce.cli.display_super_res_results:main"
 
