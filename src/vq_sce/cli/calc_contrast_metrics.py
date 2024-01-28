@@ -12,7 +12,7 @@ from skimage.metrics import (
     structural_similarity,
 )
 
-from vq_sce import HU_MAX, HU_MIN
+from vq_sce import HU_MAX, HU_MIN, MIN_HQ_DEPTH
 from vq_sce.preproc.preprocess import HU_DEFAULT
 
 METRICS = ["L1", "MSE", "pSNR", "SSIM"]
@@ -119,16 +119,22 @@ def get_bounding_boxes(
 
     for region in ce_sub_volumes.keys():
         roi_bounds = bounds[region]
-        ce_sub_volumes[region] = ce_np[
-            roi_bounds["z"] - 8 : roi_bounds["z"] + 8,
-            roi_bounds["y"],
-            roi_bounds["x"],
-        ]
-        pred_sub_volumes[region] = pred_np[
-            roi_bounds["z"] - 8 : roi_bounds["z"] + 8,
-            roi_bounds["y"],
-            roi_bounds["x"],
-        ]
+
+        if ce_np.shape[0] > MIN_HQ_DEPTH:
+            ce_sub_volumes[region] = ce_np[
+                roi_bounds["z"] - 8 : roi_bounds["z"] + 8,
+                roi_bounds["y"],
+                roi_bounds["x"],
+            ]
+            pred_sub_volumes[region] = pred_np[
+                roi_bounds["z"] - 8 : roi_bounds["z"] + 8,
+                roi_bounds["y"],
+                roi_bounds["x"],
+            ]
+
+        else:
+            ce_sub_volumes[region] = ce_np[:, roi_bounds["y"], roi_bounds["x"]]
+            pred_sub_volumes[region] = pred_np[:, roi_bounds["y"], roi_bounds["x"]]
 
     return ce_sub_volumes, pred_sub_volumes
 
@@ -276,7 +282,7 @@ def main() -> None:
                 intensities[region].append(None)
 
     # Save global metrics
-    csv_name = f"contrast_{arguments.subset}_global"
+    csv_name = f"{paths['predictions'].stem.split('-')[1]}_{arguments.subset}_global"
 
     # Create dataframe if not present
     df_path = paths["predictions"].parents[1] / f"{csv_name}.csv"
@@ -297,7 +303,7 @@ def main() -> None:
         df.to_csv(df_path, index=True)
 
     # Save bounding box L1
-    csv_name = f"contrast_{arguments.subset}_focal_L1"
+    csv_name = f"{paths['predictions'].stem.split('-')[1]}_{arguments.subset}_focal_L1"
     df_path = paths["predictions"].parents[1] / f"{csv_name}.csv"
 
     try:
@@ -316,7 +322,7 @@ def main() -> None:
         df.to_csv(df_path, index=True)
 
     # Save bounding box intensities
-    csv_name = f"contrast_{arguments.subset}_focal_HU"
+    csv_name = f"{paths['predictions'].stem.split('-')[1]}_{arguments.subset}_focal_HU"
     df_path = paths["predictions"].parents[1] / f"{csv_name}.csv"
 
     try:

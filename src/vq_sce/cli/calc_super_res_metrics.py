@@ -141,7 +141,7 @@ def main() -> None:
         )
 
     # Save global metrics
-    csv_name = f"super_res_{arguments.subset}"
+    csv_name = f"{paths['predictions'].stem.split('-')[1]}_{arguments.subset}"
 
     # Create dataframe if not present
     df_path = paths["predictions"].parents[1] / f"{csv_name}.csv"
