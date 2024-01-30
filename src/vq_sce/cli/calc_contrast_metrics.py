@@ -51,7 +51,7 @@ def load_and_transform(
 
     if len(ce_transform_candidates) == 1:
         ce_transform = itk.ReadTransform(str(ce_transform_candidates[0]))
-        ce_img = itk.Resample(ce_img, ce_transform, defaultPixelValue=HU_DEFAULT)
+        ce_img = itk.Resample(ce_img, ce_transform, defaultPixelValue=HU_MIN)
 
     return ce_img, pred_img
 
