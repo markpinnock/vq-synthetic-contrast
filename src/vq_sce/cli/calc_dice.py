@@ -122,6 +122,10 @@ def main() -> None:
 
     for nce_path in paths["predictions"].glob("*"):
         nce_id = nce_path.stem.split("-")[0]
+        if nce_id in ["T107A0LQ067", "T115A0LQ151"]:
+            continue
+
+        print(nce_id)
 
         if task == Task.JOINT:
             in_img, gt_img, pred_img = load_and_transform(nce_id, paths, "AC")
