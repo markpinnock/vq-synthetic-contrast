@@ -50,7 +50,7 @@ def load_and_transform_ce(
 
     if len(nce_transform_candidates) == 1:
         nce_transform = itk.ReadTransform(str(nce_transform_candidates[0]))
-        nce_img = itk.Resample(nce_img, nce_transform, defaultPixelValue=HU_DEFAULT)
+        nce_img = itk.Resample(nce_img, nce_transform, defaultPixelValue=HU_MIN)
 
     ce_transform_candidates = list(transform_path.glob(f"{ce_id[-3:]}_to_*.h5"))
     if len(ce_transform_candidates) > 1:
@@ -58,7 +58,7 @@ def load_and_transform_ce(
 
     if len(ce_transform_candidates) == 1:
         ce_transform = itk.ReadTransform(str(ce_transform_candidates[0]))
-        ce_img = itk.Resample(ce_img, ce_transform, defaultPixelValue=HU_DEFAULT)
+        ce_img = itk.Resample(ce_img, ce_transform, defaultPixelValue=HU_MIN)
 
     return nce_img, ce_img, pred_img
 
@@ -240,9 +240,9 @@ def main() -> None:
         with open(paths["bounding_boxes"] / f"{nce_id[0:6]}.fcsv") as fp:
             bounding_box = fp.readlines()
 
-        if task == Task.CONTRAST:
+        if task != Task.SUPER_RES:
             in_img, gt_img, pred_img = load_and_transform_ce(nce_id, paths)
-        elif task == Task.SUPER_RES:
+        else:
             in_img, gt_img, pred_img = load_and_transform_sr(nce_id, paths, ignore)
 
         if in_img is None:

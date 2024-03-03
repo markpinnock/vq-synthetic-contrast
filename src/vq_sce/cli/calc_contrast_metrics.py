@@ -12,15 +12,16 @@ from skimage.metrics import (
     structural_similarity,
 )
 
-from vq_sce import HU_MAX, HU_MIN
-from vq_sce.preproc.preprocess import HU_DEFAULT
+from vq_sce import HU_MAX, HU_MIN, MIN_HQ_DEPTH
+from vq_sce.networks.model import Task
+from vq_sce.preproc.preprocess import HU_DEFAULT, HU_THRESHOLD
 
 METRICS = ["L1", "MSE", "pSNR", "SSIM"]
 
 # -------------------------------------------------------------------------
 
 
-def load_and_transform(
+def load_and_transform_ce(
     nce_id: str,
     paths: dict[str, Path],
 ) -> tuple[itk.Image, itk.Image]:
@@ -51,7 +52,70 @@ def load_and_transform(
 
     if len(ce_transform_candidates) == 1:
         ce_transform = itk.ReadTransform(str(ce_transform_candidates[0]))
+        ce_img = itk.Resample(ce_img, ce_transform, defaultPixelValue=HU_MIN)
+
+    return ce_img, pred_img
+
+
+# -------------------------------------------------------------------------
+
+
+def trim_lq(source: itk.Image) -> tuple[itk.Image, int, int]:
+    source_slice_means = itk.GetArrayFromImage(source).mean(axis=(1, 2))
+    source_slice_idx = np.argwhere(source_slice_means > HU_THRESHOLD)
+    source_lower = int(source_slice_idx[0])
+    source_upper = int(source_slice_idx[-1]) + 1
+
+    if (source_upper - source_lower) != MIN_HQ_DEPTH:
+        raise ValueError(source_lower, source_upper)
+
+    return source, source_lower, source_upper
+
+
+# -------------------------------------------------------------------------
+
+
+def load_and_transform_jo(
+    lq_id: str,
+    paths: dict[str, Path],
+    # ignore: list[str],
+) -> tuple[NDArray[np.int16], NDArray[np.int16], NDArray[np.int16]]:
+    data_path = paths["data"] / lq_id[0:6]
+    nce_id = [
+        p.stem for p in data_path.glob(f"{lq_id[0:6]}HQ*") if p.stem# not in ignore
+    ][0]
+
+    ce_candidates = [p.stem for p in data_path.glob(f"{nce_id[0:6]}AC*")]
+    ce_candidates = sorted(
+        ce_candidates,
+        key=lambda x: abs(int(x[-3:]) - int(nce_id[-3:])),
+    )
+    ce_id = ce_candidates[0]
+
+    nce_img = itk.ReadImage(str(data_path / f"{nce_id}.nrrd"))
+    ce_img = itk.ReadImage(str(data_path / f"{ce_id}.nrrd"))
+    pred_img = itk.ReadImage(str(paths["predictions"] / f"{lq_id}.nrrd"))
+
+    ce_img = itk.Resample(ce_img, nce_img, defaultPixelValue=HU_DEFAULT)
+    pred_img = itk.Resample(pred_img, nce_img, defaultPixelValue=HU_DEFAULT)
+
+    transform_path = paths["transforms"] / data_path.stem
+    ce_transform_candidates = list(transform_path.glob(f"{ce_id[-3:]}_to_*.h5"))
+    if len(ce_transform_candidates) > 1:
+        raise ValueError(ce_transform_candidates)
+
+    if len(ce_transform_candidates) == 1:
+        ce_transform = itk.ReadTransform(str(ce_transform_candidates[0]))
         ce_img = itk.Resample(ce_img, ce_transform, defaultPixelValue=HU_DEFAULT)
+
+    pred_img, pred_lower, pred_upper = trim_lq(pred_img)
+
+    hu_filter = itk.ClampImageFilter()
+    hu_filter.SetLowerBound(HU_MIN)
+    hu_filter.SetUpperBound(HU_MAX)
+
+    pred_img = hu_filter.Execute(pred_img)[:, :, pred_lower:pred_upper]
+    ce_img = hu_filter.Execute(ce_img)[:, :, pred_lower:pred_upper]
 
     return ce_img, pred_img
 
@@ -119,16 +183,22 @@ def get_bounding_boxes(
 
     for region in ce_sub_volumes.keys():
         roi_bounds = bounds[region]
-        ce_sub_volumes[region] = ce_np[
-            roi_bounds["z"] - 8 : roi_bounds["z"] + 8,
-            roi_bounds["y"],
-            roi_bounds["x"],
-        ]
-        pred_sub_volumes[region] = pred_np[
-            roi_bounds["z"] - 8 : roi_bounds["z"] + 8,
-            roi_bounds["y"],
-            roi_bounds["x"],
-        ]
+
+        if ce_np.shape[0] > MIN_HQ_DEPTH:
+            ce_sub_volumes[region] = ce_np[
+                roi_bounds["z"] - 8 : roi_bounds["z"] + 8,
+                roi_bounds["y"],
+                roi_bounds["x"],
+            ]
+            pred_sub_volumes[region] = pred_np[
+                roi_bounds["z"] - 8 : roi_bounds["z"] + 8,
+                roi_bounds["y"],
+                roi_bounds["x"],
+            ]
+
+        else:
+            ce_sub_volumes[region] = ce_np[:, roi_bounds["y"], roi_bounds["x"]]
+            pred_sub_volumes[region] = pred_np[:, roi_bounds["y"], roi_bounds["x"]]
 
     return ce_sub_volumes, pred_sub_volumes
 
@@ -212,6 +282,7 @@ def main() -> None:
     paths["transforms"] = Path(arguments.data) / "Transforms"
     paths["bounding_boxes"] = Path(arguments.data) / "BoundingBoxes"
 
+    task = paths["predictions"].stem.split("-")[1]
     model_name = paths["predictions"].parent.stem
     global_metrics: dict[str, list[str | float]] = {
         "id": [],
@@ -239,11 +310,16 @@ def main() -> None:
 
     for nce_path in paths["predictions"].glob("*"):
         nce_id = nce_path.stem
+        if nce_id in ["T107A0LQ067", "T115A0LQ151"]:
+            continue
 
         with open(paths["bounding_boxes"] / f"{nce_id[0:6]}.fcsv") as fp:
             bounding_box = fp.readlines()
 
-        ce_img, pred_img = load_and_transform(nce_id, paths)
+        if task == Task.CONTRAST:
+            ce_img, pred_img = load_and_transform_ce(nce_id, paths)
+        else:
+            ce_img, pred_img = load_and_transform_jo(nce_id, paths)
         ce_sub, pred_sub = get_bounding_boxes(ce_img, pred_img, bounding_box)
 
         # Calculate global metrics
@@ -276,7 +352,7 @@ def main() -> None:
                 intensities[region].append(None)
 
     # Save global metrics
-    csv_name = f"contrast_{arguments.subset}_global"
+    csv_name = f"{paths['predictions'].stem.split('-')[1]}_{arguments.subset}_global"
 
     # Create dataframe if not present
     df_path = paths["predictions"].parents[1] / f"{csv_name}.csv"
@@ -297,7 +373,7 @@ def main() -> None:
         df.to_csv(df_path, index=True)
 
     # Save bounding box L1
-    csv_name = f"contrast_{arguments.subset}_focal_L1"
+    csv_name = f"{paths['predictions'].stem.split('-')[1]}_{arguments.subset}_focal_L1"
     df_path = paths["predictions"].parents[1] / f"{csv_name}.csv"
 
     try:
@@ -316,7 +392,7 @@ def main() -> None:
         df.to_csv(df_path, index=True)
 
     # Save bounding box intensities
-    csv_name = f"contrast_{arguments.subset}_focal_HU"
+    csv_name = f"{paths['predictions'].stem.split('-')[1]}_{arguments.subset}_focal_HU"
     df_path = paths["predictions"].parents[1] / f"{csv_name}.csv"
 
     try:
