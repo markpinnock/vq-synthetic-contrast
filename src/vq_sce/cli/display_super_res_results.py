@@ -54,6 +54,16 @@ def load_and_transform(
     lq_img = itk.Resample(lq_img, nce_img, defaultPixelValue=HU_DEFAULT)
     pred_img = itk.Resample(pred_img, nce_img, defaultPixelValue=HU_DEFAULT)
 
+    transform_path = paths["transforms"] / data_path.stem
+    hq_transform_candidates = list(transform_path.glob(f"{hq_id[-3:]}_to_*.h5"))
+    if len(hq_transform_candidates) > 1:
+        raise ValueError(hq_transform_candidates)
+
+    if len(hq_transform_candidates) == 1:
+        hq_transform = itk.ReadTransform(str(hq_transform_candidates[0]))
+        hq_img = itk.Resample(hq_img, hq_transform, defaultPixelValue=HU_DEFAULT)
+        lq_img = itk.Resample(lq_img, hq_transform, defaultPixelValue=HU_DEFAULT)
+
     lq_img, lq_lower, lq_upper = trim_lq(lq_img)
     pred_img, pred_lower, pred_upper = trim_lq(pred_img)
 
@@ -90,6 +100,7 @@ def main() -> None:
 
     paths = {}
     paths["data"] = Path(arguments.data) / "Images"
+    paths["transforms"] = Path(arguments.data) / "Transforms"
     base_results_path = Path(arguments.path)
 
     first_expt_path_candidates = list(

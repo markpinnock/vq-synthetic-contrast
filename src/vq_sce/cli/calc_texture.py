@@ -134,6 +134,59 @@ def load_and_transform_sr(
 # -------------------------------------------------------------------------
 
 
+def load_and_transform_jo(
+    lq_id: str,
+    paths: dict[str, Path],
+    ignore: list[str],
+) -> tuple[NDArray[np.int16], NDArray[np.int16], NDArray[np.int16]]:
+    data_path = paths["data"] / lq_id[0:6]
+    nce_id = [
+        p.stem for p in data_path.glob(f"{lq_id[0:6]}HQ*") if p.stem not in ignore
+    ][0]
+
+    ce_candidates = [p.stem for p in data_path.glob(f"{nce_id[0:6]}AC*")]
+    ce_candidates = sorted(
+        ce_candidates,
+        key=lambda x: abs(int(x[-3:]) - int(nce_id[-3:])),
+    )
+    ce_id = ce_candidates[0]
+
+    nce_img = itk.ReadImage(str(data_path / f"{nce_id}.nrrd"))
+    ce_img = itk.ReadImage(str(data_path / f"{ce_id}.nrrd"))
+    lq_img = itk.ReadImage(str(data_path / f"{lq_id}.nrrd"))
+    pred_img = itk.ReadImage(str(paths["predictions"] / f"{lq_id}.nrrd"))
+
+    ce_img = itk.Resample(ce_img, nce_img, defaultPixelValue=HU_DEFAULT)
+    lq_img = itk.Resample(lq_img, nce_img, defaultPixelValue=HU_DEFAULT)
+    pred_img = itk.Resample(pred_img, nce_img, defaultPixelValue=HU_DEFAULT)
+
+    transform_path = paths["transforms"] / data_path.stem
+    ce_transform_candidates = list(transform_path.glob(f"{ce_id[-3:]}_to_*.h5"))
+    if len(ce_transform_candidates) > 1:
+        raise ValueError(ce_transform_candidates)
+
+    if len(ce_transform_candidates) == 1:
+        ce_transform = itk.ReadTransform(str(ce_transform_candidates[0]))
+        ce_img = itk.Resample(ce_img, ce_transform, defaultPixelValue=HU_DEFAULT)
+        lq_img = itk.Resample(lq_img, ce_transform, defaultPixelValue=HU_DEFAULT)
+
+    lq_img, lq_lower, lq_upper = trim_lq(lq_img)
+    pred_img, pred_lower, pred_upper = trim_lq(pred_img)
+
+    hu_filter = itk.ClampImageFilter()
+    hu_filter.SetLowerBound(HU_MIN)
+    hu_filter.SetUpperBound(HU_MAX)
+
+    lq_img = hu_filter.Execute(lq_img)[:, :, lq_lower:lq_upper]
+    pred_img = hu_filter.Execute(pred_img)[:, :, pred_lower:pred_upper]
+    ce_img = hu_filter.Execute(ce_img)[:, :, pred_lower:pred_upper]
+
+    return lq_img, ce_img, pred_img
+
+
+# -------------------------------------------------------------------------
+
+
 def get_bounding_boxes(
     in_img: itk.Image,
     gt_img: itk.Image,
@@ -213,7 +266,7 @@ def main() -> None:
         Path(__file__).parents[1] / "preproc" / "ignore_bounding_box.json",
     ) as fp:
         ignore += json.load(fp)
-
+    ignore = []
     model_name = paths["predictions"].parent.stem
 
     # Create dataframe if not present
@@ -240,10 +293,12 @@ def main() -> None:
         with open(paths["bounding_boxes"] / f"{nce_id[0:6]}.fcsv") as fp:
             bounding_box = fp.readlines()
 
-        if task != Task.SUPER_RES:
+        if task == Task.CONTRAST:
             in_img, gt_img, pred_img = load_and_transform_ce(nce_id, paths)
-        else:
+        elif task == Task.SUPER_RES:
             in_img, gt_img, pred_img = load_and_transform_sr(nce_id, paths, ignore)
+        else:
+            in_img, gt_img, pred_img = load_and_transform_jo(nce_id, paths, ignore)
 
         if in_img is None:
             continue
@@ -255,7 +310,7 @@ def main() -> None:
             bounding_box,
         )
 
-        extractor = featureextractor.RadiomicsFeatureExtractor()
+        extractor = featureextractor.RadiomicsFeatureExtractor(geometryTolerance=2.0)
         extractor.disableAllFeatures()
         extractor.enableFeatureClassByName("glcm")
 
